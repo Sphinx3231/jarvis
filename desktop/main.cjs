@@ -174,9 +174,9 @@ async function smokeTest() {
         const res = await fetch('/api/status', { headers: { 'x-jarvis-token': token } });
         const body = await res.json();
         const about = await fetch('/api/about', { headers: { 'x-jarvis-token': token } });
-        return { dragon: !!document.querySelector('.dragon'), online: document.body.innerText.includes('Online'), locked: document.body.innerText.includes('Jarvis runs on Roamies'), status: res.status, about: about.status, version: body.status && body.status.version };
+        return { core: !!document.querySelector('.core'), online: document.body.innerText.includes('Online'), locked: document.body.innerText.includes('Jarvis runs on Roamies'), status: res.status, about: about.status, version: body.status && body.status.version };
       })()`);
-      const ok = EXPECT_LOCKED ? result.locked && result.status === 423 && result.about === 200 && !result.dragon : result.dragon && result.online && result.status === 200;
+      const ok = EXPECT_LOCKED ? result.locked && result.status === 423 && result.about === 200 && !result.core : result.core && result.online && result.status === 200;
       if (ok) {
         log('SMOKE TEST PASSED', JSON.stringify(result));
         return true;
