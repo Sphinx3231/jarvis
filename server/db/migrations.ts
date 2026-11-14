@@ -199,4 +199,16 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    sql: `
+      -- Files Jarvis wrote into the Obsidian vault, with the hash of what it wrote, so it can
+      -- tell when the user edited a note (and then never overwrite it).
+      CREATE TABLE obsidian_files (
+        path TEXT PRIMARY KEY,
+        hash TEXT NOT NULL,
+        written_at INTEGER NOT NULL
+      );
+    `,
+  },
 ];

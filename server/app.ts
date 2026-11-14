@@ -13,6 +13,7 @@ import { Planner } from './agents/planner.ts';
 import { McpManager } from './integrations/mcp.ts';
 import { CalendarService, calendarSkills } from './integrations/calendar.ts';
 import { EmailService, emailSkills } from './integrations/email.ts';
+import { ObsidianSync, obsidianSkills } from './integrations/obsidian.ts';
 import { ConversationStore } from './intelligence/conversations.ts';
 import { Jarvis } from './intelligence/jarvis.ts';
 import { LocalModelManager } from './llm/local-embeddings.ts';
@@ -65,6 +66,7 @@ export class JarvisApp {
   readonly mcp: McpManager;
   readonly email: EmailService;
   readonly calendar: CalendarService;
+  readonly obsidian: ObsidianSync;
   readonly scheduler: Scheduler;
   readonly jarvis: Jarvis;
   private running = false;
@@ -168,6 +170,31 @@ export class JarvisApp {
       },
     });
 
+    // Documentation and knowledge mirrored into the user's Obsidian vault.
+    this.obsidian = new ObsidianSync(this);
+    for (const skill of obsidianSkills(this.obsidian)) this.registry.register(skill);
+    this.scheduler.register({
+      name: 'obsidian-sync',
+      title: 'Obsidian sync',
+      description: 'Updates the Jarvis folder in your Obsidian vault: manual, memories, tasks and journal. Never overwrites notes you edited.',
+      intervalMs: () => this.settings.get().integrations.obsidian.intervalMin * 60_000,
+      run: async () => {
+        const problem = this.obsidian.problem();
+        if (problem) return `skipped: ${problem}`;
+        const r = await this.obsidian.sync();
+        if (!r.ok) throw new Error(r.error ?? 'sync failed');
+        return `${r.written} written, ${r.unchanged} unchanged, ${r.removed} removed${r.imported ? `, ${r.imported} edit(s) imported` : ''}${r.keptUserEdits.length ? `, ${r.keptUserEdits.length} of your edits kept` : ''}`;
+      },
+    });
+    // Keep the vault current within seconds of meaningful changes.
+    for (const type of ['memory.changed', 'task.updated', 'settings.changed', 'integrations.changed'] as const) {
+      this.bus.on(type, (e) => {
+        if (!this.running || e.data.obsidian) return;
+        if (type === 'task.updated' && !['completed', 'failed', 'cancelled', 'awaiting_approval', 'deleted'].includes(String(e.data.status))) return;
+        this.obsidian.schedule();
+      });
+    }
+
     this.registry.onChange(() => this.bus.emit('integrations.changed', {}));
     this.bus.on('settings.changed', () => {
       this.ensureWorkspace();
@@ -239,6 +266,7 @@ export class JarvisApp {
     }
     this.running = false;
     this.scheduler.stop();
+    this.obsidian.cancelScheduled();
     await this.engine.stop();
     this.mcp.stopAll();
     this.activity.log('info', 'system', 'Jarvis stopped');
@@ -299,6 +327,7 @@ export class JarvisApp {
     }
     if (this.email.lastCheck && !this.email.lastCheck.ok && !this.email.missing()) out.push({ id: 'email', level: 'error', text: `Email is not working: ${this.email.lastCheck.detail}`, page: 'integrations' });
     if (this.calendar.lastCheck && !this.calendar.lastCheck.ok && !this.calendar.readMissing()) out.push({ id: 'calendar', level: 'error', text: `Calendar is not working: ${this.calendar.lastCheck.detail}`, page: 'integrations' });
+    if (this.obsidian.lastReport && !this.obsidian.lastReport.ok && !this.obsidian.problem()) out.push({ id: 'obsidian', level: 'error', text: `Obsidian sync failed: ${this.obsidian.lastReport.error}`, page: 'integrations' });
     for (const s of this.mcp.status()) {
       if (s.state === 'error') out.push({ id: `mcp-${s.id}`, level: 'error', text: `MCP server "${s.name}" is not connected: ${s.error ?? 'error'}`, page: 'integrations' });
     }

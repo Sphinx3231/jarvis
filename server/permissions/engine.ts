@@ -29,6 +29,8 @@ export const SCOPES: ScopeDefinition[] = [
   { id: 'email.send', label: 'Send email', description: 'Send messages from your account.', external: true, defaultPolicy: 'ask', allowPermitted: false },
   { id: 'calendar.read', label: 'Read calendar', description: 'List events from your calendars and subscribed feeds.', external: true, defaultPolicy: 'ask', allowPermitted: true },
   { id: 'calendar.write', label: 'Add calendar events', description: 'Create events in your CalDAV calendar.', external: true, defaultPolicy: 'ask', allowPermitted: true },
+  { id: 'obsidian.read', label: 'Read Obsidian notes', description: 'Search and read notes in your Obsidian vault.', external: true, defaultPolicy: 'ask', allowPermitted: true },
+  { id: 'obsidian.write', label: 'Write Obsidian notes', description: 'Create notes in the Jarvis folder of your vault when you ask (automatic documentation sync is controlled on the Integrations page).', external: true, defaultPolicy: 'ask', allowPermitted: true },
   { id: 'shell.exec', label: 'Run shell commands', description: 'Execute commands on this computer (inside the workspace folder).', external: true, defaultPolicy: 'ask', allowPermitted: false },
 ];
 

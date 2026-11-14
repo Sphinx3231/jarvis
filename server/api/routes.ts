@@ -1,4 +1,5 @@
 import { accessSync, constants, existsSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 import { z } from 'zod';
 import type { JarvisApp } from '../app.ts';
 import { AGENTS } from '../agents/agents.ts';
@@ -195,6 +196,13 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
       web: { policy: app.permissions.policyFor('network.read'), allowPrivateNetwork: s.integrations.web.allowPrivateNetwork },
       shell: { enabled: s.integrations.shell.enabled, policy: app.permissions.policyFor('shell.exec') },
       email: { ...s.integrations.email, passwordSet: app.secrets.has(EMAIL_SECRET), missing: app.email.missing(), lastCheck: app.email.lastCheck },
+      obsidian: {
+        ...s.integrations.obsidian,
+        problem: app.obsidian.problem(),
+        looksLikeVault: app.obsidian.looksLikeVault(),
+        lastReport: app.obsidian.lastReport,
+        trackedNotes: Number(app.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM obsidian_files')?.n ?? 0),
+      },
       calendar: {
         caldav: { ...s.integrations.calendar.caldav, passwordSet: app.secrets.has(CALDAV_SECRET), missing: app.calendar.caldavMissing() },
         feeds: s.integrations.calendar.feeds,
@@ -254,6 +262,33 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
     return { ok: true };
   });
   router.post('/api/integrations/email/test', async () => app.email.test());
+  router.put('/api/integrations/obsidian', ({ body }) => {
+    const b = parse(
+      z.object({
+        enabled: z.boolean().optional(),
+        vaultPath: z.string().max(1000).optional(),
+        folder: z.string().max(60).optional(),
+        include: z.object({ manual: z.boolean(), memories: z.boolean(), tasks: z.boolean(), journal: z.boolean(), conversations: z.boolean() }).partial().optional(),
+        intervalMin: z.number().int().min(1).max(1440).optional(),
+      }),
+      body,
+    );
+    const next = { ...app.settings.get().integrations.obsidian, ...b, include: { ...app.settings.get().integrations.obsidian.include, ...b.include } };
+    if (b.vaultPath !== undefined) next.vaultPath = b.vaultPath.trim();
+    if (next.enabled) {
+      if (!next.vaultPath || !isAbsolute(next.vaultPath)) throw new UserError('Enter the full path of your Obsidian vault folder');
+      if (!existsSync(next.vaultPath)) throw new UserError(`Folder not found: ${next.vaultPath}`);
+    }
+    app.settings.update({ integrations: { obsidian: next } });
+    app.activity.log('info', 'obsidian', next.enabled ? `Obsidian sync on → ${next.vaultPath}/${next.folder}` : 'Obsidian sync turned off');
+    if (next.enabled) app.obsidian.schedule(200);
+    return { ok: true };
+  });
+  router.post('/api/integrations/obsidian/sync', async () => {
+    const problem = app.obsidian.problem();
+    if (problem) throw new UserError(problem);
+    return app.obsidian.sync();
+  });
   router.put('/api/integrations/calendar/caldav', ({ body }) => {
     const b = parse(
       z.object({
@@ -333,7 +368,7 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
   router.patch('/api/settings', ({ body }) => {
     const patch = (body ?? {}) as { permissions?: { policies?: Record<string, unknown> }; integrations?: { mcpServers?: unknown } };
     if (patch.permissions?.policies) app.permissions.validatePolicyPatch(patch.permissions.policies);
-    if (patch.integrations && ['mcpServers', 'email', 'calendar'].some((k) => k in (patch.integrations as object))) throw new UserError('Manage accounts and servers on the Integrations page');
+    if (patch.integrations && ['mcpServers', 'email', 'calendar', 'obsidian'].some((k) => k in (patch.integrations as object))) throw new UserError('Manage accounts and servers on the Integrations page');
     const settings = app.settings.update(patch);
     app.activity.log('info', 'settings', 'Settings updated');
     return { settings };

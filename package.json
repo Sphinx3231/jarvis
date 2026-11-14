@@ -72,7 +72,9 @@
       "!**/*.md",
       "!node_modules/onnxruntime-web/dist/**",
       "node_modules/onnxruntime-web/dist/ort.node.min.{js,mjs}",
-      "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.{mjs,wasm}"
+      "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.{mjs,wasm}",
+      "docs/*.md",
+      "README.md"
     ],
     "mac": {
       "category": "public.app-category.productivity",

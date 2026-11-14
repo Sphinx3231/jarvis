@@ -119,6 +119,20 @@ export const SettingsSchema = z.object({
       imap: MailServerSchema,
       smtp: MailServerSchema,
     }),
+    obsidian: z.object({
+      enabled: z.boolean(),
+      vaultPath: z.string().max(1000),
+      /** A single folder name inside the vault; Jarvis never writes outside it. */
+      folder: z.string().regex(/^[^/\\:*?"<>|.][^/\\:*?"<>|]{0,59}$/, 'Use a plain folder name'),
+      include: z.object({
+        manual: z.boolean(),
+        memories: z.boolean(),
+        tasks: z.boolean(),
+        journal: z.boolean(),
+        conversations: z.boolean(),
+      }),
+      intervalMin: z.number().int().min(1).max(1440),
+    }),
     calendar: z.object({
       caldav: z.object({
         enabled: z.boolean(),
@@ -191,6 +205,13 @@ export const DEFAULT_SETTINGS: Settings = {
       username: '',
       imap: { host: '', port: 993, security: 'tls' },
       smtp: { host: '', port: 465, security: 'tls' },
+    },
+    obsidian: {
+      enabled: false,
+      vaultPath: '',
+      folder: 'Jarvis',
+      include: { manual: true, memories: true, tasks: true, journal: true, conversations: false },
+      intervalMin: 15,
     },
     calendar: {
       caldav: { enabled: false, serverUrl: '', username: '' },

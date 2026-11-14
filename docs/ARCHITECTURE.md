@@ -98,6 +98,12 @@ Agent roles add a second boundary: the *jarvis* role in chat may only use inline
 
 Known limits: browser speech recognition in Chromium may send audio to the browser vendor's service (choose the transcription service in Settings → Voice to control where audio goes). Outlook.com/Microsoft 365 mail needs OAuth, which is not implemented. Desktop builds are unsigned.
 
+## Obsidian documentation sync
+
+`integrations/obsidian.ts` mirrors Jarvis into `<vault>/<folder>/` (default `Jarvis/`): `Jarvis.md` (live status and index), `Manual/` (one note per skill generated from the registry, agents, permissions and grants, integrations, background jobs, and `docs/*.md` + README), `Memory/<kind>/` (one note per memory with `jarvis_id`, `verified`, `confidence`, sources in frontmatter), `Tasks/` (steps as a checklist, result, history, plus a task log), `Journal/<date>.md` (last 30 days of activity) and optionally `Conversations/`.
+
+It runs within ~5 s of meaningful changes (memories, finished tasks, settings, integrations) and on the `obsidian-sync` schedule. The `obsidian_files` table stores the hash of every file Jarvis wrote: a file whose hash no longer matches was edited by the user and is never overwritten or deleted; for memory notes, the edited text, `verified` and `kind` are imported back as a correction. Writes are atomic (temp file + rename) and confined to the folder (real paths checked). Secrets and feed URLs are never written. Skills: `obsidian.search`/`obsidian.read` (whole vault, ask first) and `obsidian.write_note` (new notes under `Jarvis/Notes/`, never overwrites).
+
 ## Desktop app
 
 `desktop/main.cjs` (Electron) forks the compiled service (`dist-server/`, built with `tsc -p tsconfig.build.json`) using Electron's embedded Node.js and shows the UI in a sandboxed window. Microphone and notification permissions are granted only to the Jarvis origin; other links open in the default browser. Closing the window hides it to the tray; quitting asks the service over IPC to stop safely. `JARVIS_SMOKE_TEST=1` launches, checks the UI and API, and exits — used by `.github/workflows/desktop.yml` on Windows, macOS and Linux.

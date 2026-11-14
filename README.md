@@ -54,6 +54,7 @@ Jarvis works without a model for direct commands (“remember that …”, “re
 - **Semantic memory** — built in and on by default: a 23 MB model downloaded once runs on your computer, so Jarvis finds memories by meaning without sending them anywhere.
 - **Voice** — browser speech recognition where available; otherwise (desktop app, Firefox) Jarvis records and transcribes through OpenAI or a local Whisper server (Settings → Voice).
 - **MCP servers** — add tools from the Model Context Protocol ecosystem; the official filesystem server is one click away.
+- **Obsidian** — point Jarvis at your vault (Integrations → Obsidian) and it keeps a `Jarvis/` folder up to date automatically: a live manual (every skill, agent, permission, integration and background job, plus these docs), one note per memory, every task with its steps and results, and a daily journal — all linked with `[[wikilinks]]`, tags and frontmatter. Notes you edit are never overwritten, and edits to memory notes flow back into Jarvis as corrections. Jarvis can also write new notes and search your vault when you ask (with your permission).
 
 Keys are encrypted on disk and never sent to the browser. Providers are tried in order (primary, then fallbacks).
 

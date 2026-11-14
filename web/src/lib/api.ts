@@ -290,6 +290,17 @@ export interface Integrations {
     missing: string | null;
     lastCheck: { ok: boolean; detail: string; at: number } | null;
   };
+  obsidian: {
+    enabled: boolean;
+    vaultPath: string;
+    folder: string;
+    include: { manual: boolean; memories: boolean; tasks: boolean; journal: boolean; conversations: boolean };
+    intervalMin: number;
+    problem: string | null;
+    looksLikeVault: boolean;
+    trackedNotes: number;
+    lastReport: { at: number; ok: boolean; written: number; unchanged: number; removed: number; keptUserEdits: string[]; imported: number; error: string | null; durationMs: number } | null;
+  };
   calendar: {
     caldav: { enabled: boolean; serverUrl: string; username: string; passwordSet: boolean; missing: string | null };
     feeds: Array<{ id: string; name: string }>;

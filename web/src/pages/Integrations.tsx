@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Bell, CalendarDays, Database, Folder, Globe, KeyRound, Mail, Mic, Plug, Plus, RefreshCw, Server, Sparkles, Terminal, Trash2, X } from 'lucide-react';
+import { Bell, BookOpen, CalendarDays, Database, Folder, Globe, KeyRound, Mail, Mic, Plug, Plus, RefreshCw, Server, Sparkles, Terminal, Trash2, X } from 'lucide-react';
 import { Badge, Button, Card, ErrorNote, Field, Loading, PageHeader, PolicyBadge, Toggle } from '../components/ui';
 import { api, type Integrations, type MailServer, type McpStatus, type ProviderStatus, type Settings } from '../lib/api';
 import { timeAgo } from '../lib/format';
@@ -557,6 +557,101 @@ function CalendarCard({ data }: { data: Integrations['calendar'] }) {
   );
 }
 
+const OBSIDIAN_PARTS: Array<{ key: keyof Integrations['obsidian']['include']; label: string; hint: string }> = [
+  { key: 'manual', label: 'Manual', hint: 'Skills, agents, permissions, integrations, background jobs and the architecture docs' },
+  { key: 'memories', label: 'Memories', hint: 'One note per memory; edit a note to correct it' },
+  { key: 'tasks', label: 'Tasks', hint: 'Each task with its steps, results and history, plus a task log' },
+  { key: 'journal', label: 'Daily journal', hint: 'What Jarvis did each day (last 30 days)' },
+  { key: 'conversations', label: 'Conversations', hint: 'Full chat transcripts (off by default for privacy)' },
+];
+
+function ObsidianCard({ data }: { data: Integrations['obsidian'] }) {
+  const act = useAction();
+  const [path, setPath] = useState(data.vaultPath);
+  const [folder, setFolder] = useState(data.folder);
+  const [syncing, setSyncing] = useState(false);
+  const save = (patch: Record<string, unknown>, msg = 'Saved') => act(() => api.put('/api/integrations/obsidian', patch), msg);
+  const r = data.lastReport;
+  const status = !data.enabled ? (
+    <Badge>Off</Badge>
+  ) : data.problem ? (
+    <Badge tone="warning">Needs setup</Badge>
+  ) : r && !r.ok ? (
+    <Badge tone="danger">Sync failed</Badge>
+  ) : r ? (
+    <Badge tone="success">In sync</Badge>
+  ) : (
+    <Badge tone="info">Waiting for first sync</Badge>
+  );
+  return (
+    <Card title="Obsidian" icon={<BookOpen size={18} />} action={status}>
+      <p className="muted small">
+        Jarvis keeps its documentation and knowledge in your vault automatically — a live manual, memories, tasks and a daily journal, as linked Markdown notes. It only writes inside its own folder, never overwrites a note you edited, and imports your edits to memory notes back into Jarvis.
+      </p>
+      <Field label="Vault folder" hint="The full path of your vault (in Obsidian: vault switcher → “Reveal vault in system explorer”).">
+        <div className="inline">
+          <input className="mono" value={path} onChange={(e) => setPath(e.target.value)} placeholder="/Users/you/Documents/My Vault" aria-label="Vault folder" />
+          {path !== data.vaultPath && (
+            <Button size="sm" variant="primary" onClick={() => save({ vaultPath: path })}>
+              Save
+            </Button>
+          )}
+        </div>
+      </Field>
+      <Field label="Jarvis folder inside the vault">
+        <div className="inline">
+          <input value={folder} onChange={(e) => setFolder(e.target.value)} aria-label="Jarvis folder" className="num-wide" />
+          {folder !== data.folder && (
+            <Button size="sm" variant="primary" onClick={() => save({ folder: folder.trim() })}>
+              Save
+            </Button>
+          )}
+        </div>
+      </Field>
+      <Field label="Sync automatically" hint={`Within seconds of changes, and every ${data.intervalMin} minutes.`}>
+        <Toggle checked={data.enabled} onChange={(v) => save({ enabled: v, vaultPath: path }, v ? 'Obsidian sync on' : 'Obsidian sync off')} ariaLabel="Sync to Obsidian" />
+      </Field>
+      <Field label="Include">
+        <div className="checks">
+          {OBSIDIAN_PARTS.map((p) => (
+            <label key={p.key} className="check" title={p.hint}>
+              <input type="checkbox" checked={data.include[p.key]} onChange={(e) => save({ include: { [p.key]: e.target.checked } })} />
+              {p.label}
+            </label>
+          ))}
+        </div>
+      </Field>
+      {data.enabled && data.problem && <div className="note note--warning">{data.problem}</div>}
+      {data.enabled && !data.problem && !data.looksLikeVault && <div className="note note--warning">This folder has no .obsidian settings folder — check it is the vault itself, not a folder inside it.</div>}
+      <div className="integration__row">
+        <span className="small muted">
+          {r
+            ? r.ok
+              ? `Last sync ${timeAgo(r.at)}: ${r.written} written, ${r.unchanged} unchanged, ${r.removed} removed${r.imported ? `, ${r.imported} of your edits imported` : ''} · ${data.trackedNotes} notes`
+              : `Last sync ${timeAgo(r.at)} failed: ${r.error}`
+            : 'Not synced yet.'}
+        </span>
+        <span className="spacer" />
+        <Button size="sm" icon={<RefreshCw size={14} />} busy={syncing} disabled={!data.enabled || Boolean(data.problem)} onClick={async () => (setSyncing(true), await act(() => api.post('/api/integrations/obsidian/sync'), 'Vault updated'), setSyncing(false))}>
+          Sync now
+        </Button>
+      </div>
+      {r && r.keptUserEdits.length > 0 && (
+        <details className="small">
+          <summary>{r.keptUserEdits.length} note(s) you edited were left as you wrote them</summary>
+          <ul className="tool-list">
+            {r.keptUserEdits.map((p) => (
+              <li key={p}>
+                <code>{data.folder}/{p}</code>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </Card>
+  );
+}
+
 function BrowserCapabilities({ transcription }: { transcription: Integrations['transcription'] }) {
   const [perm, setPerm] = useState(() => ('Notification' in window ? Notification.permission : 'unsupported'));
   return (
@@ -633,6 +728,8 @@ export function IntegrationsPage() {
           ))}
         </ul>
       </Card>
+
+      <ObsidianCard key={`${data.obsidian.vaultPath}-${data.obsidian.folder}`} data={data.obsidian} />
 
       <div className="grid-2">
         <EmailCard key={`${data.email.address}-${data.email.imap.host}`} data={data.email} />
