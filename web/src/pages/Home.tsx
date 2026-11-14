@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowRight, Brain, CircleCheck, Clock, Cpu, ListChecks, MessageSquarePlus, Mic, SendHorizontal, Sparkles, Square, TriangleAlert, Volume2, Wrench, Zap } from 'lucide-react';
 import { ApprovalsCard } from '../components/Approvals';
-import { Dragon, DRAGON_LABEL } from '../components/Dragon';
+import { Core, CORE_LABEL } from '../components/Core';
 import { Card, Progress } from '../components/ui';
-import { api, type ActivityEntry, type ChatMessage, type ChatResult, type DragonState, type StatusResponse, type Task } from '../lib/api';
+import { api, type ActivityEntry, type ChatMessage, type ChatResult, type CoreState, type StatusResponse, type Task } from '../lib/api';
 import { bytes, clock, timeAgo, uptime } from '../lib/format';
 import { useLive, useResource } from '../lib/live';
 import { navigate } from '../lib/router';
@@ -26,7 +26,7 @@ const writeConv = (id: string | null) => {
   }
 };
 
-function useDragonState(): DragonState {
+function useCoreState(): CoreState {
   const { state } = useLive();
   const voice = useVoice();
   if (voice.listening) return 'listening';
@@ -287,7 +287,7 @@ function ActivityCard() {
 export function HomePage({ status }: { status: StatusResponse | null }) {
   const { state, settings } = useLive();
   const voice = useVoice();
-  const dragonState = useDragonState();
+  const coreState = useCoreState();
   const [conversationId, setConversationId] = useState<string | null>(readConv);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -343,21 +343,21 @@ export function HomePage({ status }: { status: StatusResponse | null }) {
 
   const hasConversation = messages.length > 0;
   const name = settings?.assistant.userName;
-  const statusLine = dragonState === 'listening' ? voice.interim || 'Listening…' : dragonState === 'speaking' ? 'Speaking…' : state.detail;
+  const statusLine = coreState === 'listening' ? voice.interim || 'Listening…' : coreState === 'speaking' ? 'Speaking…' : state.detail;
 
   return (
     <div className="home">
       <div className={`home__main ${hasConversation ? 'has-conversation' : ''}`}>
         <div className="hero">
-          <Dragon state={dragonState} size={hasConversation ? 92 : 248} reduceMotion={settings?.appearance.reduceMotion} />
+          <Core state={coreState} size={hasConversation ? 92 : 248} reduceMotion={settings?.appearance.reduceMotion} />
           <div className="hero__text">
             <h1 className="hero__title">
               Hello{name ? `, ${name}` : ''}. I’m <span className="accent">Jarvis.</span>
             </h1>
             {!hasConversation && <p className="hero__sub">How can I help you today?</p>}
-            <div className={`state-pill state-pill--${dragonState}`}>
+            <div className={`state-pill state-pill--${coreState}`}>
               <span className="state-pill__dot" />
-              {DRAGON_LABEL[dragonState]}
+              {CORE_LABEL[coreState]}
               <span className="state-pill__detail">· {statusLine}</span>
               {voice.wakeActive && (
                 <span className="state-pill__detail" title="Wake word is on: say “Jarvis, …”">

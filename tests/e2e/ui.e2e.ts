@@ -52,13 +52,22 @@ try {
   await page.getByRole('button', { name: 'Check again' }).click();
   await page.getByText('Online').waitFor();
   step('Check again finds Roamies and opens Jarvis without a restart');
-  await page.locator('.dragon').waitFor();
-  // Services have only just started after unlocking: wait for the dragon to settle.
-  await page.locator('.dragon--idle').waitFor({ timeout: 10_000 });
-  assert.equal(await page.locator('.dragon--idle').count(), 1);
+  await page.locator('.core').waitFor();
+  // Services have only just started after unlocking: wait for the core to settle.
+  await page.locator('.core--idle').waitFor({ timeout: 10_000 });
+  assert.equal(await page.locator('.core--idle').count(), 1);
   assert.match(await page.locator('.hero__title').innerText(), /I’m Jarvis\./);
+  // The core is a live inline-SVG vector rig — prove it is actually animating (rotating/pulsing),
+  // not a static image: its outer ring transform must change between frames.
+  const coreXform = () => page.locator('#c-ringOuter').getAttribute('transform');
+  assert.ok(await page.locator('.core__svg #c-core').count(), 'core is inline SVG vector, not an <img>');
+  assert.equal(await page.locator('.core img').count(), 0, 'no raster image stands in for the core');
+  const a1 = await coreXform();
+  await page.waitForTimeout(450);
+  const a2 = await coreXform();
+  assert.notEqual(a1, a2, 'the idle core animates frame to frame');
   await shot('01-home-idle');
-  step('home renders with the dragon idle and the service online');
+  step('home renders with the core as a live animating vector, service online');
 
   const input = page.getByLabel('Message Jarvis');
   await input.fill('remember that I prefer dark roast coffee');
@@ -70,7 +79,7 @@ try {
   await input.fill('run `echo hello-from-the-ui`');
   await input.press('Enter');
   await page.getByText(/You asked for it, so it runs without another approval/).first().waitFor();
-  await page.locator('.dragon--success').waitFor({ timeout: 10_000 });
+  await page.locator('.core--success').waitFor({ timeout: 10_000 });
   await shot('02-home-requested');
   step('a command you asked for runs straight away (your request is the approval)');
 
@@ -82,9 +91,9 @@ try {
   step('an action nobody asked for waits for approval with the reason');
 
   await page.locator('.approval').getByRole('button', { name: 'Approve' }).click();
-  await page.locator('.dragon--success').waitFor({ timeout: 10_000 });
+  await page.locator('.core--success').waitFor({ timeout: 10_000 });
   await page.locator('.approval').waitFor({ state: 'detached' });
-  step('approving runs it; dragon shows success from the real completion event');
+  step('approving runs it; core shows success from the real completion event');
 
   await page.getByRole('button', { name: /Task queued: Run: echo hello-from-the-ui/ }).click();
   await page.locator('.task-detail').waitFor();
@@ -186,6 +195,14 @@ try {
   assert.equal(overflow, false, 'no horizontal overflow at narrow width');
   await shot('11-home-narrow');
   step('responsive layout at narrow width');
+
+  // Reduced motion was turned on above: the core rig must now hold a static pose.
+  await page.locator('.core__svg').waitFor();
+  const r1 = await page.locator('#c-ringOuter').getAttribute('transform');
+  await page.waitForTimeout(450);
+  const r2 = await page.locator('#c-ringOuter').getAttribute('transform');
+  assert.equal(r1, r2, 'with reduced motion on, the core holds still');
+  step('reduced motion freezes the core into a static pose');
 
   assert.deepEqual(errors, [], `browser errors: ${errors.join(' | ')}`);
   console.log(`\nE2E passed. Screenshots in ${outDir}`);

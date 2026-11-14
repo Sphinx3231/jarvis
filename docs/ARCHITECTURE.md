@@ -5,7 +5,7 @@ Jarvis is one local Node.js process (the **service**) plus a React UI it serves.
 ```
                 ┌──────────────────────────── UI (React, web/) ─────────────────────────────┐
                 │ Home · Tasks · Memory · Skills · Integrations · Activity · Settings       │
-                │ Dragon (state-driven CSS) · Voice (Web Speech API) · live updates (SSE)   │
+                │ Core (animated 2D vector SVG rig) · Voice (Web Speech API) · live via SSE   │
                 └───────────────▲──────────────────────────────┬─────────────────────────────┘
                      events     │ /api/events                   │ /api/*  (token + Host/Origin checks)
 ┌───────────────────────────────┴───────────────────────────────▼────────────────────────────┐

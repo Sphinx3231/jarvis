@@ -1,7 +1,7 @@
 <p align="center"><img src="web/public/icon-192.png" width="120" alt="Jarvis — purple dragon"></p>
 
 <h1 align="center">Jarvis</h1>
-<p align="center">A persistent AI personal operating system, represented by a purple dragon.<br>It remembers context, organises and runs tasks in the background, coordinates skills and agents, and never acts beyond what you authorise.</p>
+<p align="center">A persistent AI personal operating system, represented by a living purple energy core.<br>It remembers context, organises and runs tasks in the background, coordinates skills and agents, and never acts beyond what you authorise.</p>
 
 <p align="center"><strong>Built on <a href="https://github.com/KenKaiii/Roamies">Roamies</a></strong> — Jarvis thinks with the Roamies engine and needs Roamies installed.</p>
 
@@ -109,7 +109,7 @@ Everything else is in **Settings** inside the app.
 - **Remembers.** Long-term memory (preferences, projects, decisions, procedures, facts, task history, tool docs) with sources, confidence, verified/unverified status, deduplication, full-text search and optional semantic embeddings. You can search, confirm, correct and delete everything.
 - **Keeps watch.** Background jobs monitor tasks, recover stalled work, remind you about pending approvals, organise memory and check integrations — without unnecessary model calls.
 - **Extends.** Skills are modular; MCP servers add tools (calendar, email, notes, dev tools…) as permission-gated skills.
-- **Shows its state honestly.** The dragon animates only for real states: idle, thinking, listening, speaking, working, success, error.
+- **Shows its state honestly.** Jarvis's identity is a live energy core (an inline-SVG vector rig: concentric rings, a sweeping activity arc, radial filaments and a pulsing centre, in the purple theme) that pulses continuously and animates only for real states — idle, thinking, listening, speaking, working, success, error — easing smoothly between them and holding still when you prefer reduced motion.
 
 ## Development
 
@@ -131,4 +131,4 @@ Jarvis is free software under the [GNU Affero General Public License v3.0](LICEN
 
 ## Brand assets
 
-`assets/brand/jarvis-dragon-original.webp` is the official dragon icon. App icons in `web/public/` are generated from it with `python3 scripts/make-icons.py assets/brand/jarvis-dragon-original.webp web/public`.
+`assets/brand/jarvis-dragon-original.webp` is the official app icon. App icons in `web/public/` are generated from it with `python3 scripts/make-icons.py assets/brand/jarvis-dragon-original.webp web/public`.

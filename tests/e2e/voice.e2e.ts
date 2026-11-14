@@ -73,8 +73,8 @@ try {
   await page.getByText('Online').waitFor();
   const mic = page.getByRole('button', { name: 'Speak to Jarvis' });
   await mic.click();
-  await page.locator('.dragon--listening').waitFor({ timeout: 5000 });
-  console.log('  ✓ microphone recording; dragon is listening');
+  await page.locator('.core--listening').waitFor({ timeout: 5000 });
+  console.log('  ✓ microphone recording; core is listening');
   await page.getByText(/I'll remember that/).waitFor({ timeout: 20_000 });
   console.log('  ✓ recording stopped on the pause, was transcribed, and Jarvis acted on it');
   assert.equal(uploads.length, 1);

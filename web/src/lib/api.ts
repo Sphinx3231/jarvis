@@ -43,7 +43,7 @@ export const api = {
 // ---------------------------------------------------------------- shared types (mirror the server)
 
 export type AssistantState = 'idle' | 'thinking' | 'working' | 'success' | 'error';
-export type DragonState = AssistantState | 'listening' | 'speaking';
+export type CoreState = AssistantState | 'listening' | 'speaking';
 
 export interface StateSnapshot {
   state: AssistantState;

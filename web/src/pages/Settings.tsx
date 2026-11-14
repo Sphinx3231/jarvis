@@ -302,7 +302,7 @@ export function SettingsPage() {
             ))}
           </div>
         </Field>
-        <Field label="Reduce motion" hint="Keeps the dragon still; state is shown by colour only.">
+        <Field label="Reduce motion" hint="Holds the core still; state is shown by colour only.">
           <Toggle checked={s.appearance.reduceMotion} onChange={(v) => save({ appearance: { reduceMotion: v } })} />
         </Field>
       </Card>
