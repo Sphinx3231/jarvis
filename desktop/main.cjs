@@ -110,13 +110,14 @@ function createWindow() {
   });
   // Links to other sites open in the normal browser; the app window only ever shows Jarvis.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//.test(url) && !sameOrigin(url)) shell.openExternal(url);
+    // "Open in Obsidian" links hand off to the Obsidian app.
+    if (/^obsidian:\/\//.test(url) || (/^https?:\/\//.test(url) && !sameOrigin(url))) shell.openExternal(url);
     return { action: 'deny' };
   });
   win.webContents.on('will-navigate', (event, url) => {
     if (!sameOrigin(url)) {
       event.preventDefault();
-      if (/^https?:\/\//.test(url)) shell.openExternal(url);
+      if (/^(https?|obsidian):\/\//.test(url)) shell.openExternal(url);
     }
   });
   win.on('close', (event) => {

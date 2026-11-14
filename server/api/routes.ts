@@ -199,9 +199,12 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
       obsidian: {
         ...s.integrations.obsidian,
         problem: app.obsidian.problem(),
-        looksLikeVault: app.obsidian.looksLikeVault(),
+        location: app.obsidian.vaultPath(),
+        isDefaultLocation: !s.integrations.obsidian.vaultPath.trim(),
+        ready: app.obsidian.vaultReady(),
+        openUri: app.obsidian.openUri(),
         lastReport: app.obsidian.lastReport,
-        trackedNotes: Number(app.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM obsidian_files')?.n ?? 0),
+        trackedNotes: app.obsidian.vaultReady() ? Number(app.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM obsidian_files WHERE vault = ?', app.obsidian.vaultRoot())?.n ?? 0) : 0,
       },
       calendar: {
         caldav: { ...s.integrations.calendar.caldav, passwordSet: app.secrets.has(CALDAV_SECRET), missing: app.calendar.caldavMissing() },
@@ -267,7 +270,6 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
       z.object({
         enabled: z.boolean().optional(),
         vaultPath: z.string().max(1000).optional(),
-        folder: z.string().max(60).optional(),
         include: z.object({ manual: z.boolean(), memories: z.boolean(), tasks: z.boolean(), journal: z.boolean(), conversations: z.boolean() }).partial().optional(),
         intervalMin: z.number().int().min(1).max(1440).optional(),
       }),
@@ -275,12 +277,15 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
     );
     const next = { ...app.settings.get().integrations.obsidian, ...b, include: { ...app.settings.get().integrations.obsidian.include, ...b.include } };
     if (b.vaultPath !== undefined) next.vaultPath = b.vaultPath.trim();
-    if (next.enabled) {
-      if (!next.vaultPath || !isAbsolute(next.vaultPath)) throw new UserError('Enter the full path of your Obsidian vault folder');
-      if (!existsSync(next.vaultPath)) throw new UserError(`Folder not found: ${next.vaultPath}`);
-    }
+    if (next.vaultPath && !isAbsolute(next.vaultPath)) throw new UserError('Enter a full folder path for the vault (or leave it empty for the default location)');
+    const previous = app.settings.get().integrations.obsidian;
     app.settings.update({ integrations: { obsidian: next } });
-    app.activity.log('info', 'obsidian', next.enabled ? `Obsidian sync on → ${next.vaultPath}/${next.folder}` : 'Obsidian sync turned off');
+    const problem = app.obsidian.problem();
+    if (next.enabled && problem) {
+      app.settings.update({ integrations: { obsidian: previous } });
+      throw new UserError(problem);
+    }
+    app.activity.log('info', 'obsidian', next.enabled ? `Jarvis vault: ${app.obsidian.vaultPath()}` : 'Jarvis vault updates turned off');
     if (next.enabled) app.obsidian.schedule(200);
     return { ok: true };
   });

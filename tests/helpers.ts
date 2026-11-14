@@ -6,6 +6,8 @@ import { JarvisApp } from '../server/app.ts';
 
 // All test instances share one copy of the built-in embedding model (downloaded at most once).
 process.env.JARVIS_MODEL_DIR ??= join(tmpdir(), 'jarvis-test-model-cache');
+// Never create a real ~/Documents/Jarvis Vault from tests.
+process.env.JARVIS_VAULT_DIR ??= join(mkdtempSync(join(tmpdir(), 'jarvis-test-vaults-')), 'Jarvis Vault');
 
 export function tempDir(prefix = 'jarvis-test-'): string {
   return mkdtempSync(join(tmpdir(), prefix));
@@ -16,7 +18,7 @@ export async function makeApp(opts: { start?: boolean; dataDir?: string } = {}):
   const app = new JarvisApp({ dataDir: dir, quiet: true });
   // Tests drive the background jobs directly.
   // Semantic search model downloads are exercised in their own test.
-  app.settings.update({ background: { enabled: false }, embeddings: { enabled: false } });
+  app.settings.update({ background: { enabled: false }, embeddings: { enabled: false }, integrations: { obsidian: { enabled: false } } });
   if (opts.start !== false) await app.start();
   return {
     app,

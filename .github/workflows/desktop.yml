@@ -40,6 +40,7 @@ jobs:
         env:
           JARVIS_SMOKE_TEST: '1'
           JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-smoke
+          JARVIS_VAULT_DIR: ${{ runner.temp }}/jarvis-smoke-vault
         timeout-minutes: 5
       - name: Smoke test (macOS)
         if: runner.os == 'macOS'
@@ -49,6 +50,7 @@ jobs:
         env:
           JARVIS_SMOKE_TEST: '1'
           JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-smoke
+          JARVIS_VAULT_DIR: ${{ runner.temp }}/jarvis-smoke-vault
         timeout-minutes: 5
       - name: Smoke test (Windows)
         if: runner.os == 'Windows'
@@ -60,6 +62,7 @@ jobs:
         env:
           JARVIS_SMOKE_TEST: '1'
           JARVIS_DATA_DIR: ${{ runner.temp }}\jarvis-smoke
+          JARVIS_VAULT_DIR: ${{ runner.temp }}\jarvis-smoke-vault
         timeout-minutes: 5
 
       - uses: actions/upload-artifact@v4

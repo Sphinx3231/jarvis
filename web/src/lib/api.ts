@@ -293,11 +293,13 @@ export interface Integrations {
   obsidian: {
     enabled: boolean;
     vaultPath: string;
-    folder: string;
     include: { manual: boolean; memories: boolean; tasks: boolean; journal: boolean; conversations: boolean };
     intervalMin: number;
     problem: string | null;
-    looksLikeVault: boolean;
+    location: string;
+    isDefaultLocation: boolean;
+    ready: boolean;
+    openUri: string;
     trackedNotes: number;
     lastReport: { at: number; ok: boolean; written: number; unchanged: number; removed: number; keptUserEdits: string[]; imported: number; error: string | null; durationMs: number } | null;
   };

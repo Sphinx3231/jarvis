@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
@@ -10,14 +11,17 @@ import type { Task } from '../tasks/store.ts';
 import type { Skill } from '../skills/types.ts';
 
 /**
- * Keeps Jarvis's documentation and knowledge in an Obsidian vault, automatically.
+ * Jarvis's own Obsidian vault, kept up to date automatically: everything it learns lives there.
  *
- * Everything is written under <vault>/<folder>/ (default "Jarvis") as plain Markdown with YAML
- * frontmatter, tags and [[wikilinks]]: a live manual (skills, agents, permissions, integrations,
- * background jobs, architecture docs), memories, task history and a daily journal.
+ * Jarvis creates a dedicated vault (default ~/Documents/Jarvis Vault) with Obsidian settings and
+ * writes plain Markdown with YAML frontmatter, tags and [[wikilinks]]: a live manual (skills,
+ * agents, permissions, integrations, background jobs, architecture docs), memories, task
+ * history, conversations and a daily journal.
  *
  * Safety rules:
- *  - Nothing outside that folder is ever written or deleted.
+ *  - Jarvis only uses a vault it created (marked by .jarvis-vault.json); it refuses to write
+ *    into a folder that already holds other content, such as the user's personal vault.
+ *  - Nothing outside the vault is ever written; .obsidian settings are only written on creation.
  *  - Jarvis remembers the hash of every file it wrote. If a file on disk no longer matches, the
  *    user edited it: Jarvis never overwrites or deletes it. Edits to memory notes are imported
  *    back into Jarvis as corrections.
@@ -39,6 +43,53 @@ const KIND_FOLDER: Record<MemoryKind, string> = {
 };
 
 const EDIT_HINT = '%% Edit the text above to correct this memory, or set verified: true to confirm it. Jarvis imports your change on the next sync. %%';
+
+const VAULT_MARKER = '.jarvis-vault.json';
+
+export function isJarvisVault(path: string): boolean {
+  return existsSync(join(path, VAULT_MARKER));
+}
+
+export function defaultVaultPath(): string {
+  const docs = join(homedir(), 'Documents');
+  return join(existsSync(docs) ? docs : homedir(), 'Jarvis Vault');
+}
+
+const rgb = (hex: string) => parseInt(hex.slice(1), 16);
+
+/** Obsidian settings written once when Jarvis creates its vault. */
+const OBSIDIAN_CONFIG: Record<string, unknown> = {
+  'app.json': { alwaysUpdateLinks: true, newFileLocation: 'folder', newFileFolderPath: 'Inbox', attachmentFolderPath: 'Attachments', showFrontmatter: true },
+  'appearance.json': { theme: 'obsidian', accentColor: '#8b5cf6' },
+  'core-plugins.json': {
+    'file-explorer': true,
+    'global-search': true,
+    switcher: true,
+    graph: true,
+    backlink: true,
+    'outgoing-link': true,
+    'tag-pane': true,
+    properties: true,
+    'page-preview': true,
+    'daily-notes': true,
+    'note-composer': true,
+    'command-palette': true,
+    bookmarks: true,
+    outline: true,
+    'word-count': true,
+    'file-recovery': true,
+  },
+  'daily-notes.json': { folder: 'Journal', format: 'YYYY-MM-DD' },
+  'graph.json': {
+    colorGroups: [
+      { query: 'tag:#jarvis/memory', color: { a: 1, rgb: rgb('#8b5cf6') } },
+      { query: 'tag:#jarvis/task', color: { a: 1, rgb: rgb('#34d399') } },
+      { query: 'tag:#jarvis/skill', color: { a: 1, rgb: rgb('#7dd3fc') } },
+      { query: 'tag:#jarvis/journal', color: { a: 1, rgb: rgb('#fbbf24') } },
+      { query: 'tag:#jarvis/conversation', color: { a: 1, rgb: rgb('#f0abfc') } },
+    ],
+  },
+};
 
 export interface SyncReport {
   at: number;
@@ -124,40 +175,72 @@ export class ObsidianSync {
     return this.app.settings.get().integrations.obsidian;
   }
 
+  /** Where Jarvis's own vault lives: the configured path, JARVIS_VAULT_DIR, or ~/Documents/Jarvis Vault. */
+  vaultPath(): string {
+    const configured = this.cfg().vaultPath.trim() || process.env.JARVIS_VAULT_DIR || defaultVaultPath();
+    return resolve(configured);
+  }
+
   /** Why syncing can't run right now, or null when it can. */
   problem(): string | null {
     const c = this.cfg();
-    if (!c.enabled) return 'Obsidian sync is turned off';
-    if (!c.vaultPath.trim()) return 'Choose your Obsidian vault folder';
-    if (!isAbsolute(c.vaultPath)) return 'The vault path must be a full path';
-    if (!existsSync(c.vaultPath) || !statSync(c.vaultPath).isDirectory()) return `Vault folder not found: ${c.vaultPath}`;
+    if (!c.enabled) return 'The Jarvis vault is turned off';
+    const p = this.vaultPath();
+    if (c.vaultPath.trim() && !isAbsolute(c.vaultPath.trim())) return 'The vault location must be a full path';
+    if (existsSync(p)) {
+      if (!statSync(p).isDirectory()) return `${p} is a file, not a folder`;
+      if (!isJarvisVault(p) && readdirSync(p).some((f) => f !== '.DS_Store')) {
+        return `${p} already contains other files. Jarvis keeps its own separate vault — choose a new or empty folder.`;
+      }
+    }
     return null;
   }
 
-  looksLikeVault(): boolean {
-    const p = this.cfg().vaultPath;
-    return Boolean(p) && existsSync(join(p, '.obsidian'));
+  /** True once the vault exists with Obsidian settings (it can be opened in Obsidian). */
+  vaultReady(): boolean {
+    const p = this.vaultPath();
+    return isJarvisVault(p) && existsSync(join(p, '.obsidian'));
   }
 
   vaultRoot(): string {
-    return realpathSync(this.cfg().vaultPath);
+    return realpathSync(this.vaultPath());
   }
 
-  /** <vault>/<folder>, guaranteed to be inside the vault even through symlinks. */
+  /**
+   * Create Jarvis's vault the first time: the folder, Obsidian settings tuned for it, and a
+   * marker file so Jarvis never mistakes someone else's vault for its own. Existing settings
+   * are never touched afterwards.
+   */
+  ensureVault(): { root: string; created: boolean } {
+    const p = this.vaultPath();
+    const problem = this.problem();
+    if (problem) throw new Error(problem);
+    const created = !isJarvisVault(p);
+    if (created) {
+      mkdirSync(join(p, '.obsidian'), { recursive: true });
+      for (const [file, value] of Object.entries(OBSIDIAN_CONFIG)) {
+        const target = join(p, '.obsidian', file);
+        if (!existsSync(target)) writeFileSync(target, `${JSON.stringify(value, null, 2)}\n`);
+      }
+      writeFileSync(join(p, VAULT_MARKER), `${JSON.stringify({ app: 'jarvis', createdAt: new Date().toISOString(), note: 'This vault is maintained by Jarvis.' }, null, 2)}\n`);
+      this.app.activity.log('success', 'obsidian', `Created the Jarvis vault at ${p}`);
+    }
+    return { root: realpathSync(p), created };
+  }
+
   private base(): string {
-    const vault = this.vaultRoot();
-    const base = resolve(vault, this.cfg().folder);
-    if (base === vault || !base.startsWith(vault + sep)) throw new Error('The Jarvis folder must be inside the vault');
-    mkdirSync(base, { recursive: true });
-    const real = realpathSync(base);
-    if (!real.startsWith(vault + sep)) throw new Error('The Jarvis folder resolves outside the vault');
-    return real;
+    return this.ensureVault().root;
   }
 
-  /** Vault-relative link target for a note path inside the Jarvis folder (no .md). */
+  /** Vault-relative wikilink (no .md). */
   private link(rel: string, label?: string): string {
-    const target = `${this.cfg().folder}/${rel.replace(/\.md$/, '')}`;
+    const target = rel.replace(/\.md$/, '');
     return label ? `[[${target}|${label}]]` : `[[${target}]]`;
+  }
+
+  /** obsidian:// link that opens the vault's home note (once the vault is known to Obsidian). */
+  openUri(): string {
+    return `obsidian://open?path=${encodeURIComponent(join(this.vaultPath(), 'Jarvis.md'))}`;
   }
 
   /** Debounced sync after something changed. */
@@ -187,7 +270,7 @@ export class ObsidianSync {
       const problem = this.problem();
       if (problem) throw new Error(problem);
       const base = this.base();
-      const state = new Map(this.app.db.all<{ path: string; hash: string }>('SELECT path, hash FROM obsidian_files').map((r) => [r.path, r.hash]));
+      const state = new Map(this.app.db.all<{ path: string; hash: string }>('SELECT path, hash FROM obsidian_files WHERE vault = ?', base).map((r) => [r.path, r.hash]));
       const edited = (rel: string): boolean => {
         const full = join(base, rel);
         const known = state.get(rel);
@@ -257,11 +340,17 @@ export class ObsidianSync {
   }
 
   private remember(rel: string, hash: string): void {
-    this.app.db.run('INSERT INTO obsidian_files (path, hash, written_at) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET hash = excluded.hash, written_at = excluded.written_at', rel, hash, Date.now());
+    this.app.db.run(
+      'INSERT INTO obsidian_files (vault, path, hash, written_at) VALUES (?, ?, ?, ?) ON CONFLICT(vault, path) DO UPDATE SET hash = excluded.hash, written_at = excluded.written_at',
+      this.vaultRoot(),
+      rel,
+      hash,
+      Date.now(),
+    );
   }
 
   private forget(rel: string): void {
-    this.app.db.run('DELETE FROM obsidian_files WHERE path = ?', rel);
+    this.app.db.run('DELETE FROM obsidian_files WHERE vault = ? AND path = ?', this.vaultRoot(), rel);
   }
 
   private removeEmptyDirs(dir: string, base: string): void {
@@ -337,7 +426,7 @@ export class ObsidianSync {
       `> **Memory:** ${s.memory.total - (s.memory.byKind.tool_doc ?? 0)} ${s.memory.total - (s.memory.byKind.tool_doc ?? 0) === 1 ? 'memory' : 'memories'} (${s.memory.unverified} unverified)  `,
       `> **Background monitoring:** ${s.background.enabled ? 'on' : 'paused'}`,
       '',
-      'This folder is maintained by Jarvis and updated automatically. Notes you edit are never overwritten; edits to memory notes are imported back into Jarvis.',
+      'This is Jarvis’s own vault: everything it learns is kept here and updated automatically. Notes you edit are never overwritten, edits to memory notes are imported back into Jarvis, and notes you add yourself are left alone.',
       '',
       ...(inc.manual
         ? ['## Manual', `- ${this.link('Manual/Skills', 'Skills')}`, `- ${this.link('Manual/Agents', 'Agents')}`, `- ${this.link('Manual/Permissions', 'Permissions')}`, `- ${this.link('Manual/Integrations', 'Integrations')}`, `- ${this.link('Manual/Background jobs', 'Background jobs')}`]
@@ -614,7 +703,7 @@ export class ObsidianSync {
 
   private journalNotes(notes: Map<string, string>): void {
     const since = Date.now() - 30 * 86_400_000;
-    const entries = this.app.db.all<{ ts: number; level: string; category: string; message: string }>('SELECT ts, level, category, message FROM activity WHERE ts > ? ORDER BY ts ASC', since);
+    const entries = this.app.db.all<{ ts: number; level: string; category: string; message: string }>("SELECT ts, level, category, message FROM activity WHERE ts > ? AND category != 'obsidian' ORDER BY ts ASC", since);
     const byDay = new Map<string, typeof entries>();
     for (const e of entries) byDay.set(day(e.ts), [...(byDay.get(day(e.ts)) ?? []), e]);
     const finished = this.app.tasks.list({ limit: 500 }).filter((t) => t.finishedAt && t.finishedAt > since);
@@ -703,13 +792,13 @@ export class ObsidianSync {
     if (exists) {
       const current = readFileSync(full);
       const { body: currentBody } = readFrontmatter(current.toString('utf8'));
-      if (currentBody.trim() === `# ${title}\n\n${body.trim()}`) return { note: `${this.cfg().folder}/${rel.replace(/\.md$/, '')}`, rel, created: false, hash: sha256(current) };
+      if (currentBody.trim() === `# ${title}\n\n${body.trim()}`) return { note: rel.replace(/\.md$/, ''), rel, created: false, hash: sha256(current) };
       throw new Error(`A note named "${title}" already exists — choose another title`);
     }
     mkdirSync(dirname(full), { recursive: true });
     writeFileSync(full, content);
     // Notes written on request belong to the user from now on: not tracked, never auto-removed.
-    return { note: `${this.cfg().folder}/${rel.replace(/\.md$/, '')}`, rel, created: true, hash };
+    return { note: rel.replace(/\.md$/, ''), rel, created: true, hash };
   }
 
   readNoteFile(rel: string): string {
@@ -730,8 +819,8 @@ export function obsidianSkills(sync: ObsidianSync): Skill[] {
   const SearchInput = z.object({ query: z.string().min(1).max(200), limit: z.number().int().min(1).max(100).optional() });
   const search: Skill<z.infer<typeof SearchInput>, { matches: Array<{ note: string; line: number | null; text: string }> }> = {
     name: 'obsidian.search',
-    title: 'Search Obsidian',
-    description: 'Search the notes in your Obsidian vault by title and text.',
+    title: 'Search Jarvis vault',
+    description: 'Search the notes in the Jarvis Obsidian vault (everything Jarvis has learned, plus notes you added) by title and text.',
     category: 'files',
     scope: 'obsidian.read',
     risk: 'read',
@@ -755,8 +844,8 @@ export function obsidianSkills(sync: ObsidianSync): Skill[] {
   const ReadInput = z.object({ note: z.string().min(1).max(500).describe('Vault-relative path, e.g. "Projects/Roadmap" or "Projects/Roadmap.md"') });
   const read: Skill<z.infer<typeof ReadInput>, { note: string; content: string }> = {
     name: 'obsidian.read',
-    title: 'Read Obsidian note',
-    description: 'Read one note from your Obsidian vault.',
+    title: 'Read vault note',
+    description: 'Read one note from the Jarvis Obsidian vault.',
     category: 'files',
     scope: 'obsidian.read',
     risk: 'read',
@@ -786,7 +875,7 @@ export function obsidianSkills(sync: ObsidianSync): Skill[] {
   const write: Skill<z.infer<typeof WriteInput>, { note: string; rel: string; created: boolean; hash: string }> = {
     name: 'obsidian.write_note',
     title: 'Write Obsidian note',
-    description: 'Create a new note in the Jarvis/Notes folder of your Obsidian vault (meeting notes, summaries, documentation). Never overwrites an existing note.',
+    description: 'Create a new note in the Notes folder of the Jarvis vault (meeting notes, summaries, documentation). Never overwrites an existing note.',
     category: 'files',
     scope: 'obsidian.write',
     risk: 'write',

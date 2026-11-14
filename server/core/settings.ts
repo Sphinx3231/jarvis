@@ -121,9 +121,8 @@ export const SettingsSchema = z.object({
     }),
     obsidian: z.object({
       enabled: z.boolean(),
+      /** Location of Jarvis's own vault; empty = ~/Documents/Jarvis Vault. */
       vaultPath: z.string().max(1000),
-      /** A single folder name inside the vault; Jarvis never writes outside it. */
-      folder: z.string().regex(/^[^/\\:*?"<>|.][^/\\:*?"<>|]{0,59}$/, 'Use a plain folder name'),
       include: z.object({
         manual: z.boolean(),
         memories: z.boolean(),
@@ -207,10 +206,9 @@ export const DEFAULT_SETTINGS: Settings = {
       smtp: { host: '', port: 465, security: 'tls' },
     },
     obsidian: {
-      enabled: false,
+      enabled: true,
       vaultPath: '',
-      folder: 'Jarvis',
-      include: { manual: true, memories: true, tasks: true, journal: true, conversations: false },
+      include: { manual: true, memories: true, tasks: true, journal: true, conversations: true },
       intervalMin: 15,
     },
     calendar: {

@@ -211,4 +211,18 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 3,
+    sql: `
+      -- Jarvis now keeps its own dedicated vault; track written files per vault.
+      DROP TABLE obsidian_files;
+      CREATE TABLE obsidian_files (
+        vault TEXT NOT NULL,
+        path TEXT NOT NULL,
+        hash TEXT NOT NULL,
+        written_at INTEGER NOT NULL,
+        PRIMARY KEY (vault, path)
+      );
+    `,
+  },
 ];

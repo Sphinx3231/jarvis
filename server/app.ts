@@ -175,8 +175,8 @@ export class JarvisApp {
     for (const skill of obsidianSkills(this.obsidian)) this.registry.register(skill);
     this.scheduler.register({
       name: 'obsidian-sync',
-      title: 'Obsidian sync',
-      description: 'Updates the Jarvis folder in your Obsidian vault: manual, memories, tasks and journal. Never overwrites notes you edited.',
+      title: 'Jarvis vault',
+      description: 'Updates Jarvis’s Obsidian vault with everything it has learned: manual, memories, tasks, conversations and journal. Never overwrites notes you edited.',
       intervalMs: () => this.settings.get().integrations.obsidian.intervalMin * 60_000,
       run: async () => {
         const problem = this.obsidian.problem();
@@ -201,6 +201,8 @@ export class JarvisApp {
       if (this.running) {
         void this.mcp.sync();
         this.prepareSemanticSearch();
+    // Create or update Jarvis's vault shortly after start.
+    this.obsidian.schedule(1500);
       }
     });
 
@@ -327,7 +329,9 @@ export class JarvisApp {
     }
     if (this.email.lastCheck && !this.email.lastCheck.ok && !this.email.missing()) out.push({ id: 'email', level: 'error', text: `Email is not working: ${this.email.lastCheck.detail}`, page: 'integrations' });
     if (this.calendar.lastCheck && !this.calendar.lastCheck.ok && !this.calendar.readMissing()) out.push({ id: 'calendar', level: 'error', text: `Calendar is not working: ${this.calendar.lastCheck.detail}`, page: 'integrations' });
-    if (this.obsidian.lastReport && !this.obsidian.lastReport.ok && !this.obsidian.problem()) out.push({ id: 'obsidian', level: 'error', text: `Obsidian sync failed: ${this.obsidian.lastReport.error}`, page: 'integrations' });
+    const vaultProblem = this.settings.get().integrations.obsidian.enabled ? this.obsidian.problem() : null;
+    if (vaultProblem) out.push({ id: 'obsidian', level: 'warning', text: `Jarvis vault: ${vaultProblem}`, page: 'integrations' });
+    else if (this.obsidian.lastReport && !this.obsidian.lastReport.ok) out.push({ id: 'obsidian', level: 'error', text: `Updating the Jarvis vault failed: ${this.obsidian.lastReport.error}`, page: 'integrations' });
     for (const s of this.mcp.status()) {
       if (s.state === 'error') out.push({ id: `mcp-${s.id}`, level: 'error', text: `MCP server "${s.name}" is not connected: ${s.error ?? 'error'}`, page: 'integrations' });
     }

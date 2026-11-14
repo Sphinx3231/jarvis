@@ -98,11 +98,13 @@ Agent roles add a second boundary: the *jarvis* role in chat may only use inline
 
 Known limits: browser speech recognition in Chromium may send audio to the browser vendor's service (choose the transcription service in Settings → Voice to control where audio goes). Outlook.com/Microsoft 365 mail needs OAuth, which is not implemented. Desktop builds are unsigned.
 
-## Obsidian documentation sync
+## Jarvis vault (Obsidian)
 
-`integrations/obsidian.ts` mirrors Jarvis into `<vault>/<folder>/` (default `Jarvis/`): `Jarvis.md` (live status and index), `Manual/` (one note per skill generated from the registry, agents, permissions and grants, integrations, background jobs, and `docs/*.md` + README), `Memory/<kind>/` (one note per memory with `jarvis_id`, `verified`, `confidence`, sources in frontmatter), `Tasks/` (steps as a checklist, result, history, plus a task log), `Journal/<date>.md` (last 30 days of activity) and optionally `Conversations/`.
+`integrations/obsidian.ts` gives Jarvis its own Obsidian vault — the place everything it learns is kept in readable form. On first start it creates the vault (default `~/Documents/Jarvis Vault`, or `~/Jarvis Vault`; configurable; `JARVIS_VAULT_DIR` overrides) with `.obsidian/` settings (dark theme in the Jarvis purple, daily notes in `Journal/`, graph colour groups per note type) and a `.jarvis-vault.json` marker. It refuses any folder that already contains other files and isn't marked as a Jarvis vault, so it can never write into a personal vault. `.obsidian/` settings are only written at creation.
 
-It runs within ~5 s of meaningful changes (memories, finished tasks, settings, integrations) and on the `obsidian-sync` schedule. The `obsidian_files` table stores the hash of every file Jarvis wrote: a file whose hash no longer matches was edited by the user and is never overwritten or deleted; for memory notes, the edited text, `verified` and `kind` are imported back as a correction. Writes are atomic (temp file + rename) and confined to the folder (real paths checked). Secrets and feed URLs are never written. Skills: `obsidian.search`/`obsidian.read` (whole vault, ask first) and `obsidian.write_note` (new notes under `Jarvis/Notes/`, never overwrites).
+Contents: `Jarvis.md` (live status and index), `Manual/` (one note per skill generated from the registry, agents, permissions and grants, integrations, background jobs, `docs/*.md` + README), `Memory/<kind>/` (one note per memory: `jarvis_id`, `verified`, `confidence`, sources), `Tasks/` (steps as a checklist, result, history, task log), `Conversations/`, `Journal/<date>.md` (last 30 days) and `Notes/` (notes written on request).
+
+It updates within ~5 s of meaningful changes and on the `obsidian-sync` schedule. The `obsidian_files` table stores, per vault, the hash of every file Jarvis wrote: a file whose hash no longer matches was edited by the user and is never overwritten or deleted; for memory notes the edited text, `verified` and `kind` are imported back as a correction. Notes the user adds are never touched. Writes are atomic (temp file + rename) and confined to the vault (real paths checked). Moving the vault creates a fresh one and leaves the old untouched. Secrets and feed URLs are never written. Skills: `obsidian.search`/`obsidian.read` (ask first) and `obsidian.write_note` (new notes only).
 
 ## Desktop app
 
