@@ -1,0 +1,202 @@
+export interface Migration {
+  version: number;
+  sql: string;
+}
+
+export const MIGRATIONS: Migration[] = [
+  {
+    version: 1,
+    sql: `
+      CREATE TABLE settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE secrets (
+        name TEXT PRIMARY KEY,
+        iv TEXT NOT NULL,
+        tag TEXT NOT NULL,
+        data TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      -- Short-term conversational context.
+      CREATE TABLE conversations (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        summary TEXT,
+        summarized_until INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE messages (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+        content TEXT NOT NULL,
+        meta TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX idx_messages_conv ON messages(conversation_id, created_at);
+
+      -- Long-term memory: preferences, project knowledge, decisions, procedures, facts,
+      -- task history summaries and tool documentation.
+      CREATE TABLE memories (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        content TEXT NOT NULL,
+        tags TEXT NOT NULL DEFAULT '[]',
+        source TEXT NOT NULL,
+        source_ref TEXT,
+        sources TEXT NOT NULL DEFAULT '[]',
+        confidence REAL NOT NULL DEFAULT 0.5,
+        verified INTEGER NOT NULL DEFAULT 0,
+        content_hash TEXT NOT NULL,
+        embedding BLOB,
+        embedding_model TEXT,
+        merged_count INTEGER NOT NULL DEFAULT 1,
+        access_count INTEGER NOT NULL DEFAULT 0,
+        last_accessed_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX idx_memories_kind ON memories(kind);
+      CREATE INDEX idx_memories_hash ON memories(content_hash);
+      CREATE INDEX idx_memories_source_ref ON memories(source_ref);
+
+      CREATE VIRTUAL TABLE memories_fts USING fts5(
+        content, tags, content='memories', content_rowid='rowid', tokenize='porter unicode61'
+      );
+      CREATE TRIGGER memories_ai AFTER INSERT ON memories BEGIN
+        INSERT INTO memories_fts(rowid, content, tags) VALUES (new.rowid, new.content, new.tags);
+      END;
+      CREATE TRIGGER memories_ad AFTER DELETE ON memories BEGIN
+        INSERT INTO memories_fts(memories_fts, rowid, content, tags) VALUES ('delete', old.rowid, old.content, old.tags);
+      END;
+      CREATE TRIGGER memories_au AFTER UPDATE OF content, tags ON memories BEGIN
+        INSERT INTO memories_fts(memories_fts, rowid, content, tags) VALUES ('delete', old.rowid, old.content, old.tags);
+        INSERT INTO memories_fts(rowid, content, tags) VALUES (new.rowid, new.content, new.tags);
+      END;
+
+      -- Task engine.
+      CREATE TABLE tasks (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        priority INTEGER NOT NULL DEFAULT 2,
+        status TEXT NOT NULL,
+        origin TEXT NOT NULL,
+        agent TEXT,
+        conversation_id TEXT,
+        plan TEXT,
+        current_step INTEGER NOT NULL DEFAULT 0,
+        progress REAL NOT NULL DEFAULT 0,
+        result TEXT,
+        error TEXT,
+        attention TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 2,
+        required_permissions TEXT NOT NULL DEFAULT '[]',
+        scheduled_for INTEGER,
+        recurrence TEXT,
+        parent_id TEXT,
+        dedupe_key TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        started_at INTEGER,
+        finished_at INTEGER,
+        heartbeat_at INTEGER
+      );
+      CREATE INDEX idx_tasks_status ON tasks(status, priority DESC, created_at);
+      CREATE INDEX idx_tasks_dedupe ON tasks(dedupe_key);
+
+      CREATE TABLE task_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        ts INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        message TEXT NOT NULL,
+        data TEXT
+      );
+      CREATE INDEX idx_task_events_task ON task_events(task_id, id);
+
+      -- Authorization.
+      CREATE TABLE approvals (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        step_index INTEGER NOT NULL,
+        skill TEXT NOT NULL,
+        input TEXT NOT NULL,
+        input_hash TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        status TEXT NOT NULL,
+        reminded INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        decided_at INTEGER,
+        decision_note TEXT
+      );
+      CREATE INDEX idx_approvals_status ON approvals(status);
+
+      CREATE TABLE grants (
+        id TEXT PRIMARY KEY,
+        skill TEXT NOT NULL,
+        input_hash TEXT NOT NULL,
+        description TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER,
+        uses INTEGER NOT NULL DEFAULT 0,
+        revoked INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX idx_grants_lookup ON grants(skill, input_hash);
+
+      CREATE TABLE audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        actor TEXT NOT NULL,
+        skill TEXT NOT NULL,
+        task_id TEXT,
+        input TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        approval_id TEXT,
+        grant_id TEXT,
+        outcome TEXT NOT NULL,
+        verified INTEGER,
+        duration_ms INTEGER,
+        error TEXT
+      );
+      CREATE INDEX idx_audit_ts ON audit_log(ts);
+
+      CREATE TABLE activity (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        level TEXT NOT NULL,
+        category TEXT NOT NULL,
+        message TEXT NOT NULL,
+        data TEXT
+      );
+      CREATE INDEX idx_activity_ts ON activity(ts);
+
+      CREATE TABLE notifications (
+        id TEXT PRIMARY KEY,
+        ts INTEGER NOT NULL,
+        level TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL DEFAULT '',
+        task_id TEXT,
+        dedupe_key TEXT UNIQUE,
+        read INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE jobs (
+        name TEXT PRIMARY KEY,
+        last_run_at INTEGER,
+        last_status TEXT,
+        last_message TEXT,
+        last_duration_ms INTEGER,
+        run_count INTEGER NOT NULL DEFAULT 0
+      );
+    `,
+  },
+];

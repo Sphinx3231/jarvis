@@ -1,0 +1,85 @@
+import { randomBytes } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
+import type { Server } from 'node:http';
+import { homedir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { JarvisApp, VERSION } from './app.ts';
+import { createJarvisServer } from './api/server.ts';
+
+const here = dirname(fileURLToPath(import.meta.url));
+
+export interface StartOptions {
+  dataDir?: string;
+  port?: number;
+  quiet?: boolean;
+  webDir?: string;
+  dev?: boolean;
+}
+
+export interface RunningJarvis {
+  app: JarvisApp;
+  server: Server;
+  url: string;
+  token: string;
+  stop: () => Promise<void>;
+}
+
+export async function startJarvis(opts: StartOptions = {}): Promise<RunningJarvis> {
+  const dataDir = resolve(opts.dataDir ?? process.env.JARVIS_DATA_DIR ?? join(homedir(), '.jarvis'));
+  const port = opts.port ?? Number(process.env.JARVIS_PORT ?? 7777);
+  const dev = opts.dev ?? process.env.JARVIS_DEV === '1';
+  const app = new JarvisApp({ dataDir, quiet: opts.quiet });
+  // A fresh token every start. The UI receives it embedded in the page; other local
+  // programs and websites cannot read it.
+  const token = randomBytes(24).toString('hex');
+  writeFileSync(join(dataDir, 'session.token'), token, { mode: 0o600 });
+
+  await app.start();
+  const server = createJarvisServer(app, {
+    port,
+    token,
+    webDir: opts.webDir ?? join(here, '..', 'web', 'dist'),
+    extraOrigins: dev ? ['http://localhost:5173', 'http://127.0.0.1:5173'] : [],
+  });
+  await new Promise<void>((resolvePromise, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', () => resolvePromise());
+  });
+  const actualPort = (server.address() as { port: number }).port;
+  const url = `http://127.0.0.1:${actualPort}`;
+
+  let stopping: Promise<void> | null = null;
+  const stop = () => {
+    stopping ??= (async () => {
+      server.closeAllConnections?.();
+      await new Promise<void>((r) => server.close(() => r()));
+      await app.stop();
+    })();
+    return stopping;
+  };
+  return { app, server, url, token, stop };
+}
+
+const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  startJarvis()
+    .then((running) => {
+      console.log(`\n  Jarvis ${VERSION} is running at ${running.url}`);
+      console.log(`  Data directory: ${running.app.dataDir}\n`);
+      const shutdown = (signal: string) => {
+        console.log(`\nReceived ${signal}, shutting down safely…`);
+        running.stop().then(
+          () => process.exit(0),
+          () => process.exit(1),
+        );
+      };
+      process.on('SIGINT', () => shutdown('SIGINT'));
+      process.on('SIGTERM', () => shutdown('SIGTERM'));
+    })
+    .catch((err) => {
+      console.error(`Jarvis failed to start: ${err instanceof Error ? err.message : err}`);
+      if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') console.error('Another program (or another Jarvis) is using that port. Set JARVIS_PORT to choose another.');
+      process.exit(1);
+    });
+}
