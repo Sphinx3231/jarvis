@@ -144,3 +144,22 @@ test('api: server-sent events stream live state changes', async () => {
     rmSync(s.dir, { recursive: true, force: true });
   }
 });
+
+test('api: only one Jarvis runs per data folder; a stale lock is recovered', async () => {
+  const { writeFileSync: write } = await import('node:fs');
+  const dir = tempDir();
+  const first = await startJarvis({ dataDir: dir, port: 0, quiet: true, webDir: dir });
+  try {
+    await assert.rejects(startJarvis({ dataDir: dir, port: 0, quiet: true, webDir: dir }), (err: Error & { url?: string }) => {
+      assert.match(err.message, /already running/);
+      assert.equal(err.url, first.url, 'points at the running instance');
+      return true;
+    });
+  } finally {
+    await first.stop();
+  }
+  write(join(dir, 'jarvis.lock'), JSON.stringify({ pid: 999_999_999, url: 'http://127.0.0.1:1' }));
+  const again = await startJarvis({ dataDir: dir, port: 0, quiet: true, webDir: dir });
+  await again.stop();
+  rmSync(dir, { recursive: true, force: true });
+});

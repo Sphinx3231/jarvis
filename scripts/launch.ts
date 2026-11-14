@@ -11,6 +11,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { startJarvis, type RunningJarvis } from '../server/main.ts';
+import { AlreadyRunningError } from '../server/core/instance-lock.ts';
 
 const keepRunning = process.argv.includes('--keep-running');
 
@@ -59,7 +60,10 @@ async function main(): Promise<void> {
     url = running.url;
     console.log(`\n  Jarvis is running at ${url}\n  Data directory: ${running.app.dataDir}\n`);
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE' && (await existingInstance(port))) {
+    if (err instanceof AlreadyRunningError && err.url) {
+      url = err.url;
+      console.log(`Jarvis is already running at ${url}; opening a window.`);
+    } else if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE' && (await existingInstance(port))) {
       console.log(`Jarvis is already running at ${url}; opening a window.`);
     } else {
       console.error(`Jarvis failed to start: ${(err as Error).message}`);

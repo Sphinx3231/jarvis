@@ -15,7 +15,10 @@
     "build": "vite build --config web/vite.config.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p web/tsconfig.json",
     "test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 \"tests/**/*.test.ts\"",
-    "test:e2e": "node --disable-warning=ExperimentalWarning tests/e2e/ui.e2e.ts && node --disable-warning=ExperimentalWarning tests/e2e/voice.e2e.ts"
+    "test:e2e": "node --disable-warning=ExperimentalWarning tests/e2e/ui.e2e.ts && node --disable-warning=ExperimentalWarning tests/e2e/voice.e2e.ts",
+    "build:server": "tsc -p tsconfig.build.json",
+    "desktop": "npm run build && npm run build:server && electron .",
+    "dist": "npm run build && npm run build:server && electron-builder --publish never"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
@@ -37,6 +40,8 @@
     "@types/react-dom": "^19.3.0",
     "@types/smtp-server": "^3.5.13",
     "@vitejs/plugin-react": "^6.3.0",
+    "electron": "^45.3.2",
+    "electron-builder": "^26.18.0",
     "hoodiecrow-imap": "^3.3.1",
     "lucide-react": "^1.72.0",
     "react": "^19.3.1",
@@ -44,5 +49,61 @@
     "smtp-server": "^3.21.4",
     "typescript": "^7.0.2",
     "vite": "^8.3.8"
+  },
+  "main": "desktop/main.cjs",
+  "author": "Jarvis",
+  "homepage": "https://github.com/Sphinx3231/jarvis",
+  "build": {
+    "appId": "app.jarvis.desktop",
+    "productName": "Jarvis",
+    "copyright": "Jarvis",
+    "asar": false,
+    "directories": {
+      "output": "release",
+      "buildResources": "assets/build"
+    },
+    "files": [
+      "desktop/**",
+      "dist-server/**",
+      "web/dist/**",
+      "package.json",
+      "!**/*.map",
+      "!**/*.d.ts",
+      "!**/*.md",
+      "!node_modules/onnxruntime-web/dist/**",
+      "node_modules/onnxruntime-web/dist/ort.node.min.{js,mjs}",
+      "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.{mjs,wasm}"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg"
+      ],
+      "icon": "assets/build/icon.png",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Jarvis listens when you press the microphone button or say its wake word."
+      }
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Utility",
+      "icon": "assets/build/icon.png",
+      "maintainer": "Jarvis <noreply@example.com>",
+      "synopsis": "Your personal AI operating system"
+    }
   }
 }

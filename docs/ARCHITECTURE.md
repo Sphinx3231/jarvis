@@ -81,7 +81,8 @@ Agent roles add a second boundary: the *jarvis* role in chat may only use inline
 - What the model saves is **unverified** (confidence 0.5–0.8) until you confirm it; editing counts as confirming.
 - System records (task history, tool docs) are verified.
 - Exact (normalised hash) and near-duplicates (trigram Jaccard ≥ 0.85, same kind) are merged, keeping provenance.
-- Retrieval = BM25 keyword search + optional cosine similarity, weighted by confidence and verification.
+- Retrieval = BM25 keyword search (stop words dropped, word forms matched by stem prefix) + cosine similarity over embeddings, weighted by confidence and verification.
+- Embeddings come from the built-in all-MiniLM-L6-v2 model (WebAssembly ONNX runtime, downloaded once from a pinned revision and SHA-256-checked, runs locally) or an OpenAI-compatible endpoint. New memories are embedded within seconds.
 
 ## Security
 
@@ -91,7 +92,15 @@ Agent roles add a second boundary: the *jarvis* role in chat may only use inline
 - Untrusted content is delimited, sanitised against delimiter spoofing and scanned for injection phrases; the model that summarises it (`llm.generate`) has no tools.
 - Workspace sandbox: file skills resolve real paths and refuse anything outside the workspace (including via symlinks). `web.fetch` blocks private/loopback addresses (checked on every redirect hop) unless enabled.
 
-Known limits: the private-address check resolves DNS before fetching, so a hostile DNS server could still rebind between check and connect. Speech recognition in Chromium may send audio to the browser vendor's service.
+- `web.fetch` checks the address the socket actually connects to (a lookup hook on the request), so DNS rebinding cannot slip a private address past a separate pre-check.
+- One Jarvis per data folder (`jarvis.lock` with pid and URL); a second start points at the first instead of running two task engines on one database.
+- MCP tool annotations are treated as hints: only read-only tools are retried automatically, never on a server's say-so.
+
+Known limits: browser speech recognition in Chromium may send audio to the browser vendor's service (choose the transcription service in Settings → Voice to control where audio goes). Outlook.com/Microsoft 365 mail needs OAuth, which is not implemented. Desktop builds are unsigned.
+
+## Desktop app
+
+`desktop/main.cjs` (Electron) forks the compiled service (`dist-server/`, built with `tsc -p tsconfig.build.json`) using Electron's embedded Node.js and shows the UI in a sandboxed window. Microphone and notification permissions are granted only to the Jarvis origin; other links open in the default browser. Closing the window hides it to the tray; quitting asks the service over IPC to stop safely. `JARVIS_SMOKE_TEST=1` launches, checks the UI and API, and exits — used by `.github/workflows/desktop.yml` on Windows, macOS and Linux.
 
 ## Files
 
@@ -108,8 +117,9 @@ server/
   skills/            types, registry, runner, built-in skills
   permissions/       permission engine, approvals, grants
   scheduler/         background jobs
-  integrations/      MCP client + manager
+  integrations/      MCP client + manager, email (IMAP/SMTP), calendar (CalDAV/ICS)
 web/src/             React UI (pages, components, live events, voice)
-scripts/launch.ts    desktop app window launcher
+desktop/main.cjs     Electron desktop app
+scripts/launch.ts    browser app-window launcher (run from source)
 tests/               node:test suites + e2e/ui.e2e.ts (Playwright)
 ```

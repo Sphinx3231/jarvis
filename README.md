@@ -5,7 +5,13 @@
 
 ---
 
-## Quick start
+## Install the desktop app
+
+Installers for **Windows** (`.exe`), **macOS** (`.dmg`) and **Linux** (`.AppImage`, `.deb`) are built by the *Desktop app* GitHub Actions workflow (Actions → Desktop app → latest run → Artifacts), or locally with `npm run dist` (output in `release/`). The desktop app includes everything it needs — no Node.js or browser required. It keeps running in the system tray when you close the window; choose **Quit Jarvis** from the tray to stop it.
+
+The builds are not code-signed yet: macOS will ask you to confirm in System Settings → Privacy & Security, and Windows SmartScreen will ask you to choose “Run anyway”. Signing needs your own Apple Developer ID / Windows code-signing certificate (electron-builder reads them from `CSC_LINK` / `CSC_KEY_PASSWORD`).
+
+## Run from source
 
 Requirements: **Node.js 22.18 or newer** (uses the built-in SQLite and runs TypeScript directly — no native modules, no build step for the service).
 
@@ -21,7 +27,7 @@ npm run build
 npm run app
 ```
 
-`npm run app` starts the Jarvis service on `http://127.0.0.1:7777` and opens it in its own app window (Chrome, Edge, Brave or Chromium in app mode). Closing the window shuts Jarvis down safely; interrupted work resumes on the next start. To keep Jarvis working after the window closes:
+`npm run app` (or `npm run desktop` for the Electron window) starts the Jarvis service on `http://127.0.0.1:7777` and opens it in its own app window (Chrome, Edge, Brave or Chromium in app mode). Closing the window shuts Jarvis down safely; interrupted work resumes on the next start. To keep Jarvis working after the window closes:
 
 ```bash
 npm run app -- --keep-running
@@ -40,6 +46,14 @@ Jarvis works without a model for direct commands (“remember that …”, “re
 - **Anthropic Claude** (default primary, `claude-opus-5-5`) — paste an API key, or set `ANTHROPIC_API_KEY` before starting.
 - **OpenAI** or any **OpenAI-compatible** endpoint — paste a key or set `OPENAI_API_KEY`.
 - **Ollama / LM Studio** (local, no key) — enable it and set the model name.
+
+### Email, calendar, voice and more
+
+- **Email** — any IMAP/SMTP account with an app password (Gmail, iCloud, Fastmail, Yahoo, most hosts). Jarvis searches and reads mail; every message it sends needs your approval. Outlook.com/Microsoft 365 require Microsoft sign-in (OAuth), which isn't supported yet.
+- **Calendar** — CalDAV accounts (iCloud, Fastmail, Nextcloud…) to read and add events, plus read-only ICS feed links (Google, Outlook and most calendar apps can publish one).
+- **Semantic memory** — built in and on by default: a 23 MB model downloaded once runs on your computer, so Jarvis finds memories by meaning without sending them anywhere.
+- **Voice** — browser speech recognition where available; otherwise (desktop app, Firefox) Jarvis records and transcribes through OpenAI or a local Whisper server (Settings → Voice).
+- **MCP servers** — add tools from the Model Context Protocol ecosystem; the official filesystem server is one click away.
 
 Keys are encrypted on disk and never sent to the browser. Providers are tried in order (primary, then fallbacks).
 
@@ -71,8 +85,10 @@ Everything else is in **Settings** inside the app.
 npm run dev:server   # service with auto-restart (set JARVIS_DEV=1 to allow the Vite origin)
 npm run dev:web      # Vite dev server on :5173, proxies /api to the service
 npm run typecheck    # service + UI
-npm test             # 47 backend tests (node:test)
-npm run test:e2e     # browser end-to-end test (needs Playwright + Chromium; run `npm run build` first)
+npm test             # backend tests (node:test); calendar tests need `pip install radicale`
+npm run test:e2e     # browser + voice end-to-end tests (needs Playwright + Chromium; run `npm run build` first)
+npm run desktop      # run the Electron app from source
+npm run dist         # build installers for this OS into release/
 ```
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it fits together.

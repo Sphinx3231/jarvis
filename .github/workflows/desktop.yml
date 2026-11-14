@@ -1,0 +1,73 @@
+name: Desktop app
+
+# Builds the installers on each operating system and launches the packaged app in a
+# smoke-test mode that checks the service starts and the UI loads.
+on:
+  push:
+    paths:
+      - 'desktop/**'
+      - 'server/**'
+      - 'web/**'
+      - 'assets/build/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/desktop.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+      - run: npm ci
+      - name: Build installers
+        run: npm run dist
+
+      - name: Smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a release/linux-unpacked/jarvis --no-sandbox
+        env:
+          JARVIS_SMOKE_TEST: '1'
+          JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-smoke
+        timeout-minutes: 5
+      - name: Smoke test (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          APP=$(ls -d release/mac*/Jarvis.app | head -1)
+          "$APP/Contents/MacOS/Jarvis"
+        env:
+          JARVIS_SMOKE_TEST: '1'
+          JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-smoke
+        timeout-minutes: 5
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "release\win-unpacked\Jarvis.exe" -PassThru -Wait -NoNewWindow
+          Write-Host "exit code: $($p.ExitCode)"
+          exit $p.ExitCode
+        env:
+          JARVIS_SMOKE_TEST: '1'
+          JARVIS_DATA_DIR: ${{ runner.temp }}\jarvis-smoke
+        timeout-minutes: 5
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jarvis-${{ runner.os }}
+          path: |
+            release/*.dmg
+            release/*.exe
+            release/*.AppImage
+            release/*.deb
+          if-no-files-found: error
