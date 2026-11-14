@@ -38,6 +38,8 @@ Installers for **Windows** (`.exe`), **macOS** (`.dmg`) and **Linux** (`.AppImag
 
 The builds are not code-signed yet: macOS will ask you to confirm in System Settings → Privacy & Security, and Windows SmartScreen will ask you to choose “Run anyway”. Signing needs your own Apple Developer ID / Windows code-signing certificate (electron-builder reads them from `CSC_LINK` / `CSC_KEY_PASSWORD`).
 
+On Linux, the `.AppImage` needs FUSE (`sudo apt install libfuse2`). When you run as **root** (common on Kali Linux) Jarvis disables the Chromium sandbox automatically so it can start; as a normal user the sandbox stays on.
+
 ## Run from source
 
 Requirements: **Node.js 22.18 or newer** (uses the built-in SQLite and runs TypeScript directly — no native modules, no build step for the service).

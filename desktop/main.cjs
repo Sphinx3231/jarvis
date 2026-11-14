@@ -16,6 +16,10 @@ const ICON = path.join(ROOT, 'web', 'dist', 'icon-512.png');
 const TRAY_ICON = path.join(ROOT, 'web', 'dist', 'icon-32.png');
 const SMOKE = process.env.JARVIS_SMOKE_TEST === '1';
 
+// Chromium's sandbox cannot run as root, so Electron refuses to start there. On systems commonly
+// used as root (e.g. Kali Linux) disable the sandbox so the app still launches; normal users keep it.
+if (process.platform === 'linux' && process.getuid?.() === 0) app.commandLine.appendSwitch('no-sandbox');
+
 let win = null;
 let tray = null;
 let server = null;
