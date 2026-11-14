@@ -144,6 +144,11 @@ test('skills: registry only lists real capabilities and reports availability hon
     const info = app.registry.info();
     const names = info.map((s) => s.name);
     assert.deepEqual(names, [
+      'calendar.create_event',
+      'calendar.events',
+      'email.read',
+      'email.search',
+      'email.send',
       'files.list',
       'files.read',
       'files.search',

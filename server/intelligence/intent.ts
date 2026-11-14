@@ -17,6 +17,8 @@ export type Intent =
   | { type: 'fetch_url'; url: string; summarize: boolean }
   | { type: 'read_file'; path: string }
   | { type: 'list_files'; path?: string }
+  | { type: 'calendar'; days: number }
+  | { type: 'check_email'; unreadOnly: boolean }
   | { type: 'unknown' };
 
 /** Intents that are always handled locally, even when a model is available. */
@@ -64,6 +66,12 @@ export function parseIntent(raw: string): Intent {
   if ((m = t.match(/^(fetch|get|open|read|summari[sz]e)(?: the)?(?: page| url| website| site)?[: ]+(https?:\/\/\S+)$/i))) {
     return { type: 'fetch_url', url: m[2], summarize: /^summari/i.test(m[1]) };
   }
+
+  if ((m = t.match(/^(?:what'?s|what is|show(?: me)?|list)(?: on)?(?: my)? (?:calendar|schedule|agenda)(?: for)?( today| tomorrow| this week| next week)?\??$/i))) {
+    const when = (m[1] ?? '').trim().toLowerCase();
+    return { type: 'calendar', days: when === 'today' || when === 'tomorrow' ? (when === 'tomorrow' ? 2 : 1) : 7 };
+  }
+  if ((m = t.match(/^(?:check|show(?: me)?|any|read|list)(?: my)?( new| unread)? (?:emails?|mail|inbox|messages)\??$/i))) return { type: 'check_email', unreadOnly: Boolean(m[1]) || /^check|^any/i.test(t) };
 
   if ((m = t.match(/^(?:read|show|open|cat)(?: the)? file[: ]+(.+)$/i))) return { type: 'read_file', path: m[1].replace(/^["'`]|["'`]$/g, '') };
   if ((m = t.match(/^(?:list|show)(?: the| my)?(?: workspace)? files(?: in (.+))?$/i))) return { type: 'list_files', path: m[1]?.trim() };

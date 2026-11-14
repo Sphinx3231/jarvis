@@ -332,13 +332,14 @@ export class TaskEngine {
           this.store.addEvent(task.id, 'step_started', `Step ${i + 1}/${plan.length}: ${step.description} (${step.agent} → ${step.skill})`);
 
           const approval = this.permissions.approvalForStep(task.id, i);
+          if (approval?.status === 'approved') step.approvalId = approval.id;
           const result = await this.runner.invoke({
             agent: step.agent,
             skill: step.skill,
             input,
             taskId: task.id,
             stepIndex: i,
-            approvalId: approval?.status === 'approved' ? approval.id : undefined,
+            approvalId: approval?.status === 'approved' ? approval.id : step.approvalId,
             signal,
             timeoutMs: skill?.timeoutMs ?? this.settings.get().tasks.stepTimeoutSec * 1000,
           });

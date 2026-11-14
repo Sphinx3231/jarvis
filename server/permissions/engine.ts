@@ -25,6 +25,10 @@ export const SCOPES: ScopeDefinition[] = [
   { id: 'files.read', label: 'Read workspace files', description: 'List, read and search files inside the Jarvis workspace folder.', external: true, defaultPolicy: 'allow', allowPermitted: true },
   { id: 'files.write', label: 'Write workspace files', description: 'Create or modify files inside the Jarvis workspace folder.', external: true, defaultPolicy: 'ask', allowPermitted: true },
   { id: 'network.read', label: 'Fetch web pages', description: 'HTTP GET requests to public websites.', external: true, defaultPolicy: 'ask', allowPermitted: true },
+  { id: 'email.read', label: 'Read email', description: 'Search and read messages in your mailbox.', external: true, defaultPolicy: 'ask', allowPermitted: true },
+  { id: 'email.send', label: 'Send email', description: 'Send messages from your account.', external: true, defaultPolicy: 'ask', allowPermitted: false },
+  { id: 'calendar.read', label: 'Read calendar', description: 'List events from your calendars and subscribed feeds.', external: true, defaultPolicy: 'ask', allowPermitted: true },
+  { id: 'calendar.write', label: 'Add calendar events', description: 'Create events in your CalDAV calendar.', external: true, defaultPolicy: 'ask', allowPermitted: true },
   { id: 'shell.exec', label: 'Run shell commands', description: 'Execute commands on this computer (inside the workspace folder).', external: true, defaultPolicy: 'ask', allowPermitted: false },
 ];
 
@@ -120,9 +124,11 @@ export class PermissionEngine {
     const hash = inputHash(skill.name, input);
     if (ctx.approvalId) {
       const approval = this.getApproval(ctx.approvalId);
-      if (approval && approval.status === 'approved' && approval.skill === skill.name && approval.inputHash === hash && approval.taskId === ctx.taskId) {
-        return { kind: 'allow', via: 'approval', approvalId: approval.id };
-      }
+      const matches = approval && approval.skill === skill.name && approval.inputHash === hash && approval.taskId === ctx.taskId && approval.stepIndex === ctx.stepIndex;
+      if (matches && approval.status === 'approved') return { kind: 'allow', via: 'approval', approvalId: approval.id };
+      // An automatic retry of a step that is safe to repeat, with byte-identical input, is still
+      // covered by the approval the user gave for that step. Non-repeatable steps are never retried.
+      if (matches && approval.status === 'used' && skill.idempotent) return { kind: 'allow', via: 'approval' };
     }
     const grant = this.db.get<{ id: string }>(
       'SELECT id FROM grants WHERE skill = ? AND input_hash = ? AND revoked = 0 AND (expires_at IS NULL OR expires_at > ?) LIMIT 1',

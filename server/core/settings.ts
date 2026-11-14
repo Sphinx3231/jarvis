@@ -30,6 +30,13 @@ export const McpServerSchema = z.object({
 });
 export type McpServerConfig = z.infer<typeof McpServerSchema>;
 
+const MailServerSchema = z.object({
+  host: z.string().max(200),
+  port: z.number().int().min(1).max(65535),
+  /** tls = implicit TLS (993/465), starttls = upgrade (143/587), none = plain (local testing only). */
+  security: z.enum(['tls', 'starttls', 'none']),
+});
+
 export const SettingsSchema = z.object({
   assistant: z.object({
     userName: z.string().max(60).default(''),
@@ -104,6 +111,23 @@ export const SettingsSchema = z.object({
       enabled: z.boolean(),
     }),
     mcpServers: z.array(McpServerSchema).max(20),
+    email: z.object({
+      enabled: z.boolean(),
+      address: z.string().max(200),
+      displayName: z.string().max(100),
+      username: z.string().max(200),
+      imap: MailServerSchema,
+      smtp: MailServerSchema,
+    }),
+    calendar: z.object({
+      caldav: z.object({
+        enabled: z.boolean(),
+        serverUrl: z.string().max(500),
+        username: z.string().max(200),
+      }),
+      /** Read-only ICS subscriptions. URLs often contain private tokens, so they live in the secret store. */
+      feeds: z.array(z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/), name: z.string().min(1).max(80) })).max(20),
+    }),
   }),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
@@ -160,6 +184,18 @@ export const DEFAULT_SETTINGS: Settings = {
     web: { allowPrivateNetwork: false, maxBytes: 2_000_000 },
     shell: { enabled: true },
     mcpServers: [],
+    email: {
+      enabled: false,
+      address: '',
+      displayName: '',
+      username: '',
+      imap: { host: '', port: 993, security: 'tls' },
+      smtp: { host: '', port: 465, security: 'tls' },
+    },
+    calendar: {
+      caldav: { enabled: false, serverUrl: '', username: '' },
+      feeds: [],
+    },
   },
 };
 

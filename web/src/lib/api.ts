@@ -279,6 +279,28 @@ export interface Integrations {
   web: { policy: string; allowPrivateNetwork: boolean };
   shell: { enabled: boolean; policy: string };
   transcription: { providerId: string; model: string; available: boolean };
+  email: {
+    enabled: boolean;
+    address: string;
+    displayName: string;
+    username: string;
+    imap: MailServer;
+    smtp: MailServer;
+    passwordSet: boolean;
+    missing: string | null;
+    lastCheck: { ok: boolean; detail: string; at: number } | null;
+  };
+  calendar: {
+    caldav: { enabled: boolean; serverUrl: string; username: string; passwordSet: boolean; missing: string | null };
+    feeds: Array<{ id: string; name: string }>;
+    lastCheck: { ok: boolean; detail: string; at: number } | null;
+  };
+}
+
+export interface MailServer {
+  host: string;
+  port: number;
+  security: 'tls' | 'starttls' | 'none';
 }
 
 export interface Scope {

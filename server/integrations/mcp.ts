@@ -340,7 +340,8 @@ export class McpManager {
       category: 'mcp',
       scope: mcpScope(cfg.id),
       risk: readOnly ? 'read' : 'consequential',
-      idempotent: Boolean(tool.annotations?.idempotentHint) || readOnly,
+      // Annotations come from the server and are hints only: never let one make an action auto-repeatable.
+      idempotent: readOnly,
       inlineSafe: false,
       untrustedOutput: true,
       input: z.record(z.string(), z.unknown()),

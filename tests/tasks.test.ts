@@ -169,7 +169,12 @@ test('agents: roles cannot invoke skills outside their boundary', async () => {
 test('tasks: planner rejects unknown skills and invalid inputs', async () => {
   const { app, cleanup } = await makeApp();
   try {
-    assert.throws(() => app.engine.createTask({ title: 'x', origin: 'user', steps: [{ skill: 'email.send', input: {}, description: '' }] }), /unknown skill/);
+    assert.throws(() => app.engine.createTask({ title: 'x', origin: 'user', steps: [{ skill: 'fax.send', input: {}, description: '' }] }), /unknown skill/);
+    assert.throws(
+      () => app.engine.createTask({ title: 'x', origin: 'user', steps: [{ skill: 'email.send', input: { to: ['a@b.co'], subject: 's', body: 'b' }, description: '' }] }),
+      /email\.send is unavailable \(Email is turned off/,
+      'integrations that are not set up are refused at planning time',
+    );
     assert.throws(() => app.engine.createTask({ title: 'x', origin: 'user', steps: [{ skill: 'web.fetch', input: { url: 'not a url' }, description: '' }] }), /invalid input/);
     assert.throws(
       () => app.engine.createTask({ title: 'x', origin: 'user', steps: [{ skill: 'notify.user', input: { title: '{{steps.0.text}}' }, description: '' }] }),

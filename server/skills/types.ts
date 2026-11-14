@@ -41,7 +41,7 @@ export interface Skill<I = any, O = any> {
   name: string;
   title: string;
   description: string;
-  category: 'memory' | 'tasks' | 'system' | 'model' | 'files' | 'web' | 'shell' | 'mcp';
+  category: 'memory' | 'tasks' | 'system' | 'model' | 'files' | 'web' | 'shell' | 'email' | 'calendar' | 'mcp';
   /** Permission scope checked by the permission engine before every execution. */
   scope: string;
   risk: RiskLevel;

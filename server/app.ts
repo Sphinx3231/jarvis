@@ -11,6 +11,8 @@ import { MemoryAgent } from './agents/memory-agent.ts';
 import { AGENTS } from './agents/agents.ts';
 import { Planner } from './agents/planner.ts';
 import { McpManager } from './integrations/mcp.ts';
+import { CalendarService, calendarSkills } from './integrations/calendar.ts';
+import { EmailService, emailSkills } from './integrations/email.ts';
 import { ConversationStore } from './intelligence/conversations.ts';
 import { Jarvis } from './intelligence/jarvis.ts';
 import { LocalModelManager } from './llm/local-embeddings.ts';
@@ -61,6 +63,8 @@ export class JarvisApp {
   readonly memoryAgent: MemoryAgent;
   readonly state: StateTracker;
   readonly mcp: McpManager;
+  readonly email: EmailService;
+  readonly calendar: CalendarService;
   readonly scheduler: Scheduler;
   readonly jarvis: Jarvis;
   private running = false;
@@ -91,6 +95,9 @@ export class JarvisApp {
     };
     this.registry = new SkillRegistry(services);
     registerBuiltinSkills(this.registry);
+    this.email = new EmailService(this.settings, this.secrets);
+    this.calendar = new CalendarService(this.settings, this.secrets);
+    for (const skill of [...emailSkills(this.email), ...calendarSkills(this.calendar)]) this.registry.register(skill);
     this.runner = new SkillRunner({
       db: this.db,
       registry: this.registry,
@@ -153,8 +160,11 @@ export class JarvisApp {
       run: async () => {
         await this.llm.checkHealth();
         const mcp = await this.mcp.health();
+        const accounts: string[] = [];
+        if (!this.email.missing()) accounts.push(`email ${(await this.email.test()).ok ? 'ok' : 'failing'}`);
+        if (!this.calendar.readMissing()) accounts.push(`calendar ${(await this.calendar.test()).ok ? 'ok' : 'failing'}`);
         const providers = this.llm.status().filter((p) => p.usable);
-        return `${providers.filter((p) => p.health?.ok).length}/${providers.length} model provider(s) reachable; ${mcp}`;
+        return `${providers.filter((p) => p.health?.ok).length}/${providers.length} model provider(s) reachable; ${mcp}${accounts.length ? `; ${accounts.join(', ')}` : ''}`;
       },
     });
 
@@ -287,6 +297,8 @@ export class JarvisApp {
     for (const p of this.llm.status()) {
       if (p.usable && p.health && !p.health.ok) out.push({ id: `provider-${p.id}`, level: 'error', text: `${p.name} is unreachable: ${p.health.detail}`, page: 'integrations' });
     }
+    if (this.email.lastCheck && !this.email.lastCheck.ok && !this.email.missing()) out.push({ id: 'email', level: 'error', text: `Email is not working: ${this.email.lastCheck.detail}`, page: 'integrations' });
+    if (this.calendar.lastCheck && !this.calendar.lastCheck.ok && !this.calendar.readMissing()) out.push({ id: 'calendar', level: 'error', text: `Calendar is not working: ${this.calendar.lastCheck.detail}`, page: 'integrations' });
     for (const s of this.mcp.status()) {
       if (s.state === 'error') out.push({ id: `mcp-${s.id}`, level: 'error', text: `MCP server "${s.name}" is not connected: ${s.error ?? 'error'}`, page: 'integrations' });
     }

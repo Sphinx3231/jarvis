@@ -62,3 +62,21 @@ test('jarvis without a model: direct commands work, everything else is answered 
     await cleanup();
   }
 });
+
+test('intent: calendar and email commands', () => {
+  assert.deepEqual(parseIntent("what's on my calendar today?"), { type: 'calendar', days: 1 });
+  assert.deepEqual(parseIntent('show my schedule this week'), { type: 'calendar', days: 7 });
+  assert.deepEqual(parseIntent('check my email'), { type: 'check_email', unreadOnly: true });
+  assert.deepEqual(parseIntent('show me my emails'), { type: 'check_email', unreadOnly: false });
+});
+
+test('jarvis: email/calendar commands explain what is missing instead of failing', async () => {
+  const { app, cleanup } = await makeApp();
+  try {
+    const r = await app.jarvis.handleMessage({ text: 'check my email' });
+    assert.match(r.reply.content, /can't do that yet: Email is turned off/);
+    assert.equal(app.tasks.list().length, 0);
+  } finally {
+    await cleanup();
+  }
+});

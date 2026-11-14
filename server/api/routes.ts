@@ -6,6 +6,8 @@ import { DraftStepSchema } from '../agents/planner.ts';
 import { McpServerSchema } from '../core/settings.ts';
 import { errorMessage, UserError } from '../core/util.ts';
 import { providerSecretName } from '../llm/router.ts';
+import { EMAIL_SECRET } from '../integrations/email.ts';
+import { CALDAV_SECRET } from '../integrations/calendar.ts';
 import { MEMORY_KINDS } from '../memory/store.ts';
 import { TASK_STATUSES } from '../tasks/store.ts';
 import { parse, type Router } from './http.ts';
@@ -192,6 +194,12 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
       workspace: { path: dir, exists: existsSync(dir), writable, readPolicy: app.permissions.policyFor('files.read'), writePolicy: app.permissions.policyFor('files.write') },
       web: { policy: app.permissions.policyFor('network.read'), allowPrivateNetwork: s.integrations.web.allowPrivateNetwork },
       shell: { enabled: s.integrations.shell.enabled, policy: app.permissions.policyFor('shell.exec') },
+      email: { ...s.integrations.email, passwordSet: app.secrets.has(EMAIL_SECRET), missing: app.email.missing(), lastCheck: app.email.lastCheck },
+      calendar: {
+        caldav: { ...s.integrations.calendar.caldav, passwordSet: app.secrets.has(CALDAV_SECRET), missing: app.calendar.caldavMissing() },
+        feeds: s.integrations.calendar.feeds,
+        lastCheck: app.calendar.lastCheck,
+      },
       transcription: { providerId: s.voice.transcription.providerId, model: s.voice.transcription.model, available: Boolean(app.llm.transcriptionTarget()) },
     };
   });
@@ -223,6 +231,56 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
   router.delete('/api/integrations/embeddings/model', () => {
     app.localModel.remove();
     return { state: app.localModel.state };
+  });
+  const MailServer = z.object({ host: z.string().max(200), port: z.number().int().min(1).max(65535), security: z.enum(['tls', 'starttls', 'none']) });
+  router.put('/api/integrations/email', ({ body }) => {
+    const b = parse(
+      z.object({
+        enabled: z.boolean().optional(),
+        address: z.string().max(200).optional(),
+        displayName: z.string().max(100).optional(),
+        username: z.string().max(200).optional(),
+        imap: MailServer.optional(),
+        smtp: MailServer.optional(),
+        password: z.string().min(1).max(500).optional(),
+      }),
+      body,
+    );
+    const { password, ...config } = b;
+    if (password) app.secrets.set(EMAIL_SECRET, password);
+    app.settings.update({ integrations: { email: config } });
+    app.activity.log('info', 'integrations', `Email account ${config.enabled === false ? 'turned off' : 'updated'}`);
+    app.bus.emit('integrations.changed', {});
+    return { ok: true };
+  });
+  router.post('/api/integrations/email/test', async () => app.email.test());
+  router.put('/api/integrations/calendar/caldav', ({ body }) => {
+    const b = parse(
+      z.object({
+        enabled: z.boolean().optional(),
+        serverUrl: z.string().url().or(z.literal('')).optional(),
+        username: z.string().max(200).optional(),
+        password: z.string().min(1).max(500).optional(),
+      }),
+      body,
+    );
+    const { password, ...config } = b;
+    if (password) app.secrets.set(CALDAV_SECRET, password);
+    app.settings.update({ integrations: { calendar: { caldav: config } } });
+    app.bus.emit('integrations.changed', {});
+    return { ok: true };
+  });
+  router.post('/api/integrations/calendar/test', async () => app.calendar.test());
+  router.post('/api/integrations/calendar/feeds', ({ body }) => {
+    const b = parse(z.object({ name: z.string().min(1).max(80), url: z.string().min(8).max(2000) }), body);
+    const feed = app.calendar.addFeed(b.name, b.url.trim());
+    app.bus.emit('integrations.changed', {});
+    return { feed };
+  });
+  router.delete('/api/integrations/calendar/feeds/:id', ({ params }) => {
+    app.calendar.removeFeed(params.id);
+    app.bus.emit('integrations.changed', {});
+    return { ok: true };
   });
   router.post('/api/integrations/mcp', async ({ body }) => {
     const b = parse(McpServerSchema.extend({ secrets: SecretsBody.optional() }), body);
@@ -275,7 +333,7 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
   router.patch('/api/settings', ({ body }) => {
     const patch = (body ?? {}) as { permissions?: { policies?: Record<string, unknown> }; integrations?: { mcpServers?: unknown } };
     if (patch.permissions?.policies) app.permissions.validatePolicyPatch(patch.permissions.policies);
-    if (patch.integrations && 'mcpServers' in patch.integrations) throw new UserError('Manage MCP servers on the Integrations page');
+    if (patch.integrations && ['mcpServers', 'email', 'calendar'].some((k) => k in (patch.integrations as object))) throw new UserError('Manage accounts and servers on the Integrations page');
     const settings = app.settings.update(patch);
     app.activity.log('info', 'settings', 'Settings updated');
     return { settings };

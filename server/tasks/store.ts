@@ -16,6 +16,8 @@ export interface PlanStep {
   agent: AgentName;
   status: StepStatus;
   attempts: number;
+  /** Approval that authorized this step (lets safe automatic retries reuse it). */
+  approvalId?: string;
   output?: unknown;
   outputText?: string;
   untrusted?: boolean;

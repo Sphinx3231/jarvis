@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Bell, Database, Folder, Globe, KeyRound, Mic, Plug, Plus, RefreshCw, Server, Sparkles, Terminal, Trash2, X } from 'lucide-react';
+import { Bell, CalendarDays, Database, Folder, Globe, KeyRound, Mail, Mic, Plug, Plus, RefreshCw, Server, Sparkles, Terminal, Trash2, X } from 'lucide-react';
 import { Badge, Button, Card, ErrorNote, Field, Loading, PageHeader, PolicyBadge, Toggle } from '../components/ui';
-import { api, type Integrations, type McpStatus, type ProviderStatus, type Settings } from '../lib/api';
+import { api, type Integrations, type MailServer, type McpStatus, type ProviderStatus, type Settings } from '../lib/api';
 import { timeAgo } from '../lib/format';
 import { useAction, useLive, useResource } from '../lib/live';
 import { voiceSupport } from '../lib/voice';
@@ -176,8 +176,16 @@ function McpCard({ s }: { s: McpStatus }) {
   );
 }
 
+/** Servers verified with Jarvis's MCP client (see tests/mcp-real.test.ts). They run with npx, so Node.js must be installed. */
+const MCP_PRESETS = [
+  { id: 'custom', label: 'Custom server', name: '', command: 'npx', args: '' },
+  { id: 'filesystem', label: 'Filesystem (official) — give Jarvis a folder', name: 'Filesystem', command: 'npx', args: '-y\n@modelcontextprotocol/server-filesystem\n/path/to/folder' },
+  { id: 'everything', label: 'Everything (official test server)', name: 'MCP test server', command: 'npx', args: '-y\n@modelcontextprotocol/server-everything\nstdio' },
+];
+
 function AddMcp({ onClose }: { onClose: () => void }) {
   const act = useAction();
+  const [preset, setPreset] = useState('custom');
   const [name, setName] = useState('');
   const [command, setCommand] = useState('npx');
   const [args, setArgs] = useState('');
@@ -197,6 +205,26 @@ function AddMcp({ onClose }: { onClose: () => void }) {
   };
   return (
     <div className="form form--inline">
+      <label className="form__row">
+        <span>Start from</span>
+        <select
+          value={preset}
+          onChange={(e) => {
+            const p = MCP_PRESETS.find((x) => x.id === e.target.value)!;
+            setPreset(p.id);
+            setName(p.name);
+            setCommand(p.command);
+            setArgs(p.args);
+          }}
+        >
+          {MCP_PRESETS.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {preset === 'filesystem' && <p className="muted small">Replace the last argument with the folder Jarvis may use. The server refuses paths outside it.</p>}
       <div className="form__grid">
         <label className="form__row">
           <span>Name</span>
@@ -281,6 +309,254 @@ function SemanticMemoryCard({ data, compatible, patch }: { data: Integrations; c
   );
 }
 
+const EMAIL_PRESETS: Record<string, { label: string; imap: MailServer; smtp: MailServer; help: string }> = {
+  gmail: { label: 'Gmail', imap: { host: 'imap.gmail.com', port: 993, security: 'tls' }, smtp: { host: 'smtp.gmail.com', port: 465, security: 'tls' }, help: 'Create an app password: Google Account → Security → 2-Step Verification → App passwords.' },
+  icloud: { label: 'iCloud Mail', imap: { host: 'imap.mail.me.com', port: 993, security: 'tls' }, smtp: { host: 'smtp.mail.me.com', port: 587, security: 'starttls' }, help: 'Create an app-specific password at account.apple.com → Sign-In and Security. Your username is the part before @icloud.com.' },
+  fastmail: { label: 'Fastmail', imap: { host: 'imap.fastmail.com', port: 993, security: 'tls' }, smtp: { host: 'smtp.fastmail.com', port: 465, security: 'tls' }, help: 'Create an app password under Settings → Privacy & Security → Integrations.' },
+  yahoo: { label: 'Yahoo Mail', imap: { host: 'imap.mail.yahoo.com', port: 993, security: 'tls' }, smtp: { host: 'smtp.mail.yahoo.com', port: 465, security: 'tls' }, help: 'Generate an app password under Account Security.' },
+  custom: { label: 'Other (IMAP/SMTP)', imap: { host: '', port: 993, security: 'tls' }, smtp: { host: '', port: 465, security: 'tls' }, help: 'Use the IMAP and SMTP settings from your provider.' },
+};
+
+function ServerFields({ label, value, onChange }: { label: string; value: MailServer; onChange: (v: MailServer) => void }) {
+  return (
+    <div className="form__grid">
+      <label className="form__row">
+        <span>{label} server</span>
+        <input value={value.host} onChange={(e) => onChange({ ...value, host: e.target.value.trim() })} placeholder="mail.example.com" />
+      </label>
+      <label className="form__row">
+        <span>Port</span>
+        <input type="number" value={value.port} onChange={(e) => onChange({ ...value, port: Number(e.target.value) })} />
+      </label>
+      <label className="form__row">
+        <span>Security</span>
+        <select value={value.security} onChange={(e) => onChange({ ...value, security: e.target.value as MailServer['security'] })}>
+          <option value="tls">SSL/TLS</option>
+          <option value="starttls">STARTTLS</option>
+          <option value="none">None (local servers only)</option>
+        </select>
+      </label>
+    </div>
+  );
+}
+
+function CheckBadge({ check, missing }: { check: { ok: boolean; detail: string } | null; missing: string | null }) {
+  if (missing) return <Badge>{missing.includes('turned off') ? 'Off' : 'Not set up'}</Badge>;
+  if (!check) return <Badge tone="info">Not checked yet</Badge>;
+  return check.ok ? <Badge tone="success">Connected</Badge> : <Badge tone="danger">Not working</Badge>;
+}
+
+function EmailCard({ data }: { data: Integrations['email'] }) {
+  const act = useAction();
+  const [editing, setEditing] = useState(!data.address);
+  const [form, setForm] = useState({ address: data.address, displayName: data.displayName, username: data.username, imap: data.imap, smtp: data.smtp, password: '' });
+  const [preset, setPreset] = useState('custom');
+  const [testing, setTesting] = useState(false);
+  const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
+  const save = async (enable: boolean) => {
+    const { password, ...rest } = form;
+    const ok = await act(() => api.put('/api/integrations/email', { ...rest, enabled: enable, ...(password ? { password } : {}) }), 'Email settings saved');
+    if (ok) {
+      set({ password: '' });
+      setEditing(false);
+      setTesting(true);
+      await act(() => api.post('/api/integrations/email/test'));
+      setTesting(false);
+    }
+  };
+  return (
+    <Card title="Email" icon={<Mail size={18} />} action={<CheckBadge check={data.lastCheck} missing={data.missing} />}>
+      <p className="muted small">Jarvis searches and reads mail over IMAP and sends over SMTP. Reading asks first by default; every message sent needs your approval.</p>
+      {data.address && !editing && (
+        <div className="integration__row">
+          <span>
+            <strong>{data.address}</strong> <span className="muted small">· IMAP {data.imap.host} · SMTP {data.smtp.host}</span>
+          </span>
+          <span className="spacer" />
+          <Toggle checked={data.enabled} onChange={(v) => act(() => api.put('/api/integrations/email', { enabled: v }))} ariaLabel="Use email" />
+          <Button size="sm" icon={<RefreshCw size={14} />} busy={testing} onClick={async () => (setTesting(true), await act(() => api.post('/api/integrations/email/test')), setTesting(false))}>
+            Test
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
+            Change
+          </Button>
+        </div>
+      )}
+      {data.lastCheck && !editing && <div className={`small ${data.lastCheck.ok ? 'muted' : 'bad'}`}>{data.lastCheck.detail}</div>}
+      {editing && (
+        <div className="form form--inline">
+          <label className="form__row">
+            <span>Provider</span>
+            <select
+              value={preset}
+              onChange={(e) => {
+                setPreset(e.target.value);
+                const p = EMAIL_PRESETS[e.target.value];
+                set({ imap: p.imap, smtp: p.smtp });
+              }}
+            >
+              {Object.entries(EMAIL_PRESETS).map(([id, p]) => (
+                <option key={id} value={id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="muted small">
+            {EMAIL_PRESETS[preset].help} Outlook.com and Microsoft 365 only allow Microsoft sign-in (OAuth), which Jarvis doesn’t support yet.
+          </p>
+          <div className="form__grid">
+            <label className="form__row">
+              <span>Email address</span>
+              <input value={form.address} onChange={(e) => set({ address: e.target.value.trim() })} placeholder="you@example.com" />
+            </label>
+            <label className="form__row">
+              <span>Your name (sender)</span>
+              <input value={form.displayName} onChange={(e) => set({ displayName: e.target.value })} />
+            </label>
+            <label className="form__row">
+              <span>Username (if different)</span>
+              <input value={form.username} onChange={(e) => set({ username: e.target.value.trim() })} placeholder="usually your address" />
+            </label>
+            <label className="form__row">
+              <span>App password</span>
+              <input type="password" autoComplete="off" value={form.password} onChange={(e) => set({ password: e.target.value })} placeholder={data.passwordSet ? 'Stored — enter to replace' : 'App password'} />
+            </label>
+          </div>
+          <ServerFields label="IMAP (incoming)" value={form.imap} onChange={(imap) => set({ imap })} />
+          <ServerFields label="SMTP (outgoing)" value={form.smtp} onChange={(smtp) => set({ smtp })} />
+          <div className="form__actions">
+            {data.address && (
+              <Button variant="ghost" onClick={() => setEditing(false)}>
+                Cancel
+              </Button>
+            )}
+            <Button variant="primary" disabled={!form.address || !form.imap.host || !form.smtp.host || (!form.password && !data.passwordSet)} onClick={() => save(true)}>
+              Save and connect
+            </Button>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+const CALDAV_PRESETS: Record<string, { label: string; url: string; help: string }> = {
+  icloud: { label: 'iCloud', url: 'https://caldav.icloud.com/', help: 'Use your Apple ID email and an app-specific password.' },
+  fastmail: { label: 'Fastmail', url: 'https://caldav.fastmail.com/', help: 'Use your Fastmail address and an app password.' },
+  nextcloud: { label: 'Nextcloud', url: 'https://your-server/remote.php/dav/', help: 'Replace your-server with your Nextcloud address.' },
+  custom: { label: 'Other CalDAV server', url: '', help: 'The CalDAV address from your provider.' },
+};
+
+function CalendarCard({ data }: { data: Integrations['calendar'] }) {
+  const act = useAction();
+  const c = data.caldav;
+  const [editing, setEditing] = useState(false);
+  const [preset, setPreset] = useState('custom');
+  const [form, setForm] = useState({ serverUrl: c.serverUrl, username: c.username, password: '' });
+  const [feedName, setFeedName] = useState('');
+  const [feedUrl, setFeedUrl] = useState('');
+  const [testing, setTesting] = useState(false);
+  const test = async () => (setTesting(true), await act(() => api.post('/api/integrations/calendar/test')), setTesting(false));
+  return (
+    <Card title="Calendar" icon={<CalendarDays size={18} />} action={<CheckBadge check={data.lastCheck} missing={c.missing && !data.feeds.length ? c.missing : null} />}>
+      <p className="muted small">Read events from CalDAV accounts and calendar feeds; add events to a CalDAV calendar (asks first by default).</p>
+      <h3 className="section-title">CalDAV account (read and add events)</h3>
+      {c.serverUrl && !editing ? (
+        <div className="integration__row">
+          <span>
+            <strong>{c.username}</strong> <span className="muted small">· {c.serverUrl}</span>
+          </span>
+          <span className="spacer" />
+          <Toggle checked={c.enabled} onChange={(v) => act(() => api.put('/api/integrations/calendar/caldav', { enabled: v }))} ariaLabel="Use CalDAV calendar" />
+          <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
+            Change
+          </Button>
+        </div>
+      ) : !editing ? (
+        <Button size="sm" icon={<Plus size={14} />} onClick={() => setEditing(true)}>
+          Connect a CalDAV calendar
+        </Button>
+      ) : null}
+      {editing && (
+        <div className="form form--inline">
+          <label className="form__row">
+            <span>Provider</span>
+            <select value={preset} onChange={(e) => (setPreset(e.target.value), setForm((f) => ({ ...f, serverUrl: CALDAV_PRESETS[e.target.value].url || f.serverUrl })))}>
+              {Object.entries(CALDAV_PRESETS).map(([id, p]) => (
+                <option key={id} value={id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="muted small">{CALDAV_PRESETS[preset].help} Google and Outlook calendars: add their private iCal/ICS link below instead.</p>
+          <div className="form__grid">
+            <label className="form__row">
+              <span>Server address</span>
+              <input value={form.serverUrl} onChange={(e) => setForm((f) => ({ ...f, serverUrl: e.target.value.trim() }))} placeholder="https://…" />
+            </label>
+            <label className="form__row">
+              <span>Username</span>
+              <input value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value.trim() }))} />
+            </label>
+            <label className="form__row">
+              <span>App password</span>
+              <input type="password" autoComplete="off" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} placeholder={c.passwordSet ? 'Stored — enter to replace' : ''} />
+            </label>
+          </div>
+          <div className="form__actions">
+            <Button variant="ghost" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!form.serverUrl || !form.username || (!form.password && !c.passwordSet)}
+              onClick={async () => {
+                const ok = await act(
+                  () => api.put('/api/integrations/calendar/caldav', { enabled: true, serverUrl: form.serverUrl, username: form.username, ...(form.password ? { password: form.password } : {}) }),
+                  'Calendar saved',
+                );
+                if (ok) {
+                  setEditing(false);
+                  await test();
+                }
+              }}
+            >
+              Save and connect
+            </Button>
+          </div>
+        </div>
+      )}
+      <h3 className="section-title">Subscribed feeds (read-only)</h3>
+      {data.feeds.length === 0 && <p className="muted small">None. In Google Calendar use “Secret address in iCal format”; in Outlook use “Publish calendar → ICS”.</p>}
+      <ul className="tool-list">
+        {data.feeds.map((f) => (
+          <li key={f.id} className="inline">
+            {f.name}
+            <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} aria-label={`Remove ${f.name}`} onClick={() => act(() => api.del(`/api/integrations/calendar/feeds/${f.id}`), 'Feed removed')} />
+          </li>
+        ))}
+      </ul>
+      <div className="form__grid">
+        <input placeholder="Name, e.g. Work" value={feedName} onChange={(e) => setFeedName(e.target.value)} aria-label="Feed name" />
+        <input placeholder="https://… or webcal://… (.ics link)" value={feedUrl} onChange={(e) => setFeedUrl(e.target.value)} aria-label="Feed URL" />
+        <Button size="sm" icon={<Plus size={14} />} disabled={!feedName.trim() || feedUrl.trim().length < 8} onClick={async () => (await act(() => api.post('/api/integrations/calendar/feeds', { name: feedName.trim(), url: feedUrl.trim() }), 'Feed added')) && (setFeedName(''), setFeedUrl(''), await test())}>
+          Add feed
+        </Button>
+      </div>
+      {data.lastCheck && <div className={`small ${data.lastCheck.ok ? 'muted' : 'bad'}`}>{data.lastCheck.detail}</div>}
+      {(c.serverUrl || data.feeds.length > 0) && (
+        <div className="form__actions">
+          <Button size="sm" icon={<RefreshCw size={14} />} busy={testing} onClick={test}>
+            Test calendars
+          </Button>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function BrowserCapabilities({ transcription }: { transcription: Integrations['transcription'] }) {
   const [perm, setPerm] = useState(() => ('Notification' in window ? Notification.permission : 'unsupported'));
   return (
@@ -359,6 +635,11 @@ export function IntegrationsPage() {
       </Card>
 
       <div className="grid-2">
+        <EmailCard key={`${data.email.address}-${data.email.imap.host}`} data={data.email} />
+        <CalendarCard data={data.calendar} />
+      </div>
+
+      <div className="grid-2">
         <Card title="Local files" icon={<Folder size={18} />}>
           <Field label="Workspace folder" hint="Jarvis can only read and write inside this folder.">
             <div className="inline">
@@ -395,7 +676,7 @@ export function IntegrationsPage() {
       </div>
       <BrowserCapabilities transcription={data.transcription} />
       <p className="muted small center">
-        <Plug size={12} /> Email, calendar and other accounts connect through MCP servers — Jarvis doesn’t pretend to have integrations it can’t actually use.
+        <Plug size={12} /> Other services connect through MCP servers. Jarvis only lists integrations it can actually use.
       </p>
     </div>
   );

@@ -165,9 +165,14 @@ export class Jarvis {
         return `Done — ${intent.action === 'cancel' ? 'cancelled' : intent.action === 'pause' ? 'paused' : 'resumed'} “${t.title}”.`;
       }
       case 'read_file':
-      case 'list_files': {
+      case 'list_files':
+      case 'calendar':
+      case 'check_email': {
         const plan = planFromIntent(intent, { llmAvailable: false })!;
         const step = plan.steps[0];
+        if (!this.d.registry.availability(this.d.registry.get(step.skill)!).available) {
+          return `I can't do that yet: ${this.d.registry.availability(this.d.registry.get(step.skill)!).reason}.`;
+        }
         const result = await this.d.runner.invoke({ agent: 'jarvis', skill: step.skill, input: step.input, conversationId });
         actions.push({ type: 'tool_used', skill: step.skill, ok: result.status === 'ok' });
         if (result.status === 'ok') return truncate(result.description, 6000);

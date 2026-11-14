@@ -1,4 +1,4 @@
-import { Bot, Brain, Cpu, FileText, Globe, ListChecks, Plug, Sparkles, Terminal } from 'lucide-react';
+import { Bot, Brain, CalendarDays, Cpu, FileText, Globe, ListChecks, Mail, Plug, Sparkles, Terminal } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Badge, Card, ErrorNote, Loading, PageHeader, PolicyBadge } from '../components/ui';
 import type { SkillInfo } from '../lib/api';
@@ -13,6 +13,8 @@ const CATEGORY: Record<string, { label: string; icon: ReactNode }> = {
   files: { label: 'Local files', icon: <FileText size={18} /> },
   web: { label: 'Web', icon: <Globe size={18} /> },
   shell: { label: 'Shell', icon: <Terminal size={18} /> },
+  email: { label: 'Email', icon: <Mail size={18} /> },
+  calendar: { label: 'Calendar', icon: <CalendarDays size={18} /> },
   mcp: { label: 'MCP integrations', icon: <Plug size={18} /> },
 };
 

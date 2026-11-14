@@ -46,6 +46,10 @@ export function planFromIntent(intent: Intent, opts: { llmAvailable: boolean }):
       return { title: `Read ${intent.path}`, steps: [{ skill: 'files.read', input: { path: intent.path }, description: `Read ${intent.path}` }] };
     case 'list_files':
       return { title: 'List workspace files', steps: [{ skill: 'files.list', input: intent.path ? { path: intent.path } : {}, description: 'List files' }] };
+    case 'calendar':
+      return { title: `Calendar: next ${intent.days} day(s)`, steps: [{ skill: 'calendar.events', input: { days: intent.days }, description: 'List events' }] };
+    case 'check_email':
+      return { title: intent.unreadOnly ? 'Check unread email' : 'Check email', steps: [{ skill: 'email.search', input: { unreadOnly: intent.unreadOnly, limit: 10 }, description: 'Search mailbox' }] };
     case 'remind':
       return {
         title: `Reminder: ${intent.message.slice(0, 80)}`,
