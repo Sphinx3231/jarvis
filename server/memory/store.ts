@@ -236,12 +236,16 @@ export class MemoryStore {
     return changes > 0;
   }
 
-  list(opts: { kind?: MemoryKind; verified?: boolean; limit?: number; offset?: number } = {}): Memory[] {
+  list(opts: { kind?: MemoryKind; verified?: boolean; limit?: number; offset?: number; excludeKinds?: MemoryKind[] } = {}): Memory[] {
     const where: string[] = [];
     const params: (string | number)[] = [];
     if (opts.kind) {
       where.push('kind = ?');
       params.push(opts.kind);
+    }
+    for (const k of opts.excludeKinds ?? []) {
+      where.push('kind != ?');
+      params.push(k);
     }
     if (opts.verified !== undefined) {
       where.push('verified = ?');
@@ -360,7 +364,10 @@ export class MemoryStore {
     let merged = 0;
     for (const kind of MEMORY_KINDS) {
       if (kind === 'tool_doc') continue;
-      const items = this.list({ kind, limit: maxPerKind }).sort((a, b) => Number(b.verified) - Number(a.verified) || a.createdAt - b.createdAt);
+      // Keep the oldest verified memory; rowid breaks ties deterministically (insertion order).
+      const items = this.db
+        .all<Record<string, unknown>>(`SELECT ${MemoryStore.COLS} FROM memories WHERE kind = ? ORDER BY verified DESC, created_at ASC, rowid ASC LIMIT ?`, kind, maxPerKind)
+        .map((r) => this.map(r));
       const removed = new Set<string>();
       for (let i = 0; i < items.length; i++) {
         const keep = items[i];

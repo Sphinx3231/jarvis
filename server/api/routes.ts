@@ -127,9 +127,11 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
     if (kind && !MEMORY_KINDS.includes(kind)) throw new UserError('Unknown memory kind');
     const verifiedParam = query.get('verified');
     const verified = verifiedParam === null ? undefined : verifiedParam === 'true';
+    // Tool documentation is generated from the skill registry; it has its own filter.
+    const excludeKinds = kind ? [] : (['tool_doc'] as const).slice();
     const memories = q
-      ? app.memory.keywordSearch(q, { kind: kind ?? undefined, limit: 100 }).filter((m) => verified === undefined || m.verified === verified)
-      : app.memory.list({ kind: kind ?? undefined, verified, limit: Number(query.get('limit') ?? 200) });
+      ? app.memory.keywordSearch(q, { kind: kind ?? undefined, limit: 100, excludeKinds }).filter((m) => verified === undefined || m.verified === verified)
+      : app.memory.list({ kind: kind ?? undefined, verified, excludeKinds, limit: Number(query.get('limit') ?? 200) });
     return { memories, stats: app.memory.stats() };
   });
   router.post('/api/memory', ({ body }) => {
