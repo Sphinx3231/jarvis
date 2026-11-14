@@ -40,10 +40,16 @@ test('jarvis without a model: direct commands work, everything else is answered 
     const r2 = await app.jarvis.handleMessage({ text: 'what do you remember about answers?', conversationId: r1.conversationId });
     assert.match(r2.reply.content, /short answers/);
 
+    // The user's own command needs no second approval…
     const r3 = await app.jarvis.handleMessage({ text: 'run `echo hi`', conversationId: r1.conversationId, via: 'voice' });
-    assert.match(r3.reply.content, /needs your approval/);
-    const taskId = (r3.actions[0] as { taskId: string }).taskId;
-    assert.equal(app.tasks.get(taskId)!.origin, 'voice');
+    assert.match(r3.reply.content, /You asked for it/);
+    const ran = (r3.actions[0] as { taskId: string }).taskId;
+    assert.equal(app.tasks.get(ran)!.origin, 'voice');
+    await waitFor(() => app.tasks.get(ran)!.status === 'completed', 5000, 'requested command ran');
+
+    // …a task Jarvis started without the user's words does.
+    const { task: unasked } = app.engine.createTask({ title: 'Clean up', origin: 'system', steps: [{ skill: 'shell.run', input: { command: 'echo cleanup' }, description: 'clean' }] });
+    const taskId = unasked.id;
     await waitFor(() => app.tasks.get(taskId)!.status === 'awaiting_approval');
 
     // Saying "approve" (by text or voice) never authorizes anything.

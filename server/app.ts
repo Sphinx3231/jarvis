@@ -21,6 +21,7 @@ import { RoamiesEngine } from './llm/engine.ts';
 import { MemoryStore } from './memory/store.ts';
 import { PermissionEngine } from './permissions/engine.ts';
 import { RoamiesGate } from './roamies/gate.ts';
+import { RequestScope } from './permissions/request-scope.ts';
 import { ROAMIES_RELEASES_URL } from './roamies/detect.ts';
 import { Scheduler } from './scheduler/scheduler.ts';
 import { registerBuiltinSkills } from './skills/builtin/index.ts';
@@ -128,6 +129,7 @@ export class JarvisApp {
       bus: this.bus,
       settings: this.settings,
       onCompleted: (task) => this.memoryAgent.recordTask(task),
+      requestScope: new RequestScope({ settings: this.settings, engine: this.llm, activity: this.activity }),
     });
     this.state = new StateTracker(this.bus, () => this.engine.runningCount);
     this.mcp = new McpManager({ settings: this.settings, secrets: this.secrets, registry: this.registry, activity: this.activity, bus: this.bus, permissions: this.permissions });

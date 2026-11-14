@@ -123,7 +123,9 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
   router.post('/api/tasks', ({ body }) => {
     const b = parse(TaskBody, body);
     const scheduledFor = b.scheduledFor ?? (b.delayMinutes ? Date.now() + b.delayMinutes * 60_000 : null);
-    return app.engine.createTask({ title: b.title, description: b.description, priority: b.priority, origin: 'user', steps: b.steps ?? null, scheduledFor, recurrence: b.recurrence ?? null });
+    // What the user typed is their request: steps that are part of it run without asking again.
+    const request = { text: [b.title, b.description].filter(Boolean).join('\n\n'), via: 'user' as const };
+    return app.engine.createTask({ title: b.title, description: b.description, priority: b.priority, origin: 'user', steps: b.steps ?? null, scheduledFor, recurrence: b.recurrence ?? null, request });
   });
   router.get('/api/tasks/:id', ({ params }) => {
     const task = app.tasks.require(params.id);

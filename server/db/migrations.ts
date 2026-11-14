@@ -225,4 +225,15 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 4,
+    sql: `
+      -- The user's own words that created a task: steps that are part of the request run
+      -- without a second approval; anything else still asks.
+      ALTER TABLE tasks ADD COLUMN request TEXT;
+      -- Who approved: the user, or the user's request itself (with the reason).
+      ALTER TABLE approvals ADD COLUMN decided_by TEXT;
+      ALTER TABLE approvals ADD COLUMN reason TEXT;
+    `,
+  },
 ];

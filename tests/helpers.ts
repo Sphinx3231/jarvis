@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server } from 'node:http';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { registerPalsuProvider, type PalsuProviderHandle, type PalsuResponse } from '@kenkaiiii/gg-ai';
+import { palsuText, registerPalsuProvider, type Message, type PalsuProviderHandle, type PalsuResponse } from '@kenkaiiii/gg-ai';
 import { JarvisApp } from '../server/app.ts';
 
 // All test instances share one copy of the built-in embedding model (downloaded at most once).
@@ -32,14 +32,42 @@ export function clearRoamiesAuth(): void {
 
 const palsus: PalsuProviderHandle[] = [];
 
+/** A scripted model. Calls that check an action against the user's request are answered separately. */
+export interface ScriptedModel {
+  setResponses(responses: PalsuResponse[]): void;
+  appendResponses(...responses: PalsuResponse[]): void;
+  /** How the request check answers: part of the request or not (default: not). */
+  verdict: { partOfRequest: boolean; reason: string };
+  /** Every request check the model was asked, with what it was shown. */
+  checks: Array<{ system: string; prompt: string }>;
+}
+
+const isRequestCheck = (messages: Message[]): boolean => messages.some((m) => m.role === 'system' && typeof m.content === 'string' && m.content.includes('You only judge; you never take actions.'));
+
 /** Pick gg-ai's offline test provider in Roamies, so Jarvis thinks with scripted replies. */
-export async function usePalsu(app: JarvisApp, responses: PalsuResponse[] = []): Promise<PalsuProviderHandle> {
-  const palsu = registerPalsuProvider();
+export async function usePalsu(app: JarvisApp, responses: PalsuResponse[] = []): Promise<ScriptedModel> {
+  let queue = [...responses];
+  const scripted: ScriptedModel = {
+    setResponses: (r) => void (queue = [...r]),
+    appendResponses: (...r) => void queue.push(...r),
+    verdict: { partOfRequest: false, reason: 'The user did not ask for this.' },
+    checks: [],
+  };
+  const palsu = registerPalsuProvider({
+    defaultResponse: (messages, options, state) => {
+      if (isRequestCheck(messages)) {
+        scripted.checks.push({ system: String(messages[0].content), prompt: String(messages.at(-1)!.content) });
+        return palsuText(JSON.stringify(scripted.verdict));
+      }
+      const next = queue.shift();
+      if (!next) return palsuText('');
+      return typeof next === 'function' ? next(messages, options, state) : next;
+    },
+  });
   palsus.push(palsu);
-  palsu.setResponses(responses);
   roamiesConfig({ provider: 'palsu', model: 'jarvis-test' });
   await app.llm.refresh(true);
-  return palsu;
+  return scripted;
 }
 
 export function tempDir(prefix = 'jarvis-test-'): string {

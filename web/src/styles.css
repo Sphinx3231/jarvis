@@ -1696,6 +1696,10 @@ button.chip:hover {
   font-weight: 600;
   overflow-wrap: anywhere;
 }
+.approval__reason {
+  color: var(--warning);
+  overflow-wrap: anywhere;
+}
 .approval__meta {
   display: flex;
   flex-wrap: wrap;

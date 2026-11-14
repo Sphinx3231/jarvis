@@ -26,7 +26,11 @@ Models that support tools (e.g. Qwen 3, Llama 3.1) can do everything. Models tha
 
 ### Guardrails come from the model
 
-Jarvis adds no content rules of its own: what it will or won't talk about is decided entirely by the model it is connected to — Claude's own behaviour with Claude, DeepSeek's with a local DeepSeek, and so on. Your message reaches the model as you wrote it and its answer comes back as written; if the model declines, Jarvis tells you the model declined. What Jarvis does keep are *your* controls over actions taken on your behalf — asking before it runs commands, sends email or writes files (Settings → Permissions) — and its protection against instructions hidden in web pages and files.
+Jarvis adds no content rules of its own: what it will or won't talk about is decided entirely by the model it is connected to — Claude's own behaviour with Claude, DeepSeek's with a local DeepSeek, and so on. Your message reaches the model as you wrote it and its answer comes back as written; if the model declines, Jarvis tells you the model declined. What Jarvis does keep is *your* control over actions taken on your behalf (below) and its protection against instructions hidden in web pages and files.
+
+### Your request is the approval
+
+Jarvis does what you ask without asking again: every step of a task you asked for is checked against your own words, and steps that are clearly part of it — the command you typed, the page you asked it to fetch, the email you asked it to send — just run. Anything **not** part of what you asked needs your explicit approval, with the reason shown on the approval card: extra steps the model added, tasks Jarvis or a schedule started on its own, and any action containing text that looks like instructions from a web page or file. The check uses your literal words first, then a separate model call with no tools that sees only your words, Jarvis's previous reply and the exact action — never the planning model's own claims. When in doubt, it asks. A permission set to *Deny* stays denied. Turn it off in Settings → Permissions → *Do what I ask without asking again* to approve every consequential step yourself.
 
 ## Install the desktop app
 
@@ -97,7 +101,7 @@ Everything else is in **Settings** inside the app.
 - **Any model.** Whatever Roamies is signed in to, or a local model on your own computer.
 - **Talks and understands.** Natural-language requests go to the central intelligence: fast rule-based intents for explicit commands, otherwise a model with tools. Read-only tools (memory, tasks, status, workspace files) run inline; anything that does work becomes a task.
 - **Runs tasks in the background.** A persistent task engine with priorities, scheduling, recurrence, pause/resume/cancel/retry, per-step verification, retries for steps that are safe to repeat, and crash recovery that **never repeats an action whose outcome is uncertain**.
-- **Asks before acting.** Every skill call goes through one permission engine. Internal work runs automatically; external actions ask first by default; shell commands always ask. Approvals are single-use; you can remember one *exact* action for recurring work. Voice and chat can never approve anything.
+- **Does what you ask; asks about the rest.** Every skill call goes through one permission engine. What you asked for runs; anything beyond it asks first, with the reason. Approvals are single-use and bound to the exact action; you can remember one *exact* action for recurring work. Saying "approve" in chat or by voice never approves a pending action.
 - **Remembers.** Long-term memory (preferences, projects, decisions, procedures, facts, task history, tool docs) with sources, confidence, verified/unverified status, deduplication, full-text search and optional semantic embeddings. You can search, confirm, correct and delete everything.
 - **Keeps watch.** Background jobs monitor tasks, recover stalled work, remind you about pending approvals, organise memory and check integrations — without unnecessary model calls.
 - **Extends.** Skills are modular; MCP servers add tools (calendar, email, notes, dev tools…) as permission-gated skills.

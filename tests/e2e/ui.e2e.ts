@@ -66,15 +66,22 @@ try {
 
   await input.fill('run `echo hello-from-the-ui`');
   await input.press('Enter');
-  await page.getByText(/needs your approval/).first().waitFor();
-  await page.locator('.approval').waitFor();
-  await shot('02-home-approval');
-  step('consequential command waits for approval on the dashboard');
+  await page.getByText(/You asked for it, so it runs without another approval/).first().waitFor();
+  await page.locator('.dragon--success').waitFor({ timeout: 10_000 });
+  await shot('02-home-requested');
+  step('a command you asked for runs straight away (your request is the approval)');
+
+  // Something nobody asked for still waits for explicit approval, and says why.
+  running.app.engine.createTask({ title: 'Housekeeping', origin: 'system', steps: [{ skill: 'shell.run', input: { command: 'echo unrequested' }, description: 'Run housekeeping' }] });
+  await page.locator('.approval', { hasText: 'echo unrequested' }).waitFor();
+  await page.locator('.approval__reason', { hasText: 'Nobody asked for this task directly' }).waitFor();
+  await shot('03-home-approval');
+  step('an action nobody asked for waits for approval with the reason');
 
   await page.locator('.approval').getByRole('button', { name: 'Approve' }).click();
   await page.locator('.dragon--success').waitFor({ timeout: 10_000 });
-  await shot('03-home-success');
-  step('approval runs the task; dragon shows success from the real completion event');
+  await page.locator('.approval').waitFor({ state: 'detached' });
+  step('approving runs it; dragon shows success from the real completion event');
 
   await page.getByRole('button', { name: /Task queued: Run: echo hello-from-the-ui/ }).click();
   await page.locator('.task-detail').waitFor();

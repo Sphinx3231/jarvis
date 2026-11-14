@@ -110,6 +110,9 @@ export interface Approval {
   scope: string;
   status: string;
   createdAt: number;
+  /** Why it needs your approval, e.g. it is not part of what you asked for. */
+  reason: string | null;
+  decidedBy: 'user' | 'request' | null;
 }
 
 export interface Memory {
@@ -407,7 +410,7 @@ export interface Settings {
     approvalReminderMin: number;
   };
   tasks: { stepTimeoutSec: number; maxAttempts: number };
-  permissions: { policies: Record<string, 'allow' | 'ask' | 'deny'> };
+  permissions: { policies: Record<string, 'allow' | 'ask' | 'deny'>; followRequests: boolean };
   voice: {
     enabled: boolean;
     autoSpeak: boolean;

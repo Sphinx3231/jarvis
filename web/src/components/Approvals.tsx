@@ -18,6 +18,7 @@ function ApprovalItem({ approval, compact }: { approval: Approval; compact?: boo
   return (
     <li className="approval">
       <div className="approval__summary">{approval.summary}</div>
+      {approval.reason && <div className="approval__reason small">{approval.reason}</div>}
       <div className="approval__meta">
         <button className="link" onClick={() => navigate({ page: 'tasks', id: approval.taskId })}>
           {approval.taskTitle}

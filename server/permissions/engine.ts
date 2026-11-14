@@ -54,6 +54,10 @@ export interface Approval {
   createdAt: number;
   decidedAt: number | null;
   decisionNote: string | null;
+  /** user: you decided; request: covered by what you asked for. */
+  decidedBy: 'user' | 'request' | null;
+  /** Why this needs your approval (e.g. it is not part of what you asked for). */
+  reason: string | null;
 }
 
 export interface Grant {
@@ -149,7 +153,18 @@ export class PermissionEngine {
     if (decision.grantId) this.db.run('UPDATE grants SET uses = uses + 1 WHERE id = ?', decision.grantId);
   }
 
-  requestApproval(params: { taskId: string; stepIndex: number; skill: Skill; input: unknown }): Approval {
+  /**
+   * The step is part of what the user asked for: their request authorizes it. Recorded as an approval
+   * (single-use, bound to this exact input, task and step) so the audit trail shows why it ran.
+   */
+  approveByRequest(params: { taskId: string; stepIndex: number; skill: Skill; input: unknown; reason: string }): Approval {
+    const approval = this.requestApproval({ ...params, silent: true });
+    this.db.run("UPDATE approvals SET status = 'approved', decided_at = ?, decided_by = 'request', decision_note = ? WHERE id = ? AND status = 'pending'", now(), params.reason, approval.id);
+    this.activity.log('info', 'permissions', `Part of your request, so no extra approval: ${approval.summary}`, { taskId: params.taskId, skill: approval.skill });
+    return this.getApproval(approval.id)!;
+  }
+
+  requestApproval(params: { taskId: string; stepIndex: number; skill: Skill; input: unknown; reason?: string; silent?: boolean }): Approval {
     const hash = inputHash(params.skill.name, params.input);
     const existing = this.db.get<Record<string, unknown>>(
       "SELECT * FROM approvals WHERE task_id = ? AND step_index = ? AND input_hash = ? AND status IN ('pending', 'approved')",
@@ -171,9 +186,11 @@ export class PermissionEngine {
       createdAt: now(),
       decidedAt: null,
       decisionNote: null,
+      decidedBy: null,
+      reason: params.reason ?? null,
     };
     this.db.run(
-      'INSERT INTO approvals (id, task_id, step_index, skill, input, input_hash, summary, scope, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO approvals (id, task_id, step_index, skill, input, input_hash, summary, scope, status, created_at, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       approval.id,
       approval.taskId,
       approval.stepIndex,
@@ -184,8 +201,10 @@ export class PermissionEngine {
       approval.scope,
       'pending',
       approval.createdAt,
+      approval.reason,
     );
-    this.activity.log('warning', 'permissions', `Approval needed: ${approval.summary}`, { taskId: approval.taskId, skill: approval.skill });
+    if (params.silent) return approval;
+    this.activity.log('warning', 'permissions', `Approval needed: ${approval.summary}${approval.reason ? ` — ${approval.reason}` : ''}`, { taskId: approval.taskId, skill: approval.skill });
     this.bus.emit('approval.updated', { id: approval.id, taskId: approval.taskId, status: 'pending' });
     return approval;
   }
@@ -204,6 +223,8 @@ export class PermissionEngine {
       createdAt: Number(r.created_at),
       decidedAt: r.decided_at === null ? null : Number(r.decided_at),
       decisionNote: (r.decision_note as string | null) ?? null,
+      decidedBy: (r.decided_by as Approval['decidedBy']) ?? null,
+      reason: (r.reason as string | null) ?? null,
     };
   }
 
@@ -238,7 +259,7 @@ export class PermissionEngine {
     if (!approval) throw new UserError('Approval not found', 404);
     if (approval.status !== 'pending') throw new UserError(`Approval is already ${approval.status}`, 409);
     const status = decision === 'approve' ? 'approved' : 'denied';
-    this.db.run('UPDATE approvals SET status = ?, decided_at = ?, decision_note = ? WHERE id = ?', status, now(), opts.note ?? null, id);
+    this.db.run("UPDATE approvals SET status = ?, decided_at = ?, decision_note = ?, decided_by = 'user' WHERE id = ?", status, now(), opts.note ?? null, id);
     if (decision === 'approve' && opts.remember) {
       const scope = this.scopeDefinition(approval.scope);
       this.db.run(

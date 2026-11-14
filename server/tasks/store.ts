@@ -1,3 +1,4 @@
+import type { TaskRequest } from '../permissions/request-scope.ts';
 import type { Database } from '../db/database.ts';
 import type { EventBus } from '../core/events.ts';
 import { newId, now, parseJson, truncate, UserError } from '../core/util.ts';
@@ -61,6 +62,8 @@ export interface Task {
   recurrence: Recurrence | null;
   parentId: string | null;
   dedupeKey: string | null;
+  /** The user's own words that created the task (null for tasks Jarvis started itself). */
+  request: TaskRequest | null;
   createdAt: number;
   updatedAt: number;
   startedAt: number | null;
@@ -127,6 +130,7 @@ export class TaskStore {
       recurrence: parseJson<Recurrence | null>(r.recurrence as string | null, null),
       parentId: (r.parent_id as string | null) ?? null,
       dedupeKey: (r.dedupe_key as string | null) ?? null,
+      request: parseJson<TaskRequest | null>(r.request as string | null, null),
       createdAt: Number(r.created_at),
       updatedAt: Number(r.updated_at),
       startedAt: r.started_at === null ? null : Number(r.started_at),
@@ -148,12 +152,13 @@ export class TaskStore {
     parentId?: string | null;
     dedupeKey?: string | null;
     maxAttempts?: number;
+    request?: TaskRequest | null;
   }): Task {
     const id = newId('tsk');
     const ts = now();
     this.db.run(
-      `INSERT INTO tasks (id, title, description, priority, status, origin, conversation_id, plan, required_permissions, scheduled_for, recurrence, parent_id, dedupe_key, max_attempts, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, title, description, priority, status, origin, conversation_id, plan, required_permissions, scheduled_for, recurrence, parent_id, dedupe_key, max_attempts, request, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       t.title.slice(0, 200),
       (t.description ?? '').slice(0, 4000),
@@ -167,6 +172,7 @@ export class TaskStore {
       t.parentId ?? null,
       t.dedupeKey ?? null,
       t.maxAttempts ?? 2,
+      t.request ? JSON.stringify({ ...t.request, text: t.request.text.slice(0, 8000), previousReply: t.request.previousReply?.slice(0, 4000) }) : null,
       ts,
       ts,
     );

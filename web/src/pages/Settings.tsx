@@ -236,7 +236,15 @@ export function SettingsPage() {
       </Card>
 
       <Card title="Permissions" icon={<Shield size={18} />}>
-        <p className="muted small">What Jarvis may do without asking. External actions ask first by default. Shell commands always ask.</p>
+        <Field
+          label="Do what I ask without asking again"
+          hint="Your request is your approval: steps that are clearly part of what you asked — the command you typed, the email you asked for — just run. Anything beyond what you asked, anything Jarvis starts on its own, and anything containing instructions from a web page or file still waits for your explicit approval. A permission set to Deny stays denied."
+        >
+          <Toggle checked={s.permissions.followRequests} onChange={(v) => save({ permissions: { followRequests: v } })} ariaLabel="Do what I ask without asking again" />
+        </Field>
+        <p className="muted small">
+          What Jarvis may do without asking{s.permissions.followRequests ? ' when it is not something you asked for' : ''}. External actions ask first by default. Shell commands and sending email can't be set to “allow” for everything.
+        </p>
         {!perms.data ? (
           <Loading />
         ) : (

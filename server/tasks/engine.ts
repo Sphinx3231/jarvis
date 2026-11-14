@@ -4,6 +4,7 @@ import type { SettingsStore } from '../core/settings.ts';
 import { errorMessage, now, sleep, truncate, UserError } from '../core/util.ts';
 import type { DraftStep, Planner } from '../agents/planner.ts';
 import type { PermissionEngine } from '../permissions/engine.ts';
+import type { RequestScope, TaskRequest } from '../permissions/request-scope.ts';
 import type { SkillRegistry } from '../skills/registry.ts';
 import type { SkillRunner } from '../skills/runner.ts';
 import { boundOutput, type PlanStep, type Recurrence, type Task, type TaskStore } from './store.ts';
@@ -18,6 +19,8 @@ export interface CreateTaskInput {
   scheduledFor?: number | null;
   recurrence?: Recurrence | null;
   dedupeKey?: string | null;
+  /** The user's own words that asked for this task. Steps that are part of it need no second approval. */
+  request?: TaskRequest | null;
 }
 
 /** Resolve {{steps.N.output.path}} / {{steps.N.text}} references against completed steps. */
@@ -84,6 +87,7 @@ export class TaskEngine {
   private bus: EventBus;
   private settings: SettingsStore;
   private onCompleted: (task: Task) => void;
+  private requestScope: RequestScope | null;
 
   private running = new Map<string, RunningTask>();
   private locks = new Map<string, string>();
@@ -102,7 +106,9 @@ export class TaskEngine {
     bus: EventBus;
     settings: SettingsStore;
     onCompleted?: (task: Task) => void;
+    requestScope?: RequestScope | null;
   }) {
+    this.requestScope = deps.requestScope ?? null;
     this.store = deps.store;
     this.runner = deps.runner;
     this.registry = deps.registry;
@@ -212,6 +218,7 @@ export class TaskEngine {
       recurrence: input.recurrence ?? null,
       dedupeKey: input.dedupeKey ?? null,
       maxAttempts: this.settings.get().tasks.maxAttempts,
+      request: input.request ?? null,
     });
     this.activity.log('info', 'tasks', `New task: ${task.title}${plan ? ` (${plan.length} step${plan.length === 1 ? '' : 's'})` : ' (needs planning)'}`, { taskId: task.id });
     this.kick();
@@ -294,6 +301,8 @@ export class TaskEngine {
       }
 
       const plan = task.plan!;
+      // Each step is checked against the user's request at most once per run.
+      const checkedByRequest = new Set<number>();
       for (let i = task.currentStep; i < plan.length; i++) {
         const step = plan[i];
         if (step.status === 'done' || step.status === 'skipped') continue;
@@ -348,10 +357,28 @@ export class TaskEngine {
             // Waiting for approval is not an execution attempt.
             step.attempts -= 1;
             step.startedAt = undefined;
+            // "Do what I ask": a step that is part of the user's own request is authorized by it.
+            // Anything else — or any doubt — still waits for the user's explicit approval.
+            const scopeLabel = this.permissions.scopeDefinition(skill!.scope).label;
+            const coverage = this.requestScope && !checkedByRequest.has(i) ? await this.requestScope.covers(task.request, skill!, input, scopeLabel, signal) : null;
+            checkedByRequest.add(i);
+            if (signal.aborted) {
+              step.status = 'pending';
+              return this.handleAbort(task.id, entry, { plan, index: i });
+            }
+            if (coverage?.covered) {
+              const approved = this.permissions.approveByRequest({ taskId: task.id, stepIndex: i, skill: skill!, input, reason: coverage.reason });
+              step.approvalId = approved.id;
+              step.status = 'pending';
+              this.store.update(task.id, { plan });
+              this.store.addEvent(task.id, 'approved_by_request', `Part of what you asked, so it runs without another approval: ${approved.summary} — ${coverage.reason}`, { approvalId: approved.id, how: coverage.how });
+              i--;
+              continue;
+            }
             step.status = 'awaiting_approval';
             this.store.update(task.id, { status: 'awaiting_approval', plan, agent: null, heartbeatAt: null });
-            const req = this.permissions.requestApproval({ taskId: task.id, stepIndex: i, skill: skill!, input });
-            this.store.addEvent(task.id, 'approval_requested', `Waiting for your approval: ${req.summary}`, { approvalId: req.id });
+            const req = this.permissions.requestApproval({ taskId: task.id, stepIndex: i, skill: skill!, input, reason: coverage && this.requestScope?.enabled() ? (task.request ? `Not part of what you asked: ${coverage.reason}` : coverage.reason) : undefined });
+            this.store.addEvent(task.id, 'approval_requested', `Waiting for your approval: ${req.summary}${req.reason ? ` (${req.reason})` : ''}`, { approvalId: req.id });
             this.activity.notify('warning', 'Approval needed', req.summary, { taskId: task.id, dedupeKey: `approval:${req.id}` });
             return;
           }
@@ -479,6 +506,7 @@ export class TaskEngine {
         scheduledFor: next,
         recurrence: task.recurrence,
         dedupeKey: task.dedupeKey,
+        request: task.request,
       });
       this.store.addEvent(task.id, 'rescheduled', `Next occurrence scheduled as ${created.id} for ${new Date(next).toLocaleString()}`);
     } catch (err) {

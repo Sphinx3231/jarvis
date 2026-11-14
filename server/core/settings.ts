@@ -65,6 +65,8 @@ export const SettingsSchema = z.object({
   }),
   permissions: z.object({
     policies: z.record(z.string(), PolicySchema),
+    /** Do what the user asked without asking again; anything not part of their request still needs approval. */
+    followRequests: z.boolean(),
   }),
   voice: z.object({
     enabled: z.boolean(),
@@ -162,7 +164,7 @@ export const DEFAULT_SETTINGS: Settings = {
     approvalReminderMin: 60,
   },
   tasks: { stepTimeoutSec: 120, maxAttempts: 2 },
-  permissions: { policies: {} },
+  permissions: { policies: {}, followRequests: true },
   voice: {
     enabled: true,
     autoSpeak: false,

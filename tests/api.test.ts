@@ -58,6 +58,16 @@ test('api: authentication, DNS-rebinding and CSRF protections', async () => {
 test('api: chat, tasks, approvals, memory, settings and skills endpoints', async () => {
   const s = await start();
   try {
+    // Asking for a command is the authorization to run exactly that command.
+    const asked = await s.call('POST', '/api/chat', { message: 'run `echo asked-for`' });
+    assert.equal(asked.status, 200);
+    const askedId = asked.json.actions[0].taskId;
+    await waitFor(() => s.app.tasks.get(askedId)!.status === 'completed', 5000, 'requested command runs');
+    const askedEvents = (await s.call('GET', `/api/tasks/${askedId}`)).json.events;
+    assert.ok(askedEvents.some((e: { type: string }) => e.type === 'approved_by_request'));
+
+    // With "do what I ask" turned off, every consequential step asks.
+    assert.equal((await s.call('PATCH', '/api/settings', { permissions: { followRequests: false } })).status, 200);
     const chat = await s.call('POST', '/api/chat', { message: 'run `echo api-test`' });
     assert.equal(chat.status, 200);
     const taskId = chat.json.actions[0].taskId;

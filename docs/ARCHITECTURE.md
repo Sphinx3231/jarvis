@@ -85,6 +85,8 @@ Task dispatch itself is event-driven (and a timer for the next scheduled task), 
 | shell.exec | ask | **no** (only per-action approval or an exact-action grant) |
 | mcp.&lt;server&gt; | ask | yes |
 
+**Your request is the approval** (`permissions/request-scope.ts`, setting `permissions.followRequests`, on by default). Tasks keep the user's own words that created them (`tasks.request`: the chat or voice message plus Jarvis's previous reply, or what was typed on the Tasks page; repeats of a recurring task inherit it). When a step would need approval, the task engine first checks it against those words: (1) for commands, URLs and paths, the user's words containing the exact value; otherwise (2) a separate model call with no tools that sees only the request, the previous reply and the exact action (input wrapped as untrusted data) and must answer `{"partOfRequest": true}`. A covered step gets a single-use approval recorded as `decided_by = 'request'` with the reason, and runs. Everything else — not covered, no request (system/schedule tasks), input that trips the injection scanner, no model to check with, any unparseable answer — gets a normal pending approval whose `reason` says why. *Deny* policies are never overridden.
+
 Agent roles add a second boundary: the *jarvis* role in chat may only use inline-safe skills; the *researcher* only internal/read skills; the *planner* and *verifier* cannot execute anything. Every decision is written to the audit log (inputs redacted).
 
 ## Memory

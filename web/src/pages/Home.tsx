@@ -36,6 +36,9 @@ function useDragonState(): DragonState {
 }
 
 function Actions({ message }: { message: ChatMessage }) {
+  const { settings } = useLive();
+  // With "do what I ask" on, what you asked for runs; only extra steps ask (shown under Pending approvals).
+  const asks = !(settings?.permissions.followRequests ?? true);
   const actions = message.meta.actions ?? [];
   if (!actions.length) return null;
   return (
@@ -45,7 +48,7 @@ function Actions({ message }: { message: ChatMessage }) {
           return (
             <button key={i} className="chip chip--task" onClick={() => navigate({ page: 'tasks', id: a.taskId })}>
               <ListChecks size={13} /> {a.deduplicated ? 'Already running' : a.scheduledFor ? `Scheduled ${clock(a.scheduledFor)}` : 'Task queued'}: {a.title}
-              {a.needsApproval.length > 0 && <span className="chip__warn">needs approval</span>}
+              {asks && a.needsApproval.length > 0 && <span className="chip__warn">needs approval</span>}
             </button>
           );
         if (a.type === 'memory_saved')
