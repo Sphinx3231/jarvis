@@ -1,7 +1,8 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { registerPalsuProvider, type PalsuProviderHandle, type PalsuResponse } from '@kenkaiiii/gg-ai';
 import { JarvisApp } from '../server/app.ts';
 
 // All test instances share one copy of the built-in embedding model (downloaded at most once).
@@ -9,12 +10,44 @@ process.env.JARVIS_MODEL_DIR ??= join(tmpdir(), 'jarvis-test-model-cache');
 // Never create a real ~/Documents/Jarvis Vault from tests.
 process.env.JARVIS_VAULT_DIR ??= join(mkdtempSync(join(tmpdir(), 'jarvis-test-vaults-')), 'Jarvis Vault');
 
+// Jarvis only runs where Roamies is installed: tests get a stand-in Roamies and their own ~/.gg.
+const roamiesRoot = mkdtempSync(join(tmpdir(), 'jarvis-test-roamies-'));
+process.env.JARVIS_ROAMIES_PATH ??= join(roamiesRoot, 'Roamies.app');
+mkdirSync(process.env.JARVIS_ROAMIES_PATH, { recursive: true });
+process.env.JARVIS_GG_DIR ??= join(roamiesRoot, 'gg');
+mkdirSync(process.env.JARVIS_GG_DIR, { recursive: true });
+delete process.env.ROAMIES_DATA_DIR;
+
+/** Write Roamies' settings file (the provider and model picked in Roamies). */
+export function roamiesConfig(cfg: Record<string, unknown>): void {
+  writeFileSync(join(process.env.JARVIS_GG_DIR!, 'sidekick.json'), JSON.stringify({ provider: null, model: null, look: 'jarvis', ...cfg }));
+}
+
+/** Remove every Roamies sign-in. */
+export function clearRoamiesAuth(): void {
+  rmSync(join(process.env.JARVIS_GG_DIR!, 'auth.json'), { force: true });
+}
+
+const palsus: PalsuProviderHandle[] = [];
+
+/** Pick gg-ai's offline test provider in Roamies, so Jarvis thinks with scripted replies. */
+export async function usePalsu(app: JarvisApp, responses: PalsuResponse[] = []): Promise<PalsuProviderHandle> {
+  const palsu = registerPalsuProvider();
+  palsus.push(palsu);
+  palsu.setResponses(responses);
+  roamiesConfig({ provider: 'palsu', model: 'jarvis-test' });
+  await app.llm.refresh(true);
+  return palsu;
+}
+
 export function tempDir(prefix = 'jarvis-test-'): string {
   return mkdtempSync(join(tmpdir(), prefix));
 }
 
 export async function makeApp(opts: { start?: boolean; dataDir?: string } = {}): Promise<{ app: JarvisApp; dir: string; cleanup: () => Promise<void> }> {
   const dir = opts.dataDir ?? tempDir();
+  roamiesConfig({});
+  clearRoamiesAuth();
   const app = new JarvisApp({ dataDir: dir, quiet: true });
   // Tests drive the background jobs directly.
   // Semantic search model downloads are exercised in their own test.
@@ -25,6 +58,7 @@ export async function makeApp(opts: { start?: boolean; dataDir?: string } = {}):
     dir,
     cleanup: async () => {
       await app.stop();
+      for (const p of palsus.splice(0)) p.unregister();
       if (!opts.dataDir) rmSync(dir, { recursive: true, force: true });
     },
   };
@@ -77,23 +111,15 @@ export async function mockServer(handler: (req: { method: string; path: string; 
   };
 }
 
-/** Build an Anthropic Messages API response. */
-export function claudeMessage(content: unknown[], stop_reason = 'end_turn') {
-  return {
-    id: `msg_${Math.random().toString(36).slice(2)}`,
-    type: 'message',
-    role: 'assistant',
-    model: 'claude-opus-5-5',
-    content,
-    stop_reason,
-    stop_sequence: null,
-    usage: { input_tokens: 10, output_tokens: 10 },
-  };
-}
-
-/** Point the Anthropic provider at a mock server with a dummy key. */
-export function useMockClaude(app: JarvisApp, baseUrl: string): void {
-  const providers = app.settings.get().llm.providers.map((p) => (p.id === 'anthropic' ? { ...p, baseUrl, enabled: true } : p));
-  app.settings.update({ llm: { providers } });
-  app.secrets.set('llm:anthropic:apiKey', 'sk-ant-test-key-0000000000');
+/** A text-only Anthropic Messages API streaming response (server-sent events). */
+export function claudeStream(text: string, model = 'claude-sonnet-5-5'): string {
+  const ev = (type: string, d: Record<string, unknown>) => `event: ${type}\ndata: ${JSON.stringify({ type, ...d })}\n\n`;
+  return (
+    ev('message_start', { message: { id: 'msg_1', type: 'message', role: 'assistant', model, content: [], stop_reason: null, usage: { input_tokens: 5, output_tokens: 0 } } }) +
+    ev('content_block_start', { index: 0, content_block: { type: 'text', text: '' } }) +
+    ev('content_block_delta', { index: 0, delta: { type: 'text_delta', text } }) +
+    ev('content_block_stop', { index: 0 }) +
+    ev('message_delta', { delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 4 } }) +
+    ev('message_stop', {})
+  );
 }

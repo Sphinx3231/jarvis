@@ -17,9 +17,11 @@ import { ObsidianSync, obsidianSkills } from './integrations/obsidian.ts';
 import { ConversationStore } from './intelligence/conversations.ts';
 import { Jarvis } from './intelligence/jarvis.ts';
 import { LocalModelManager } from './llm/local-embeddings.ts';
-import { LlmRouter } from './llm/router.ts';
+import { RoamiesEngine } from './llm/engine.ts';
 import { MemoryStore } from './memory/store.ts';
 import { PermissionEngine } from './permissions/engine.ts';
+import { RoamiesGate } from './roamies/gate.ts';
+import { ROAMIES_RELEASES_URL } from './roamies/detect.ts';
 import { Scheduler } from './scheduler/scheduler.ts';
 import { registerBuiltinSkills } from './skills/builtin/index.ts';
 import { SkillRegistry } from './skills/registry.ts';
@@ -51,7 +53,10 @@ export class JarvisApp {
   readonly activity: ActivityLog;
   readonly settings: SettingsStore;
   readonly secrets: SecretStore;
-  readonly llm: LlmRouter;
+  /** Roamies must be installed for Jarvis to run. */
+  readonly gate: RoamiesGate;
+  /** The Roamies engine: the model and sign-ins chosen in Roamies. */
+  readonly llm: RoamiesEngine;
   readonly localModel: LocalModelManager;
   readonly memory: MemoryStore;
   readonly conversations: ConversationStore;
@@ -70,6 +75,8 @@ export class JarvisApp {
   readonly scheduler: Scheduler;
   readonly jarvis: Jarvis;
   private running = false;
+  private started = false;
+  private gateTimer: NodeJS.Timeout | null = null;
 
   constructor(opts: AppOptions) {
     this.dataDir = resolve(opts.dataDir);
@@ -79,7 +86,8 @@ export class JarvisApp {
     this.settings = new SettingsStore(this.db, this.bus);
     this.secrets = new SecretStore(this.db, join(this.dataDir, 'master.key'));
     this.localModel = new LocalModelManager(process.env.JARVIS_MODEL_DIR ?? join(this.dataDir, 'models', 'all-MiniLM-L6-v2'));
-    this.llm = new LlmRouter(this.settings, this.secrets, this.activity, this.localModel);
+    this.gate = new RoamiesGate(this.dataDir, this.bus);
+    this.llm = new RoamiesEngine({ settings: this.settings, secrets: this.secrets, activity: this.activity, gate: this.gate, dataDir: this.dataDir, localModel: this.localModel });
     this.memory = new MemoryStore(this.db, this.bus);
     this.conversations = new ConversationStore(this.db, this.bus);
     this.tasks = new TaskStore(this.db, this.bus);
@@ -157,7 +165,7 @@ export class JarvisApp {
     this.scheduler.register({
       name: 'health-check',
       title: 'Health check',
-      description: 'Checks model providers are reachable (no model inference) and reconnects MCP servers that stopped.',
+      description: 'Checks Roamies is still installed and its model sign-in works (no model inference), and reconnects MCP servers that stopped.',
       intervalMs: () => this.settings.get().background.healthIntervalMin * 60_000,
       run: async () => {
         await this.llm.checkHealth();
@@ -165,8 +173,8 @@ export class JarvisApp {
         const accounts: string[] = [];
         if (!this.email.missing()) accounts.push(`email ${(await this.email.test()).ok ? 'ok' : 'failing'}`);
         if (!this.calendar.readMissing()) accounts.push(`calendar ${(await this.calendar.test()).ok ? 'ok' : 'failing'}`);
-        const providers = this.llm.status().filter((p) => p.usable);
-        return `${providers.filter((p) => p.health?.ok).length}/${providers.length} model provider(s) reachable; ${mcp}${accounts.length ? `; ${accounts.join(', ')}` : ''}`;
+        const model = this.llm.status().health;
+        return `model: ${model?.ok ? 'ok' : `problem (${model?.detail ?? 'unknown'})`}; ${mcp}${accounts.length ? `; ${accounts.join(', ')}` : ''}`;
       },
     });
 
@@ -201,8 +209,6 @@ export class JarvisApp {
       if (this.running) {
         void this.mcp.sync();
         this.prepareSemanticSearch();
-    // Create or update Jarvis's vault shortly after start.
-    this.obsidian.schedule(1500);
       }
     });
 
@@ -228,7 +234,7 @@ export class JarvisApp {
   /** Download the built-in model when it is the selected embedding provider. */
   private prepareSemanticSearch(): void {
     const e = this.settings.get().embeddings;
-    if (e.enabled && e.providerId === 'builtin' && this.localModel.state === 'not_downloaded') void this.localModel.ensure().catch(() => {});
+    if (e.enabled && this.localModel.state === 'not_downloaded') void this.localModel.ensure().catch(() => {});
   }
 
   workspaceDir(): string {
@@ -247,14 +253,62 @@ export class JarvisApp {
     }
   }
 
+  /** False while Roamies is missing: the API then serves only the "Roamies required" screen. */
+  get unlocked(): boolean {
+    return this.gate.installed;
+  }
+
+  /** What the lock screen shows. */
+  requirement(): { met: boolean; running: boolean; downloadUrl: string; detection: ReturnType<RoamiesGate['detection']> } {
+    return { met: this.gate.installed, running: this.running, downloadUrl: ROAMIES_RELEASES_URL, detection: this.gate.detection() };
+  }
+
+  /** Look for Roamies again; starts Jarvis the moment it is found (no restart needed). */
+  async recheckRoamies(): Promise<ReturnType<JarvisApp['requirement']>> {
+    this.gate.check();
+    if (this.gate.installed && this.started && !this.running) await this.startServices();
+    return this.requirement();
+  }
+
   async start(): Promise<void> {
+    if (this.started) return;
+    this.started = true;
+    this.bus.on('roamies.changed', (e) => {
+      this.activity.log(e.data.installed ? 'success' : 'warning', 'system', e.data.installed ? `Roamies found (${String(e.data.path)})` : 'Roamies is no longer installed — Jarvis is locked until it is back');
+      void this.llm.refresh(true).catch(() => {});
+      if (e.data.installed && !this.running) void this.startServices().catch((err) => this.activity.log('error', 'system', `Could not start: ${(err as Error).message}`));
+    });
+    this.watchRoamies();
+    if (!this.gate.installed) {
+      this.activity.log('warning', 'system', `Jarvis ${VERSION} is waiting for Roamies — Jarvis runs on Roamies, so install it to continue (${ROAMIES_RELEASES_URL})`);
+      return;
+    }
+    await this.startServices();
+  }
+
+  /** Re-checks for Roamies every few seconds while locked, and now and then while running. */
+  private watchRoamies(): void {
+    const tick = () => {
+      this.gate.check();
+      this.gateTimer = setTimeout(tick, this.gate.installed ? 60_000 : 4_000);
+      this.gateTimer.unref?.();
+    };
+    this.gateTimer = setTimeout(tick, this.gate.installed ? 60_000 : 4_000);
+    this.gateTimer.unref?.();
+  }
+
+  private async startServices(): Promise<void> {
     if (this.running) return;
     this.running = true;
+    await this.llm.refresh(true).catch(() => {});
     this.ensureWorkspace();
     this.memoryAgent.syncToolDocs();
     this.engine.start();
     this.scheduler.start();
-    this.activity.log('info', 'system', `Jarvis ${VERSION} started`);
+    const model = this.llm.status();
+    this.activity.log('info', 'system', `Jarvis ${VERSION} started on Roamies${model.model ? ` — thinking with ${model.model.name}` : ''}`);
+    // Create or update Jarvis's vault shortly after start.
+    this.obsidian.schedule(1500);
     void this.mcp.sync();
     void this.llm.checkHealth();
     this.prepareSemanticSearch();
@@ -262,6 +316,8 @@ export class JarvisApp {
   }
 
   async stop(): Promise<void> {
+    if (this.gateTimer) clearTimeout(this.gateTimer);
+    this.gateTimer = null;
     if (!this.running) {
       this.db.close();
       return;
@@ -283,8 +339,7 @@ export class JarvisApp {
     model: { provider: string; model: string; healthy: boolean | null } | null;
     background: { enabled: boolean };
   } {
-    const active = this.llm.activeProvider();
-    const providerStatus = active ? this.llm.status().find((p) => p.id === active.id) : undefined;
+    const engine = this.llm.status();
     const skills = this.registry.info();
     let dbSizeBytes = 0;
     try {
@@ -303,7 +358,8 @@ export class JarvisApp {
       runningNow: this.engine.runningCount,
       approvalsPending: this.permissions.listApprovals('pending', 500).length,
       memory: this.memory.stats(),
-      model: active ? { provider: providerStatus?.name ?? active.id, model: active.model, healthy: providerStatus?.health ? providerStatus.health.ok : null } : null,
+      model: engine.ready && engine.provider && engine.model ? { provider: engine.provider.name, model: engine.model.name, healthy: engine.health ? engine.health.ok : null } : null,
+      roamies: { installed: this.gate.installed, version: this.gate.detection().version },
       skills: { total: skills.length, available: skills.filter((s) => s.available).length },
       background: { enabled: this.settings.get().background.enabled },
       dbSizeBytes,
@@ -314,7 +370,8 @@ export class JarvisApp {
   /** Internal recommendations — computed from real state, no model calls. */
   insights(): Insight[] {
     const out: Insight[] = [];
-    if (!this.llm.available()) out.push({ id: 'no-model', level: 'warning', text: 'No language model is configured — Jarvis can only handle direct commands.', page: 'integrations' });
+    const engine = this.llm.status();
+    if (!engine.ready) out.push({ id: 'no-model', level: 'warning', text: `No model from Roamies yet — ${engine.problem ?? 'Jarvis can only handle direct commands.'}`, page: 'integrations' });
     const approvals = this.permissions.listApprovals('pending', 500).length;
     if (approvals) out.push({ id: 'approvals', level: 'warning', text: `${approvals} action${approvals === 1 ? ' is' : 's are'} waiting for your approval.`, page: 'tasks' });
     const attention = this.tasks.list({ status: 'paused', limit: 200 }).filter((t) => t.attention).length;
@@ -324,9 +381,7 @@ export class JarvisApp {
     if (failed) out.push({ id: 'failed', level: 'error', text: `${failed} task${failed === 1 ? '' : 's'} failed in the last 24 hours.`, page: 'tasks' });
     const unverified = this.memory.stats().unverified;
     if (unverified) out.push({ id: 'unverified', level: 'info', text: `${unverified} memor${unverified === 1 ? 'y is' : 'ies are'} unverified — confirm or correct ${unverified === 1 ? 'it' : 'them'}.`, page: 'memory' });
-    for (const p of this.llm.status()) {
-      if (p.usable && p.health && !p.health.ok) out.push({ id: `provider-${p.id}`, level: 'error', text: `${p.name} is unreachable: ${p.health.detail}`, page: 'integrations' });
-    }
+    else if (engine.health && !engine.health.ok) out.push({ id: 'model-health', level: 'error', text: `Model sign-in problem: ${engine.health.detail}`, page: 'integrations' });
     if (this.email.lastCheck && !this.email.lastCheck.ok && !this.email.missing()) out.push({ id: 'email', level: 'error', text: `Email is not working: ${this.email.lastCheck.detail}`, page: 'integrations' });
     if (this.calendar.lastCheck && !this.calendar.lastCheck.ok && !this.calendar.readMissing()) out.push({ id: 'calendar', level: 'error', text: `Calendar is not working: ${this.calendar.lastCheck.detail}`, page: 'integrations' });
     const vaultProblem = this.settings.get().integrations.obsidian.enabled ? this.obsidian.problem() : null;

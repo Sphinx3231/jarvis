@@ -11,6 +11,7 @@ export type JarvisEventType =
   | 'assistant.state'
   | 'conversation.updated'
   | 'settings.changed'
+  | 'roamies.changed'
   | 'integrations.changed'
   | 'job.ran';
 

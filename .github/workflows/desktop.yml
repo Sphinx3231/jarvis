@@ -34,25 +34,58 @@ jobs:
       - name: Build installers
         run: npm run dist
 
-      - name: Smoke test (Linux)
+      # Jarvis runs on Roamies: first check it locks itself without Roamies, then that it starts
+      # with a stand-in Roamies (JARVIS_ROAMIES_PATH points the detection at it).
+      - name: Stand-in Roamies install
+        shell: bash
+        run: mkdir -p "$RUNNER_TEMP/Roamies.app" "$RUNNER_TEMP/gg"
+      - name: Smoke test, without Roamies (locked) (Linux)
         if: runner.os == 'Linux'
         run: xvfb-run -a release/linux-unpacked/jarvis --no-sandbox
         env:
           JARVIS_SMOKE_TEST: '1'
-          JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-smoke
-          JARVIS_VAULT_DIR: ${{ runner.temp }}/jarvis-smoke-vault
+          JARVIS_SMOKE_EXPECT: locked
+          JARVIS_ROAMIES_PATH: ${{ runner.temp }}/no-roamies/Roamies.app
+          JARVIS_GG_DIR: ${{ runner.temp }}/gg
+          JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-smoke-locked
+          JARVIS_VAULT_DIR: ${{ runner.temp }}/jarvis-smoke-vault-locked
         timeout-minutes: 5
-      - name: Smoke test (macOS)
+      - name: Smoke test, with Roamies (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a release/linux-unpacked/jarvis --no-sandbox
+        env:
+          JARVIS_SMOKE_TEST: '1'
+          JARVIS_ROAMIES_PATH: ${{ runner.temp }}/Roamies.app
+          JARVIS_GG_DIR: ${{ runner.temp }}/gg
+          JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-smoke-unlocked
+          JARVIS_VAULT_DIR: ${{ runner.temp }}/jarvis-smoke-vault-unlocked
+        timeout-minutes: 5
+      - name: Smoke test, without Roamies (locked) (macOS)
         if: runner.os == 'macOS'
         run: |
           APP=$(ls -d release/mac*/Jarvis.app | head -1)
           "$APP/Contents/MacOS/Jarvis"
         env:
           JARVIS_SMOKE_TEST: '1'
-          JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-smoke
-          JARVIS_VAULT_DIR: ${{ runner.temp }}/jarvis-smoke-vault
+          JARVIS_SMOKE_EXPECT: locked
+          JARVIS_ROAMIES_PATH: ${{ runner.temp }}/no-roamies/Roamies.app
+          JARVIS_GG_DIR: ${{ runner.temp }}/gg
+          JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-smoke-locked
+          JARVIS_VAULT_DIR: ${{ runner.temp }}/jarvis-smoke-vault-locked
         timeout-minutes: 5
-      - name: Smoke test (Windows)
+      - name: Smoke test, with Roamies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          APP=$(ls -d release/mac*/Jarvis.app | head -1)
+          "$APP/Contents/MacOS/Jarvis"
+        env:
+          JARVIS_SMOKE_TEST: '1'
+          JARVIS_ROAMIES_PATH: ${{ runner.temp }}/Roamies.app
+          JARVIS_GG_DIR: ${{ runner.temp }}/gg
+          JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-smoke-unlocked
+          JARVIS_VAULT_DIR: ${{ runner.temp }}/jarvis-smoke-vault-unlocked
+        timeout-minutes: 5
+      - name: Smoke test, without Roamies (locked) (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -61,8 +94,25 @@ jobs:
           exit $p.ExitCode
         env:
           JARVIS_SMOKE_TEST: '1'
-          JARVIS_DATA_DIR: ${{ runner.temp }}\jarvis-smoke
-          JARVIS_VAULT_DIR: ${{ runner.temp }}\jarvis-smoke-vault
+          JARVIS_SMOKE_EXPECT: locked
+          JARVIS_ROAMIES_PATH: ${{ runner.temp }}\no-roamies\Roamies.app
+          JARVIS_GG_DIR: ${{ runner.temp }}\gg
+          JARVIS_DATA_DIR: ${{ runner.temp }}\jarvis-smoke-locked
+          JARVIS_VAULT_DIR: ${{ runner.temp }}\jarvis-smoke-vault-locked
+        timeout-minutes: 5
+      - name: Smoke test, with Roamies (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "release\win-unpacked\Jarvis.exe" -PassThru -Wait -NoNewWindow
+          Write-Host "exit code: $($p.ExitCode)"
+          exit $p.ExitCode
+        env:
+          JARVIS_SMOKE_TEST: '1'
+          JARVIS_ROAMIES_PATH: ${{ runner.temp }}\Roamies.app
+          JARVIS_GG_DIR: ${{ runner.temp }}\gg
+          JARVIS_DATA_DIR: ${{ runner.temp }}\jarvis-smoke-unlocked
+          JARVIS_VAULT_DIR: ${{ runner.temp }}\jarvis-smoke-vault-unlocked
         timeout-minutes: 5
 
       - uses: actions/upload-artifact@v4

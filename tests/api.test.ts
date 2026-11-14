@@ -90,13 +90,17 @@ test('api: chat, tasks, approvals, memory, settings and skills endpoints', async
     const ok = await s.call('PATCH', '/api/settings', { voice: { rate: 1.2 }, assistant: { userName: 'Sam' } });
     assert.equal(ok.json.settings.voice.rate, 1.2);
 
-    const key = await s.call('PUT', '/api/integrations/providers/anthropic/key', { apiKey: 'sk-ant-secret-1234567890' });
+    // Model sign-ins live in Roamies; the only key Jarvis keeps is an optional transcription-server key.
+    assert.equal((await s.call('PUT', '/api/integrations/providers/anthropic/key', { apiKey: 'sk-ant-secret-1234567890' })).status, 404);
+    const key = await s.call('PUT', '/api/integrations/transcription/key', { apiKey: 'sk-local-secret-1234567890' });
     assert.equal(key.status, 200);
     const integrations = await s.call('GET', '/api/integrations');
-    const anthropic = integrations.json.providers.find((p: { id: string }) => p.id === 'anthropic');
-    assert.equal(anthropic.keyConfigured, true);
-    assert.ok(!JSON.stringify(integrations.json).includes('sk-ant-secret'), 'keys are never returned');
-    assert.ok(!JSON.stringify((await s.call('GET', '/api/settings')).json).includes('sk-ant-secret'));
+    assert.equal(integrations.json.transcription.keySet, true);
+    assert.equal(integrations.json.model.ready, false);
+    assert.match(integrations.json.model.problem, /Roamies/);
+    assert.equal(integrations.json.roamies.installed, true);
+    assert.ok(!JSON.stringify(integrations.json).includes('sk-local-secret'), 'keys are never returned');
+    assert.ok(!JSON.stringify((await s.call('GET', '/api/settings')).json).includes('sk-local-secret'));
 
     const skills = await s.call('GET', '/api/skills');
     const shell = skills.json.skills.find((x: { name: string }) => x.name === 'shell.run');

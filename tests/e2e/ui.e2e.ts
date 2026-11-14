@@ -25,7 +25,10 @@ try {
 const outDir = process.env.E2E_SCREENSHOTS ?? join(process.cwd(), 'test-results');
 mkdirSync(outDir, { recursive: true });
 const dir = tempDir('jarvis-e2e-');
-const running = await startJarvis({ dataDir: dir, port: 0, quiet: true });
+// Start without Roamies: Jarvis must show only the "Roamies required" screen.
+const roamiesApp = join(dir, 'Roamies.app');
+process.env.JARVIS_ROAMIES_PATH = roamiesApp;
+const running = await startJarvis({ dataDir: join(dir, 'data'), port: 0, quiet: true });
 const browser = await playwright.chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: Number(process.env.E2E_SCALE ?? 1) });
 const errors: string[] = [];
@@ -36,8 +39,19 @@ const step = (msg: string) => console.log(`  ✓ ${msg}`);
 
 try {
   await page.goto(running.url);
+  await page.getByRole('heading', { name: 'Jarvis runs on Roamies' }).waitFor();
+  assert.equal(await page.getByRole('link', { name: 'Download Roamies' }).getAttribute('href'), 'https://github.com/KenKaiii/Roamies/releases/latest');
+  assert.equal(await page.locator('.sidebar').count(), 0, 'nothing else is available while Roamies is missing');
+  await page.getByRole('link', { name: 'Source code' }).waitFor();
+  await shot('00-roamies-required');
+  step('without Roamies, only the Roamies-required screen is shown');
+  mkdirSync(roamiesApp);
+  await page.getByRole('button', { name: 'Check again' }).click();
   await page.getByText('Online').waitFor();
+  step('Check again finds Roamies and opens Jarvis without a restart');
   await page.locator('.dragon').waitFor();
+  // Services have only just started after unlocking: wait for the dragon to settle.
+  await page.locator('.dragon--idle').waitFor({ timeout: 10_000 });
   assert.equal(await page.locator('.dragon--idle').count(), 1);
   assert.match(await page.locator('.hero__title').innerText(), /I’m Jarvis\./);
   await shot('01-home-idle');
@@ -96,14 +110,15 @@ try {
 
   await page.getByRole('link', { name: 'Skills' }).click();
   await page.locator('.skill', { hasText: 'shell.run' }).waitFor();
-  assert.ok((await page.locator('.skill', { hasText: 'llm.generate' }).innerText()).includes('No model provider configured'));
+  assert.ok((await page.locator('.skill', { hasText: 'llm.generate' }).innerText()).includes('No model from Roamies'));
   await shot('07-skills');
   step('skills page shows real availability and permissions');
 
   await page.getByRole('link', { name: 'Integrations' }).click();
-  await page.locator('.integration', { hasText: 'Anthropic Claude' }).getByText('API key missing').waitFor();
+  await page.locator('.integration', { hasText: 'No model yet' }).getByText('Not ready').waitFor();
+  await page.getByText('Roamies has no AI sign-in yet').first().waitFor();
   await shot('08-integrations');
-  step('integrations never show a disconnected provider as connected');
+  step('integrations show the Roamies engine honestly (no sign-in, not ready)');
 
   await page.getByRole('link', { name: 'Activity' }).click();
   await page.getByRole('tab', { name: /Audit log/ }).click();
@@ -118,7 +133,8 @@ try {
   assert.equal(await page.getByLabel('Policy for Run shell commands').locator('option[value="allow"]').isDisabled(), true);
   await page.locator('.field', { hasText: 'Reduce motion' }).locator('.toggle').click();
   await page.getByText('Saved').first().waitFor();
-  assert.equal(await page.evaluate(() => document.documentElement.dataset.reduceMotion), 'true');
+  // The page applies settings when the live update arrives, which can land just after the toast.
+  await page.waitForFunction(() => document.documentElement.dataset.reduceMotion === 'true', undefined, { timeout: 5000 });
   assert.equal(await page.evaluate(() => window.scrollY), 0, 'the app shell never scrolls the document');
   await shot('10-settings');
   step('settings save immediately; shell cannot be auto-allowed');

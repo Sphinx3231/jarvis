@@ -2,7 +2,7 @@ import type { ActivityLog } from '../core/activity.ts';
 import type { SettingsStore } from '../core/settings.ts';
 import { errorMessage, truncate } from '../core/util.ts';
 import type { ConversationStore } from '../intelligence/conversations.ts';
-import type { LlmRouter } from '../llm/router.ts';
+import type { RoamiesEngine } from '../llm/engine.ts';
 import type { MemoryStore } from '../memory/store.ts';
 import type { SkillRegistry } from '../skills/registry.ts';
 import type { Task } from '../tasks/store.ts';
@@ -15,12 +15,12 @@ import type { Task } from '../tasks/store.ts';
 export class MemoryAgent {
   private memory: MemoryStore;
   private conversations: ConversationStore;
-  private llm: LlmRouter;
+  private llm: RoamiesEngine;
   private settings: SettingsStore;
   private activity: ActivityLog;
   private registry: SkillRegistry;
 
-  constructor(deps: { memory: MemoryStore; conversations: ConversationStore; llm: LlmRouter; settings: SettingsStore; activity: ActivityLog; registry: SkillRegistry }) {
+  constructor(deps: { memory: MemoryStore; conversations: ConversationStore; llm: RoamiesEngine; settings: SettingsStore; activity: ActivityLog; registry: SkillRegistry }) {
     this.memory = deps.memory;
     this.conversations = deps.conversations;
     this.llm = deps.llm;
@@ -98,9 +98,9 @@ export class MemoryAgent {
         if (older.length < 4) continue;
         try {
           const transcript = older.map((m) => `${m.role === 'user' ? 'User' : 'Jarvis'}: ${truncate(m.content, 1500)}`).join('\n');
-          const res = await this.llm.complete({
+          const res = await this.llm.generate({
             system: 'You summarise conversations between a user and their assistant Jarvis. Keep facts, decisions, open requests and preferences. Do not add anything that was not said. Be concise (under 200 words).',
-            messages: [{ role: 'user', content: `${conv.summary ? `Previous summary:\n${conv.summary}\n\n` : ''}Conversation:\n${transcript}` }],
+            prompt: `${conv.summary ? `Previous summary:\n${conv.summary}\n\n` : ''}Conversation:\n${transcript}`,
             maxTokens: 1500,
             signal,
           });

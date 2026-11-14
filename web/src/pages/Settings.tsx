@@ -1,9 +1,16 @@
-import { Bell, Brain, KeyRound, Mic, Palette, Shield, Sparkles, Timer, Trash2, User } from 'lucide-react';
+import { Bell, Brain, Info, KeyRound, Mic, Palette, Shield, Sparkles, Timer, Trash2, User } from 'lucide-react';
+import { useState } from 'react';
 import { Badge, Button, Card, Field, Loading, PageHeader, Toggle } from '../components/ui';
-import { api, type Grant, type Scope, type Settings } from '../lib/api';
+import { api, type Grant, type Integrations, type Scope, type Settings } from '../lib/api';
 import { dateTime } from '../lib/format';
 import { useAction, useLive, useResource } from '../lib/live';
 import { useVoice, voiceSupport } from '../lib/voice';
+
+interface About {
+  license: string;
+  source: string;
+  builtOn: Array<{ name: string; by: string; license: string; url: string }>;
+}
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
 
@@ -32,10 +39,15 @@ export function SettingsPage() {
   const { settings } = useLive();
   const voice = useVoice();
   const perms = useResource<{ scopes: Scope[]; grants: Grant[] }>('/api/permissions', ['settings.changed', 'approval.updated', 'integrations.changed']);
+  const integrations = useResource<Integrations>('/api/integrations', ['integrations.changed', 'settings.changed']);
+  const about = useResource<About>('/api/about', []);
+  const [transcriptionKey, setTranscriptionKey] = useState('');
   if (!settings) return <Loading />;
   const save = (patch: DeepPartial<Settings>) => act(() => api.patch('/api/settings', patch), 'Saved');
   const s = settings;
-  const enabledProviders = s.llm.providers.filter((p) => p.enabled);
+  const engine = integrations.data?.model;
+  const providers = [...new Set((engine?.models ?? []).map((m) => m.provider))];
+  const providerName = (id: string) => engine?.signedIn.find((p) => p.id === id)?.name ?? id;
 
   return (
     <div className="page page--narrow">
@@ -48,49 +60,36 @@ export function SettingsPage() {
       </Card>
 
       <Card title="Model" icon={<Sparkles size={18} />}>
-        <Field label="Primary provider" hint="API keys and endpoints are configured on the Integrations page.">
-          <select value={s.llm.primary} onChange={(e) => save({ llm: { primary: e.target.value } })}>
-            {s.llm.providers.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} — {p.model}
-                {p.enabled ? '' : ' (disabled)'}
-              </option>
+        <Field label="Model" hint="Jarvis thinks with the Roamies engine. By default it uses the model you picked in Roamies; you can choose another model from the same Roamies sign-ins here.">
+          <select value={s.llm.model} onChange={(e) => save({ llm: { model: e.target.value } })} aria-label="Model">
+            <option value="">The model picked in Roamies{engine?.source === 'roamies' && engine.model ? ` (${engine.model.name})` : ''}</option>
+            {s.llm.model && !engine?.models.some((m) => m.id === s.llm.model) && <option value={s.llm.model}>{s.llm.model}</option>}
+            {providers.map((p) => (
+              <optgroup key={p} label={providerName(p)}>
+                {engine!.models
+                  .filter((m) => m.provider === p)
+                  .map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+              </optgroup>
             ))}
           </select>
         </Field>
-        <Field label="Fallback providers" hint="Tried in this order when the primary fails.">
-          <div className="checks">
-            {s.llm.providers
-              .filter((p) => p.id !== s.llm.primary)
-              .map((p) => (
-                <label key={p.id} className="check">
-                  <input
-                    type="checkbox"
-                    checked={s.llm.fallbackOrder.includes(p.id)}
-                    onChange={(e) => save({ llm: { fallbackOrder: e.target.checked ? [...s.llm.fallbackOrder, p.id] : s.llm.fallbackOrder.filter((x) => x !== p.id) } })}
-                  />
-                  {p.name}
-                  {!p.enabled && <span className="muted small"> (disabled)</span>}
-                </label>
-              ))}
-          </div>
-        </Field>
-        <Field label="Effort" hint="How much reasoning Claude models apply. Higher is slower and costs more.">
-          <select value={s.llm.effort} onChange={(e) => save({ llm: { effort: e.target.value as Settings['llm']['effort'] } })}>
-            {['low', 'medium', 'high', 'xhigh', 'max'].map((x) => (
+        <Field label="Thinking" hint="How much the model reasons before answering, where the model supports it. Higher is slower.">
+          <select value={s.llm.thinking} onChange={(e) => save({ llm: { thinking: e.target.value as Settings['llm']['thinking'] } })} aria-label="Thinking">
+            {(['off', 'low', 'medium', 'high', 'xhigh', 'max'] as const).map((x) => (
               <option key={x} value={x}>
                 {x}
               </option>
             ))}
           </select>
         </Field>
-        <Field label="Server-side refusal fallback" hint="On supported Claude models, a declined request is retried on a fallback model by Anthropic.">
-          <Toggle checked={s.llm.serverSideFallback} onChange={(v) => save({ llm: { serverSideFallback: v } })} />
-        </Field>
         <Field label="Max tool steps per message">
           <NumberInput value={s.llm.maxToolIterations} min={1} max={12} onCommit={(v) => save({ llm: { maxToolIterations: v } })} />
         </Field>
-        {enabledProviders.length === 0 && <div className="note note--warning">No provider is enabled. Jarvis will handle direct commands only.</div>}
+        {engine && !engine.ready && <div className="note note--warning">{engine.problem} Until then Jarvis handles direct commands only.</div>}
       </Card>
 
       <Card title="Voice" icon={<Mic size={18} />}>
@@ -116,16 +115,12 @@ export function SettingsPage() {
             </option>
           </select>
         </Field>
-        <Field label="Transcription service" hint="Any OpenAI-compatible endpoint: OpenAI (whisper-1 / gpt-4o-mini-transcribe) or a local Whisper server for fully offline voice. Audio is only sent after you speak.">
+        <Field label="Transcription service" hint="OpenAI uses the OpenAI API key you saved in Roamies (whisper-1 / gpt-4o-mini-transcribe). Or use your own Whisper-compatible server, e.g. a local one for fully offline voice. Audio is only sent after you speak.">
           <div className="inline">
-            <select value={s.voice.transcription.providerId} onChange={(e) => save({ voice: { transcription: { providerId: e.target.value } } })} aria-label="Transcription provider">
-              {s.llm.providers
-                .filter((p) => p.type === 'openai-compatible')
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
+            <select value={s.voice.transcription.service} onChange={(e) => save({ voice: { transcription: { service: e.target.value as Settings['voice']['transcription']['service'] } } })} aria-label="Transcription service">
+              <option value="openai">OpenAI (key from Roamies)</option>
+              <option value="custom">My own server</option>
+              <option value="none">None</option>
             </select>
             <input
               defaultValue={s.voice.transcription.model}
@@ -135,6 +130,29 @@ export function SettingsPage() {
             />
           </div>
         </Field>
+        {s.voice.transcription.service === 'custom' && (
+          <Field label="Server address" hint="The OpenAI-compatible base URL, e.g. http://127.0.0.1:8000/v1. A key is optional and stored encrypted.">
+            <div className="stack">
+              <input
+                defaultValue={s.voice.transcription.baseUrl}
+                placeholder="http://127.0.0.1:8000/v1"
+                aria-label="Transcription server address"
+                onBlur={(e) => e.target.value.trim() !== s.voice.transcription.baseUrl && save({ voice: { transcription: { baseUrl: e.target.value.trim() } } })}
+              />
+              <div className="inline">
+                <input type="password" autoComplete="off" value={transcriptionKey} onChange={(e) => setTranscriptionKey(e.target.value)} placeholder={integrations.data?.transcription.keySet ? 'Key saved — enter a new one to replace it' : 'Key (optional)'} aria-label="Transcription server key" />
+                <Button size="sm" disabled={!transcriptionKey.trim()} onClick={async () => (await act(() => api.put('/api/integrations/transcription/key', { apiKey: transcriptionKey }), 'Key saved securely')) && setTranscriptionKey('')}>
+                  Save key
+                </Button>
+                {integrations.data?.transcription.keySet && (
+                  <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} onClick={() => act(() => api.del('/api/integrations/transcription/key'), 'Key removed')}>
+                    Remove
+                  </Button>
+                )}
+              </div>
+            </div>
+          </Field>
+        )}
         <Field label="Speak every reply" hint="Replies to voice commands are always spoken.">
           <Toggle checked={s.voice.autoSpeak} onChange={(v) => save({ voice: { autoSpeak: v } })} disabled={!s.voice.enabled} />
         </Field>
@@ -277,6 +295,31 @@ export function SettingsPage() {
         <Field label="Reduce motion" hint="Keeps the dragon still; state is shown by colour only.">
           <Toggle checked={s.appearance.reduceMotion} onChange={(v) => save({ appearance: { reduceMotion: v } })} />
         </Field>
+      </Card>
+      <Card title="About" icon={<Info size={18} />}>
+        <div className="credits">
+          <p>
+            Jarvis is free software under the <strong>GNU Affero General Public License v3</strong>. You can use, study, change and share it; if you share a changed version or let others use it over a network, share its source the same way.
+          </p>
+          <p>
+            Built on{' '}
+            {(about.data?.builtOn ?? []).map((b, i) => (
+              <span key={b.name}>
+                {i > 0 && ' and '}
+                <a href={b.url} target="_blank" rel="noreferrer">
+                  {b.name}
+                </a>{' '}
+                by {b.by}
+              </span>
+            ))}
+            {about.data ? ', both AGPL-3.0.' : '…'}
+          </p>
+          <p>
+            <a href={about.data?.source ?? 'https://github.com/Sphinx3231/jarvis'} target="_blank" rel="noreferrer">
+              Jarvis source code
+            </a>
+          </p>
+        </div>
       </Card>
     </div>
   );

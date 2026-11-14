@@ -1,114 +1,81 @@
 import { useState } from 'react';
 import { Bell, BookOpen, CalendarDays, Database, Folder, Globe, KeyRound, Mail, Mic, Plug, Plus, RefreshCw, Server, Sparkles, Terminal, Trash2, X } from 'lucide-react';
 import { Badge, Button, Card, ErrorNote, Field, Loading, PageHeader, PolicyBadge, Toggle } from '../components/ui';
-import { api, type Integrations, type MailServer, type McpStatus, type ProviderStatus, type Settings } from '../lib/api';
+import { api, type Integrations, type MailServer, type McpStatus } from '../lib/api';
 import { timeAgo } from '../lib/format';
 import { useAction, useLive, useResource } from '../lib/live';
 import { voiceSupport } from '../lib/voice';
 
-function ProviderCard({ p, settings }: { p: ProviderStatus; settings: Settings }) {
+/** Jarvis thinks with the Roamies engine: the model and sign-ins chosen in Roamies. Nothing to configure here. */
+function RoamiesModelCard({ data }: { data: Integrations }) {
   const act = useAction();
-  const [editing, setEditing] = useState(false);
-  const [model, setModel] = useState(p.model);
-  const [baseUrl, setBaseUrl] = useState(p.baseUrl);
-  const [key, setKey] = useState('');
   const [testing, setTesting] = useState(false);
-
-  const updateProvider = (patch: Partial<Settings['llm']['providers'][number]>) =>
-    act(() => api.patch('/api/settings', { llm: { providers: settings.llm.providers.map((x) => (x.id === p.id ? { ...x, ...patch } : x)) } }), 'Saved');
-
-  const health = !p.enabled ? (
-    <Badge>Disabled</Badge>
-  ) : !p.usable ? (
-    <Badge tone="warning">{p.requiresKey && !p.keyConfigured ? 'API key missing' : 'Not configured'}</Badge>
-  ) : p.health === null ? (
+  const m = data.model;
+  const r = data.roamies;
+  const health = !m.ready ? (
+    <Badge tone="warning">Not ready</Badge>
+  ) : m.health === null ? (
     <Badge tone="info">Not checked yet</Badge>
-  ) : p.health.ok ? (
-    <Badge tone="success">Connected</Badge>
+  ) : m.health.ok ? (
+    <Badge tone="success">Working</Badge>
   ) : (
-    <Badge tone="danger">Unreachable</Badge>
+    <Badge tone="danger">Sign-in problem</Badge>
   );
-
   return (
-    <li className="integration">
-      <div className="integration__head">
-        <div>
-          <div className="integration__title">
-            {p.name} {p.role === 'primary' && <Badge tone="accent">Primary</Badge>} {p.role === 'fallback' && <Badge>Fallback</Badge>}
+    <Card title="Model — Roamies engine" icon={<Sparkles size={18} />}>
+      <p className="muted small">
+        Jarvis is built on Roamies: it thinks with the same engine (the GG framework), the model you picked in Roamies and the sign-ins you made there. To change model or sign in, use the Model page in Roamies — Jarvis follows it within seconds.
+      </p>
+      <ul className="integrations">
+        <li className="integration">
+          <div className="integration__head">
+            <div>
+              <div className="integration__title">
+                {m.model ? m.model.name : 'No model yet'} {m.source === 'jarvis' && <Badge tone="accent">Chosen in Jarvis</Badge>}
+                {m.source === 'roamies' && <Badge tone="accent">From Roamies</Badge>}
+                {m.source === 'auto' && <Badge>First sign-in</Badge>}
+              </div>
+              <div className="muted small">
+                {m.provider ? m.provider.name : '—'}
+                {m.model && (
+                  <>
+                    {' '}
+                    · <code>{m.model.id}</code>
+                  </>
+                )}
+                {m.route === 'claude-code' && ' · signed in with Claude (runs through Claude Code)'}
+              </div>
+            </div>
+            {health}
           </div>
-          <div className="muted small">
-            {p.type === 'anthropic' ? 'Anthropic API' : 'OpenAI-compatible API'} · <code>{p.model}</code>
-            {p.baseUrl && (
-              <>
-                {' '}
-                · <code>{p.baseUrl}</code>
-              </>
-            )}
-          </div>
-        </div>
-        {health}
-        <Toggle checked={p.enabled} onChange={(v) => updateProvider({ enabled: v })} ariaLabel={`Use ${p.name}`} />
-      </div>
-      {p.health && <div className={`small ${p.health.ok ? 'muted' : 'bad'}`}>{p.health.detail} · checked {timeAgo(p.health.checkedAt)}</div>}
-      {p.lastError && p.lastError !== p.health?.detail && <div className="small bad">Last error: {p.lastError}</div>}
-      <div className="integration__row">
-        {p.requiresKey && (
-          <span className="small">
-            <KeyRound size={13} /> API key: {p.keyConfigured ? <Badge tone="success">{p.keySource === 'environment' ? 'from environment' : 'stored (encrypted)'}</Badge> : <Badge tone="warning">not set</Badge>}
-          </span>
-        )}
-        <span className="spacer" />
-        <Button size="sm" icon={<RefreshCw size={14} />} busy={testing} onClick={async () => (setTesting(true), await act(() => api.post(`/api/integrations/providers/${p.id}/test`)), setTesting(false))}>
-          Test connection
-        </Button>
-        {p.role !== 'primary' && p.enabled && (
-          <Button size="sm" onClick={() => act(() => api.patch('/api/settings', { llm: { primary: p.id, fallbackOrder: [settings.llm.primary, ...settings.llm.fallbackOrder.filter((x) => x !== p.id && x !== settings.llm.primary)] } }), `${p.name} is now primary`)}>
-            Make primary
-          </Button>
-        )}
-        <Button size="sm" variant="ghost" onClick={() => setEditing((e) => !e)}>
-          {editing ? 'Close' : 'Configure'}
-        </Button>
-      </div>
-      {editing && (
-        <div className="form form--inline">
-          <label className="form__row">
-            <span>Model</span>
-            <input value={model} onChange={(e) => setModel(e.target.value)} />
-          </label>
-          {p.type === 'openai-compatible' && (
-            <label className="form__row">
-              <span>Base URL</span>
-              <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="http://127.0.0.1:11434/v1" />
-            </label>
-          )}
-          <div className="form__actions">
-            <Button size="sm" variant="primary" onClick={() => updateProvider({ model: model.trim(), baseUrl: baseUrl.trim() })}>
-              Save
+          {m.problem && <div className="small bad">{m.problem}</div>}
+          {m.ready && m.health && <div className={`small ${m.health.ok ? 'muted' : 'bad'}`}>{m.health.detail} · checked {timeAgo(m.health.checkedAt)}</div>}
+          {m.ready && m.lastError && m.lastError !== m.health?.detail && <div className="small bad">Last error: {m.lastError}</div>}
+          <div className="integration__row">
+            <span className="small">
+              <KeyRound size={13} /> Signed in through Roamies:{' '}
+              {m.signedIn.length ? (
+                m.signedIn.map((p) => (
+                  <Badge key={p.id} tone="success">
+                    {p.claude ? 'Claude' : p.name}
+                  </Badge>
+                ))
+              ) : (
+                <Badge tone="warning">nothing yet</Badge>
+              )}
+            </span>
+            <span className="spacer" />
+            <Button size="sm" icon={<RefreshCw size={14} />} busy={testing} onClick={async () => (setTesting(true), await act(() => api.post('/api/integrations/model/test')), setTesting(false))}>
+              Check sign-in
             </Button>
           </div>
-          {p.requiresKey && (
-            <>
-              <label className="form__row">
-                <span>API key</span>
-                <input type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder={p.keyConfigured ? 'Enter a new key to replace the stored one' : 'Paste your API key'} />
-              </label>
-              <div className="form__actions">
-                {p.keySource === 'stored' && (
-                  <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} onClick={() => act(() => api.del(`/api/integrations/providers/${p.id}/key`), 'Key removed')}>
-                    Remove stored key
-                  </Button>
-                )}
-                <Button size="sm" variant="primary" disabled={key.trim().length < 8} onClick={async () => (await act(() => api.put(`/api/integrations/providers/${p.id}/key`, { apiKey: key }), 'Key saved securely')) && setKey('')}>
-                  Save key
-                </Button>
-              </div>
-              <p className="muted small">Keys are encrypted on this computer and never shown again or sent to the browser.</p>
-            </>
-          )}
-        </div>
-      )}
-    </li>
+        </li>
+      </ul>
+      <Field label="Roamies" hint={r.path ?? undefined}>
+        <Badge tone="success">Installed{r.version ? ` · ${r.version}` : ''}</Badge>
+      </Field>
+      <p className="muted small">Jarvis never sees or stores your Roamies passwords or keys: it asks the GG framework for a fresh credential for each request. A different model from the same sign-ins can be chosen in Settings → Model.</p>
+    </Card>
   );
 }
 
@@ -256,10 +223,9 @@ function AddMcp({ onClose }: { onClose: () => void }) {
   );
 }
 
-function SemanticMemoryCard({ data, compatible, patch }: { data: Integrations; compatible: ProviderStatus[]; patch: (p: unknown, msg?: string) => Promise<unknown> }) {
+function SemanticMemoryCard({ data, patch }: { data: Integrations; patch: (p: unknown, msg?: string) => Promise<unknown> }) {
   const act = useAction();
   const e = data.embeddings;
-  const builtin = e.providerId === 'builtin';
   const [busy, setBusy] = useState(false);
   const modelState = e.builtin.state;
   return (
@@ -267,44 +233,25 @@ function SemanticMemoryCard({ data, compatible, patch }: { data: Integrations; c
       <Field label="Search memories by meaning" hint="Finds memories even when you use different words. Keyword search always works too.">
         <Toggle checked={e.enabled} onChange={(v) => patch({ embeddings: { enabled: v } })} ariaLabel="Semantic memory search" />
       </Field>
-      <Field label="Runs on" hint={builtin ? 'A small model (all-MiniLM-L6-v2, 23 MB) that runs on this computer. Your memories never leave it.' : 'An OpenAI-compatible embeddings endpoint, e.g. Ollama with nomic-embed-text.'}>
-        <select value={e.providerId} onChange={(ev) => patch({ embeddings: { providerId: ev.target.value } })} aria-label="Embedding provider">
-          <option value="builtin">This computer (built-in)</option>
-          {compatible.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
+      <Field label="Built-in model" hint={e.builtin.error ?? 'A small model (all-MiniLM-L6-v2, 23 MB) that runs on this computer. Your memories never leave it.'}>
+        <div className="inline">
+          {modelState === 'ready' && <Badge tone="success">Installed</Badge>}
+          {modelState === 'downloading' && <Badge tone="info">Downloading…</Badge>}
+          {modelState === 'not_downloaded' && <Badge>Not downloaded</Badge>}
+          {modelState === 'error' && <Badge tone="danger">Download failed</Badge>}
+          {(modelState === 'not_downloaded' || modelState === 'error') && (
+            <Button size="sm" busy={busy} onClick={async () => (setBusy(true), await act(() => api.post('/api/integrations/embeddings/download'), 'Model installed'), setBusy(false))}>
+              {modelState === 'error' ? 'Retry' : 'Download (23 MB)'}
+            </Button>
+          )}
+          {modelState === 'ready' && (
+            <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} onClick={() => confirm('Remove the built-in model? Semantic search will stop until it is downloaded again.') && act(() => api.del('/api/integrations/embeddings/model'), 'Model removed')}>
+              Remove
+            </Button>
+          )}
+        </div>
       </Field>
-      {!builtin && (
-        <Field label="Embedding model">
-          <input defaultValue={e.model} onBlur={(ev) => ev.target.value.trim() && ev.target.value !== e.model && patch({ embeddings: { model: ev.target.value.trim() } })} />
-        </Field>
-      )}
-      {builtin && (
-        <Field label="Built-in model" hint={e.builtin.error ?? undefined}>
-          <div className="inline">
-            {modelState === 'ready' && <Badge tone="success">Installed</Badge>}
-            {modelState === 'downloading' && <Badge tone="info">Downloading…</Badge>}
-            {modelState === 'not_downloaded' && <Badge>Not downloaded</Badge>}
-            {modelState === 'error' && <Badge tone="danger">Download failed</Badge>}
-            {(modelState === 'not_downloaded' || modelState === 'error') && (
-              <Button size="sm" busy={busy} onClick={async () => (setBusy(true), await act(() => api.post('/api/integrations/embeddings/download'), 'Model installed'), setBusy(false))}>
-                {modelState === 'error' ? 'Retry' : 'Download (23 MB)'}
-              </Button>
-            )}
-            {modelState === 'ready' && (
-              <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} onClick={() => confirm('Remove the built-in model? Semantic search will stop until it is downloaded again.') && act(() => api.del('/api/integrations/embeddings/model'), 'Model removed')}>
-                Remove
-              </Button>
-            )}
-          </div>
-        </Field>
-      )}
-      <Field label="Status">
-        {e.active ? <Badge tone="success">Active · {e.memoriesEmbedded} memories indexed</Badge> : <Badge>{e.enabled ? (builtin ? 'Waiting for the model' : 'Provider not usable') : 'Off — keyword search only'}</Badge>}
-      </Field>
+      <Field label="Status">{e.active ? <Badge tone="success">Active · {e.memoriesEmbedded} memories indexed</Badge> : <Badge>{e.enabled ? 'Waiting for the model' : 'Off — keyword search only'}</Badge>}</Field>
     </Card>
   );
 }
@@ -667,7 +614,11 @@ function BrowserCapabilities({ transcription }: { transcription: Integrations['t
         {voiceSupport.recognition ? <Badge tone="success">Available</Badge> : <Badge>Not available here</Badge>}
       </Field>
       <Field label="Voice transcription service" hint={`Used when browser recognition is unavailable or chosen in Settings → Voice (${transcription.model}).`}>
-        {transcription.available ? <Badge tone="success">Configured</Badge> : <Badge tone="warning">Not configured — add an OpenAI key or a local Whisper server</Badge>}
+        {transcription.available ? (
+          <Badge tone="success">{transcription.service === 'openai' ? 'OpenAI key from Roamies' : 'Your server'}</Badge>
+        ) : (
+          <Badge tone="warning">{transcription.service === 'openai' ? 'No OpenAI API key in Roamies' : transcription.service === 'custom' ? 'Server address missing' : 'Off'}</Badge>
+        )}
       </Field>
       <Field label="Spoken replies" hint="Uses voices installed on this computer.">
         {voiceSupport.synthesis ? <Badge tone="success">Available</Badge> : <Badge tone="warning">Not supported</Badge>}
@@ -699,23 +650,15 @@ export function IntegrationsPage() {
   if (error) return <ErrorNote message={error} />;
   if (!data || !settings) return <Loading />;
   const patch = (p: unknown, msg = 'Saved') => act(() => api.patch('/api/settings', p), msg);
-  const compatible = data.providers.filter((p) => p.type === 'openai-compatible');
 
   return (
     <div className="page">
       <PageHeader title="Integrations" subtitle="Everything Jarvis can connect to. Statuses come from real checks — nothing is shown as connected unless it is." />
-      <Card title="Model providers" icon={<Sparkles size={18} />}>
-        <p className="muted small">Jarvis tries the primary provider first, then falls back in order. Anthropic requests use server-side refusal fallbacks on supported Claude models.</p>
-        <ul className="integrations">
-          {data.providers.map((p) => (
-            <ProviderCard key={`${p.id}-${p.model}-${p.baseUrl}`} p={p} settings={settings} />
-          ))}
-        </ul>
-      </Card>
+      <RoamiesModelCard data={data} />
 
       <VaultCard key={data.obsidian.location} data={data.obsidian} />
 
-      <SemanticMemoryCard data={data} compatible={compatible} patch={patch} />
+      <SemanticMemoryCard data={data} patch={patch} />
 
       <Card
         title="MCP servers"

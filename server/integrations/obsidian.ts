@@ -535,7 +535,8 @@ export class ObsidianSync {
     );
 
     const s = this.app.settings.get();
-    const providers = this.app.llm.status();
+    const engine = this.app.llm.status();
+    const roamies = this.app.gate.detection();
     const mcp = this.app.mcp.status();
     notes.set(
       'Manual/Integrations.md',
@@ -543,13 +544,17 @@ export class ObsidianSync {
         frontmatter({ tags: ['jarvis/manual'], jarvis_generated: true }),
         '# Integrations',
         '',
-        '## Model providers',
-        '| Provider | Model | Role | Status |',
-        '| --- | --- | --- | --- |',
-        ...providers.map((p) => `| ${cell(p.name)} | \`${cell(p.model)}\` | ${p.role} | ${!p.enabled ? 'disabled' : !p.usable ? 'not configured' : p.health ? (p.health.ok ? 'reachable' : `unreachable — ${cell(p.health.detail)}`) : 'not checked'} |`),
+        '## Model (Roamies engine)',
+        'Jarvis is built on [Roamies](https://github.com/KenKaiii/Roamies) and thinks with its engine (the GG framework), using the model and sign-ins chosen in Roamies.',
+        '',
+        `- Roamies: ${roamies.installed ? `installed${roamies.version ? ` (${roamies.version})` : ''}` : 'not found'}`,
+        `- Model: ${engine.model ? `${engine.model.name} (\`${engine.model.id}\`)` : 'none'}${engine.provider ? ` from ${engine.provider.name}` : ''}${engine.source === 'jarvis' ? ' — chosen in Jarvis settings' : engine.source === 'auto' ? ' — Roamies has none picked; using the first sign-in' : ''}`,
+        `- Route: ${engine.route === 'claude-code' ? 'Claude sign-in through Claude Code' : engine.route === 'api' ? 'direct to the provider' : '—'}`,
+        `- Signed in: ${engine.signedIn.length ? engine.signedIn.map((p) => p.name).join(', ') : 'nothing yet'}`,
+        `- Status: ${engine.ready ? (engine.health ? (engine.health.ok ? 'working' : `problem — ${engine.health.detail}`) : 'ready') : (engine.problem ?? 'unavailable')}`,
         '',
         '## Semantic memory',
-        `${s.embeddings.enabled ? `On — ${s.embeddings.providerId === 'builtin' ? `built-in model (${this.app.localModel.state.replace('_', ' ')})` : `${s.embeddings.providerId} · ${s.embeddings.model}`}` : 'Off (keyword search only)'}`,
+        `${s.embeddings.enabled ? `On — built-in model (${this.app.localModel.state.replace('_', ' ')})` : 'Off (keyword search only)'}`,
         '',
         '## Email',
         this.app.email.missing() ? `Not connected — ${this.app.email.missing()}` : `${s.integrations.email.address} via IMAP ${s.integrations.email.imap.host} / SMTP ${s.integrations.email.smtp.host}`,
@@ -567,7 +572,7 @@ export class ObsidianSync {
         `- Shell: ${s.integrations.shell.enabled ? 'enabled, always asks' : 'disabled'}`,
         '',
         '## Voice',
-        `Input: ${s.voice.inputMode}; transcription via ${s.voice.transcription.providerId} (${s.voice.transcription.model}).`,
+        `Input: ${s.voice.inputMode}; transcription: ${s.voice.transcription.service === 'openai' ? 'OpenAI (key from Roamies)' : s.voice.transcription.service === 'custom' ? 'own server' : 'none'} (${s.voice.transcription.model}).`,
         '',
       ].join('\n'),
     );

@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import type { ActivityLog } from '../core/activity.ts';
 import type { SettingsStore } from '../core/settings.ts';
-import type { LlmRouter } from '../llm/router.ts';
+import type { RoamiesEngine } from '../llm/engine.ts';
 import type { MemoryStore } from '../memory/store.ts';
 import type { AgentName } from '../agents/agents.ts';
 
@@ -17,7 +17,7 @@ export interface SkillServices {
   memory: MemoryStore;
   settings: SettingsStore;
   activity: ActivityLog;
-  llm: LlmRouter;
+  llm: RoamiesEngine;
   workspaceDir: () => string;
   listTasks: (status?: string) => Array<{ id: string; title: string; status: string; priority: number; progress: number }>;
   statusSnapshot: () => Record<string, unknown>;

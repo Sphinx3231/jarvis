@@ -4,6 +4,9 @@ import { extname, join, normalize, resolve, sep } from 'node:path';
 import type { JarvisApp } from '../app.ts';
 import { errorMessage, UserError } from '../core/util.ts';
 import { isAllowedOrigin, isLocalHost, readBody, Router, safeEqual, sendJson } from './http.ts';
+
+/** Endpoints that work while Jarvis is locked waiting for Roamies. */
+const LOCKED_PATHS = new Set(['/api/roamies', '/api/roamies/check', '/api/roamies/location', '/api/about']);
 import { registerRoutes } from './routes.ts';
 
 const MIME: Record<string, string> = {
@@ -58,6 +61,11 @@ export function createJarvisServer(app: JarvisApp, opts: ServerOptions): Server 
       if (!safeEqual(token, opts.token)) return sendJson(res, 401, { error: 'Unauthorized' });
 
       if (url.pathname === '/api/events' && req.method === 'GET') return streamEvents(app, req, res);
+
+      // Jarvis runs on Roamies: until Roamies is found, only the "Roamies required" screen works.
+      if (!app.unlocked && !LOCKED_PATHS.has(url.pathname)) {
+        return sendJson(res, 423, { error: 'Roamies is required. Jarvis runs on Roamies — install it, then choose Check again.', locked: true, roamies: app.requirement() });
+      }
 
       const match = router.match(req.method ?? 'GET', url.pathname);
       if (!match) return sendJson(res, 404, { error: 'Not found' });

@@ -55,9 +55,12 @@ const whisper = createServer(async (req, res) => {
 await new Promise<void>((r) => whisper.listen(0, '127.0.0.1', () => r()));
 
 const running = await startJarvis({ dataDir: join(dir, 'data'), port: 0, quiet: true });
-const providers = running.app.settings.get().llm.providers.map((p) => (p.id === 'openai' ? { ...p, baseUrl: `http://127.0.0.1:${(whisper.address() as { port: number }).port}/v1` } : p));
-running.app.settings.update({ llm: { providers }, voice: { inputMode: 'transcription' }, embeddings: { enabled: false } });
-running.app.secrets.set('llm:openai:apiKey', 'sk-voice-test-000000');
+// The user's own Whisper-compatible server.
+running.app.settings.update({
+  voice: { inputMode: 'transcription', transcription: { service: 'custom', baseUrl: `http://127.0.0.1:${(whisper.address() as { port: number }).port}/v1` } },
+  embeddings: { enabled: false },
+});
+running.app.secrets.set('voice:transcription:apiKey', 'sk-voice-test-000000');
 
 const browser = await playwright.chromium.launch({
   args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${audioFile}`, '--autoplay-policy=no-user-gesture-required'],

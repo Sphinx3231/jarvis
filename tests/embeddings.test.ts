@@ -45,7 +45,7 @@ test('tokenizer matches BERT uncased ids', { skip: !available }, () => {
 test('built-in semantic search finds memories by meaning, on this computer', { skip: !available }, async () => {
   const { app, cleanup } = await makeApp();
   try {
-    app.settings.update({ embeddings: { enabled: true, providerId: 'builtin' } });
+    app.settings.update({ embeddings: { enabled: true } });
     assert.equal(app.localModel.state, 'ready');
     const pet = app.memory.add({ kind: 'fact', content: 'My dog is called Rex', source: 'user', verified: true }).memory;
     app.memory.add({ kind: 'fact', content: 'The quarterly tax filing is due in April', source: 'user', verified: true });

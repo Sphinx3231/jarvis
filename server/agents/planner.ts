@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ActivityLog } from '../core/activity.ts';
 import { UserError } from '../core/util.ts';
-import type { LlmRouter } from '../llm/router.ts';
+import type { RoamiesEngine } from '../llm/engine.ts';
 import { decodeToolName } from '../llm/types.ts';
 import type { PermissionEngine } from '../permissions/engine.ts';
 import { jsonSchemaOf, type SkillRegistry } from '../skills/registry.ts';
@@ -67,11 +67,11 @@ export function planFromIntent(intent: Intent, opts: { llmAvailable: boolean }):
  */
 export class Planner {
   private registry: SkillRegistry;
-  private llm: LlmRouter;
+  private llm: RoamiesEngine;
   private permissions: PermissionEngine;
   private activity: ActivityLog;
 
-  constructor(registry: SkillRegistry, llm: LlmRouter, permissions: PermissionEngine, activity: ActivityLog) {
+  constructor(registry: SkillRegistry, llm: RoamiesEngine, permissions: PermissionEngine, activity: ActivityLog) {
     this.registry = registry;
     this.llm = llm;
     this.permissions = permissions;
@@ -108,10 +108,11 @@ export class Planner {
   /** Produce a plan for a task that was created from a plain description. */
   async plan(title: string, description: string, signal?: AbortSignal): Promise<{ steps: DraftStep[] } | { error: string }> {
     const request = `${title}${description ? `\n\n${description}` : ''}`;
+    await this.llm.refresh().catch(() => {});
     if (!this.llm.available()) {
       const rule = planFromIntent(parseIntent(title), { llmAvailable: false }) ?? planFromIntent(parseIntent(description), { llmAvailable: false });
       if (rule) return { steps: rule.steps };
-      return { error: 'Jarvis could not plan this without a language model. Configure a model provider in Integrations, or phrase it as a direct command (e.g. "fetch https://…", "run `…`").' };
+      return { error: 'Jarvis could not plan this without a language model. Sign in to a model in Roamies, or phrase it as a direct command (e.g. "fetch https://…", "run `…`").' };
     }
 
     const skills = this.registry.all().filter((s) => this.registry.availability(s).available);
@@ -128,11 +129,13 @@ ${UNTRUSTED_POLICY}
 Available skills:
 ${catalogue}`;
 
-    const res = await this.llm.complete({
+    let submitted: { steps?: DraftStep[]; reason?: string } | null = null;
+    const res = await this.llm.run({
       system,
       messages: [{ role: 'user', content: `Task to plan:\n${request}` }],
       tools: [
         {
+          spec: {
           name: 'submit_plan',
           description: 'Submit the plan for this task.',
           inputSchema: {
@@ -154,14 +157,20 @@ ${catalogue}`;
             },
             required: ['steps'],
           },
+          },
+          execute: async (input) => {
+            submitted = input as { steps?: DraftStep[]; reason?: string };
+            return { content: 'Plan received.' };
+          },
         },
       ],
+      stopAfter: 'submit_plan',
+      maxTurns: 2,
       maxTokens: 8000,
       signal,
     });
-    const call = res.toolCalls.find((c) => c.name === 'submit_plan');
-    if (!call) return { error: res.stopReason === 'refusal' ? 'The model declined to plan this task.' : 'The planning model did not return a plan.' };
-    const input = call.input as { steps?: DraftStep[]; reason?: string };
+    const input = submitted as { steps?: DraftStep[]; reason?: string } | null;
+    if (!input) return { error: res.stopReason === 'refusal' ? 'The model declined to plan this task.' : 'The planning model did not return a plan.' };
     if (!input.steps?.length) return { error: input.reason ? `Not possible with the available skills: ${input.reason}` : 'The planner returned an empty plan.' };
     this.activity.log('info', 'planner', `Planned "${title}" in ${input.steps.length} step(s)`);
     return { steps: input.steps };

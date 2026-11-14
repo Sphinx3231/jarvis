@@ -6,18 +6,6 @@ import { now, parseJson, UserError } from './util.ts';
 export const PolicySchema = z.enum(['allow', 'ask', 'deny']);
 export type Policy = z.infer<typeof PolicySchema>;
 
-export const ProviderSchema = z.object({
-  id: z.string().regex(/^[a-z0-9-]{1,32}$/),
-  type: z.enum(['anthropic', 'openai-compatible']),
-  name: z.string().min(1).max(60),
-  baseUrl: z.string().url().or(z.literal('')).default(''),
-  model: z.string().min(1).max(120),
-  enabled: z.boolean().default(false),
-  /** Whether this provider needs an API key (local servers such as Ollama do not). */
-  requiresKey: z.boolean().default(true),
-});
-export type ProviderConfig = z.infer<typeof ProviderSchema>;
-
 export const McpServerSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]{1,32}$/),
   name: z.string().min(1).max(60),
@@ -41,19 +29,17 @@ export const SettingsSchema = z.object({
   assistant: z.object({
     userName: z.string().max(60).default(''),
   }),
+  /** Jarvis thinks with the Roamies engine: the provider, model and sign-ins chosen in Roamies. */
   llm: z.object({
-    providers: z.array(ProviderSchema).max(10),
-    primary: z.string(),
-    fallbackOrder: z.array(z.string()).max(10),
-    effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']),
-    serverSideFallback: z.boolean(),
+    /** A different model from the same Roamies sign-ins; empty = the model picked in Roamies. */
+    model: z.string().max(160),
+    thinking: z.enum(['off', 'low', 'medium', 'high', 'xhigh', 'max']),
     maxToolIterations: z.number().int().min(1).max(12),
     requestTimeoutSec: z.number().int().min(10).max(900),
   }),
+  /** Semantic memory search with the built-in local model. */
   embeddings: z.object({
     enabled: z.boolean(),
-    providerId: z.string(),
-    model: z.string().min(1).max(120),
   }),
   memory: z.object({
     autoExtract: z.boolean(),
@@ -88,8 +74,10 @@ export const SettingsSchema = z.object({
     wakeWord: z.boolean(),
     /** auto: browser speech recognition where it works, otherwise recorded audio + transcription. */
     inputMode: z.enum(['auto', 'browser', 'transcription']),
+    /** openai = the OpenAI API key saved in Roamies; custom = a Whisper-compatible server (e.g. local). */
     transcription: z.object({
-      providerId: z.string(),
+      service: z.enum(['none', 'openai', 'custom']),
+      baseUrl: z.string().url().or(z.literal('')),
       model: z.string().min(1).max(120),
     }),
   }),
@@ -148,19 +136,12 @@ export type Settings = z.infer<typeof SettingsSchema>;
 export const DEFAULT_SETTINGS: Settings = {
   assistant: { userName: '' },
   llm: {
-    providers: [
-      { id: 'anthropic', type: 'anthropic', name: 'Anthropic Claude', baseUrl: '', model: 'claude-opus-5-5', enabled: true, requiresKey: true },
-      { id: 'openai', type: 'openai-compatible', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini', enabled: false, requiresKey: true },
-      { id: 'ollama', type: 'openai-compatible', name: 'Ollama (local)', baseUrl: 'http://127.0.0.1:11434/v1', model: 'llama3.1', enabled: false, requiresKey: false },
-    ],
-    primary: 'anthropic',
-    fallbackOrder: ['openai', 'ollama'],
-    effort: 'medium',
-    serverSideFallback: true,
+    model: '',
+    thinking: 'medium',
     maxToolIterations: 6,
     requestTimeoutSec: 180,
   },
-  embeddings: { enabled: true, providerId: 'builtin', model: 'nomic-embed-text' },
+  embeddings: { enabled: true },
   memory: {
     autoExtract: true,
     contextMessages: 20,
@@ -188,7 +169,7 @@ export const DEFAULT_SETTINGS: Settings = {
     lang: 'en-US',
     wakeWord: false,
     inputMode: 'auto',
-    transcription: { providerId: 'openai', model: 'whisper-1' },
+    transcription: { service: 'openai', baseUrl: '', model: 'whisper-1' },
   },
   notifications: { desktop: true, taskCompletion: true },
   appearance: { reduceMotion: false, accent: 'violet' },
@@ -263,9 +244,6 @@ export class SettingsStore {
       throw new UserError(`Invalid setting ${issue.path.join('.')}: ${issue.message}`);
     }
     const next = parsed.data;
-    const ids = new Set(next.llm.providers.map((p) => p.id));
-    if (ids.size !== next.llm.providers.length) throw new UserError('Provider ids must be unique');
-    if (!ids.has(next.llm.primary)) throw new UserError(`Primary provider "${next.llm.primary}" does not exist`);
     const mcpIds = new Set(next.integrations.mcpServers.map((s) => s.id));
     if (mcpIds.size !== next.integrations.mcpServers.length) throw new UserError('MCP server ids must be unique');
     this.db.run(

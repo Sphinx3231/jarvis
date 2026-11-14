@@ -4,9 +4,10 @@ import { createServer } from 'node:http';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { startJarvis } from '../server/main.ts';
-import { tempDir } from './helpers.ts';
+import { AuthStorage } from '@kenkaiiii/gg-core';
+import { clearRoamiesAuth, tempDir } from './helpers.ts';
 
-test('voice: recordings are transcribed through the configured OpenAI-compatible service', async () => {
+test('voice: recordings are transcribed with the OpenAI key saved in Roamies, or your own server', async () => {
   const received: Array<{ auth: string | undefined; contentType: string; body: Buffer }> = [];
   const whisper = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
@@ -28,12 +29,13 @@ test('voice: recordings are transcribed through the configured OpenAI-compatible
     assert.equal(res.status, 502);
     assert.match(((await res.json()) as { error: string }).error, /No transcription service is configured/);
 
-    const providers = s.app.settings.get().llm.providers.map((p) => (p.id === 'openai' ? { ...p, baseUrl: `http://127.0.0.1:${(whisper.address() as { port: number }).port}/v1` } : p));
-    s.app.settings.update({ llm: { providers }, voice: { lang: 'en-GB' } });
-    s.app.secrets.set('llm:openai:apiKey', 'sk-test-transcribe-123456');
+    const whisperUrl = `http://127.0.0.1:${(whisper.address() as { port: number }).port}/v1`;
+    // The OpenAI API key the user saved in Roamies.
+    await new AuthStorage(join(process.env.JARVIS_GG_DIR!, 'auth.json')).setCredentials('openai', { accessToken: 'sk-test-transcribe-123456', refreshToken: '', expiresAt: Date.now() + 86_400_000, baseUrl: whisperUrl });
+    s.app.settings.update({ voice: { lang: 'en-GB' } });
     res = await post(audio);
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), { text: 'Remind me in five minutes to stretch.', provider: 'OpenAI' });
+    assert.deepEqual(await res.json(), { text: 'Remind me in five minutes to stretch.', provider: 'OpenAI (your key in Roamies)' });
     const sent = received.at(-1)!;
     assert.equal(sent.auth, 'Bearer sk-test-transcribe-123456');
     assert.match(sent.contentType, /^multipart\/form-data/);
@@ -42,6 +44,14 @@ test('voice: recordings are transcribed through the configured OpenAI-compatible
     assert.match(form, /name="language"\r\n\r\nen\r\n/);
     assert.match(form, /filename="speech\.webm"/);
     assert.ok(sent.body.includes(audio), 'audio bytes forwarded unchanged');
+
+    // Or a Whisper-compatible server of the user's own, with an optional key kept encrypted by Jarvis.
+    clearRoamiesAuth();
+    s.app.settings.update({ voice: { transcription: { service: 'custom', baseUrl: whisperUrl } } });
+    s.app.secrets.set('voice:transcription:apiKey', 'local-key-1');
+    res = await post(audio);
+    assert.equal(res.status, 200);
+    assert.equal(received.at(-1)!.auth, 'Bearer local-key-1');
 
     assert.equal((await post(Buffer.alloc(10))).status, 400, 'tiny bodies rejected');
     const json = await fetch(`${s.url}/api/voice/transcribe`, { method: 'POST', headers: { 'x-jarvis-token': s.token, 'content-type': 'application/json' }, body: '{}' });

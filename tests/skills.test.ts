@@ -168,7 +168,7 @@ test('skills: registry only lists real capabilities and reports availability hon
     ]);
     const llm = info.find((s) => s.name === 'llm.generate')!;
     assert.equal(llm.available, false, 'model skill unavailable without a provider');
-    assert.equal(llm.unavailableReason, 'No model provider configured');
+    assert.equal(llm.unavailableReason, 'No model from Roamies (sign in on its Model page)');
     for (const s of info) assert.equal((s.inputSchema as { type: string }).type, 'object', `${s.name} has an object schema`);
   } finally {
     await cleanup();

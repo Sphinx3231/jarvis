@@ -6,7 +6,8 @@ import { AGENTS } from '../agents/agents.ts';
 import { DraftStepSchema } from '../agents/planner.ts';
 import { McpServerSchema } from '../core/settings.ts';
 import { errorMessage, UserError } from '../core/util.ts';
-import { providerSecretName } from '../llm/router.ts';
+import { TRANSCRIPTION_SECRET } from '../llm/engine.ts';
+import { ROAMIES_REPO_URL } from '../roamies/detect.ts';
 import { EMAIL_SECRET } from '../integrations/email.ts';
 import { CALDAV_SECRET } from '../integrations/calendar.ts';
 import { MEMORY_KINDS } from '../memory/store.ts';
@@ -52,7 +53,30 @@ const DecisionBody = z.object({
 
 const SecretsBody = z.record(z.string().regex(/^[A-Z_][A-Z0-9_]*$/), z.string().max(4000));
 
+const GG_FRAMEWORK_URL = 'https://github.com/KenKaiii/gg-framework';
+export const JARVIS_SOURCE_URL = 'https://github.com/Sphinx3231/jarvis';
+
 export function registerRoutes(router: Router, app: JarvisApp): void {
+  // ------------------------------------------------------------------ Roamies (work while locked)
+  router.get('/api/roamies', () => app.requirement());
+  router.post('/api/roamies/check', () => app.recheckRoamies());
+  router.put('/api/roamies/location', async ({ body }) => {
+    const b = parse(z.object({ path: z.string().min(1).max(1000) }), body);
+    if (!isAbsolute(b.path.trim().replace(/^"|"$/g, ''))) throw new UserError('Give the full path to the Roamies app');
+    app.gate.choose(b.path);
+    return app.recheckRoamies();
+  });
+  // AGPL-3.0 §13: anyone using Jarvis can get its source.
+  router.get('/api/about', () => ({
+    name: 'Jarvis',
+    license: 'AGPL-3.0-only',
+    source: JARVIS_SOURCE_URL,
+    builtOn: [
+      { name: 'Roamies', by: 'KenKaiii', license: 'AGPL-3.0-only', url: ROAMIES_REPO_URL },
+      { name: 'GG framework (gg-ai, gg-agent, gg-core)', by: 'KenKaiii', license: 'AGPL-3.0-only', url: GG_FRAMEWORK_URL },
+    ],
+  }));
+
   // ------------------------------------------------------------------ status
   router.get('/api/status', () => ({
     status: app.statusSnapshot(),
@@ -172,7 +196,7 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
   }));
 
   // ------------------------------------------------------------------ integrations
-  router.get('/api/integrations', () => {
+  router.get('/api/integrations', async () => {
     const dir = app.workspaceDir();
     let writable = false;
     try {
@@ -184,9 +208,10 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
     const s = app.settings.get();
     const embedder = app.llm.embeddings();
     return {
-      providers: app.llm.status(),
+      model: { ...app.llm.status(), override: s.llm.model, thinking: s.llm.thinking },
+      roamies: app.requirement().detection,
       embeddings: {
-        ...s.embeddings,
+        enabled: s.embeddings.enabled,
         active: Boolean(embedder),
         memoriesEmbedded: app.memory.stats().embedded,
         builtin: { state: app.localModel.state, error: app.localModel.error, sizeBytes: 23_203_878 },
@@ -211,27 +236,24 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
         feeds: s.integrations.calendar.feeds,
         lastCheck: app.calendar.lastCheck,
       },
-      transcription: { providerId: s.voice.transcription.providerId, model: s.voice.transcription.model, available: Boolean(app.llm.transcriptionTarget()) },
+      transcription: { ...s.voice.transcription, keySet: app.secrets.has(TRANSCRIPTION_SECRET), available: Boolean(await app.llm.transcriptionTarget()) },
     };
   });
-  router.put('/api/integrations/providers/:id/key', ({ params, body }) => {
-    const b = parse(z.object({ apiKey: z.string().min(8).max(500) }), body);
-    if (!app.settings.get().llm.providers.some((p) => p.id === params.id)) throw new UserError('Provider not found', 404);
-    app.secrets.set(providerSecretName(params.id), b.apiKey.trim());
-    app.activity.log('info', 'integrations', `API key updated for provider ${params.id}`);
+  router.post('/api/integrations/model/test', async () => {
+    await app.llm.checkHealth();
+    return { model: app.llm.status() };
+  });
+  router.put('/api/integrations/transcription/key', ({ body }) => {
+    const b = parse(z.object({ apiKey: z.string().min(1).max(500) }), body);
+    app.secrets.set(TRANSCRIPTION_SECRET, b.apiKey.trim());
+    app.activity.log('info', 'integrations', 'Transcription server key updated');
     app.bus.emit('integrations.changed', {});
     return { ok: true };
   });
-  router.delete('/api/integrations/providers/:id/key', ({ params }) => {
-    app.secrets.delete(providerSecretName(params.id));
-    app.activity.log('info', 'integrations', `API key removed for provider ${params.id}`);
+  router.delete('/api/integrations/transcription/key', () => {
+    app.secrets.delete(TRANSCRIPTION_SECRET);
     app.bus.emit('integrations.changed', {});
     return { ok: true };
-  });
-  router.post('/api/integrations/providers/:id/test', async ({ params }) => {
-    if (!app.settings.get().llm.providers.some((p) => p.id === params.id)) throw new UserError('Provider not found', 404);
-    await app.llm.checkHealth(params.id);
-    return { provider: app.llm.status().find((p) => p.id === params.id) };
   });
   router.post('/api/integrations/embeddings/download', async () => {
     await app.localModel.ensure().catch((err: Error) => {

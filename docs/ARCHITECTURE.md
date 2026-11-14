@@ -1,6 +1,6 @@
 # Jarvis architecture
 
-Jarvis is one local Node.js process (the **service**) plus a React UI it serves. All state lives in a single SQLite database (`~/.jarvis/jarvis.db`) using Node's built-in `node:sqlite` with FTS5.
+Jarvis is one local Node.js process (the **service**) plus a React UI it serves. All state lives in a single SQLite database (`~/.jarvis/jarvis.db`) using Node's built-in `node:sqlite` with FTS5. It is built on [Roamies](https://github.com/KenKaiii/Roamies): the model layer is the Roamies engine, and Jarvis only runs where Roamies is installed.
 
 ```
                 ┌──────────────────────────── UI (React, web/) ─────────────────────────────┐
@@ -15,10 +15,10 @@ Jarvis is one local Node.js process (the **service**) plus a React UI it serves.
 │   intent.ts (rules) → context (memory retrieval, task state) → model tool loop             │
 │   inline read-only skills │ plan_task → Task engine │ task_control                          │
 ├──────────────┬──────────────────────┬────────────────────────┬──────────────────────────────┤
-│ LLM router   │ Task engine          │ Memory                 │ Scheduler (background)       │
-│ anthropic.ts │ engine.ts / store.ts │ memory/store.ts        │ task-monitor                 │
-│ openai-comp. │ approvals, retries,  │ FTS5 + optional        │ memory-maintenance           │
-│ fallback     │ locks, recurrence,   │ embeddings, dedupe,    │ health-check                 │
+│ Roamies      │ Task engine          │ Memory                 │ Scheduler (background)       │
+│ engine       │ engine.ts / store.ts │ memory/store.ts        │ task-monitor                 │
+│ (GG frame-   │ approvals, retries,  │ FTS5 + optional        │ memory-maintenance           │
+│ work)        │ locks, recurrence,   │ embeddings, dedupe,    │ health-check                 │
 │              │ crash recovery       │ provenance             │                              │
 ├──────────────┴──────────┬───────────┴────────────────────────┴──────────────────────────────┤
 │ Agents (agents/)         │ Skill runner (skills/runner.ts) — the ONLY execution path        │
@@ -41,6 +41,18 @@ Jarvis is one local Node.js process (the **service**) plus a React UI it serves.
    - `task_control`: pause/resume/cancel. There is no tool that approves anything.
 4. The reply is stored and returned with structured actions (task created, memory saved), which the UI shows as chips.
 
+## Roamies: requirement and engine
+
+**Requirement.** `roamies/detect.ts` looks for an installed Roamies (macOS `Roamies.app` in `/Applications` or `~/Applications`; Windows the installer's folder under `%LOCALAPPDATA%`/Program Files or its uninstall registry entry; Linux the `roamies` command or a `Roamies*.AppImage` in the usual folders; or a path the user chose). `roamies/gate.ts` keeps the result and re-checks every 4 s while missing (every minute otherwise). While Roamies is missing the app is **locked**: the task engine, scheduler, integrations and model never start, and the API answers every request except `/api/roamies*` and `/api/about` with `423 Locked`. The UI then shows only the Roamies-required screen (download link, Check again, choose a location). When Roamies appears, the services start in place — no restart.
+
+**Engine.** `llm/engine.ts` (`RoamiesEngine`) replaces Jarvis's own model adapters with the GG framework Roamies runs on:
+
+- **Which model:** the `provider`/`model` picked in Roamies (`~/.gg/sidekick.json`, or `$ROAMIES_DATA_DIR/sidekick.json`), unless Settings → Model names another model from the same sign-ins. If Roamies has none picked yet, the first signed-in provider's default model.
+- **Credentials:** `gg-core`'s `AuthStorage` over Roamies' `~/.gg/auth.json`, resolved per request (`resolveCredentials`, refreshing expiring sign-ins) — never copied, stored, logged or sent to the UI.
+- **Calls:** `gg-ai`'s `stream()` for every provider (Anthropic, OpenAI/ChatGPT, Gemini, xAI, Kimi, GLM, MiniMax, DeepSeek, OpenRouter, local models…). Jarvis runs its own tool loop so every tool call goes through its skill runner and permission engine.
+- **Signed in with Claude:** like Roamies, replies run through Claude Code using Roamies' bridge (`llm/claudecode.mjs`, copied from Roamies): Claude Code's own tools are disabled (`tools: []`, no settings sources, every non-Jarvis tool denied) and Jarvis's tools are served to it over an in-process MCP server.
+- Settings and sign-in changes are noticed by file stamps (two `stat` calls per request).
+
 ## Task engine
 
 - States: `queued → running → (awaiting_approval | paused) → completed | failed | cancelled`, persisted with an event history.
@@ -58,7 +70,7 @@ The scheduler runs internal jobs only:
 |---|---|---|
 | task-monitor | 30 s | Recover orphaned running tasks, flag slow steps, dispatch due work, one reminder per long-pending approval |
 | memory-maintenance | 30 min | Merge duplicates, refresh tool docs, embed new memories (if enabled), summarise long conversations (≤2 model calls), prune expired conversations |
-| health-check | 15 min | Provider reachability via model-list endpoints (no inference), reconnect dead MCP servers |
+| health-check | 15 min | Roamies sign-in check (refreshes the credential, no inference), reconnect dead MCP servers |
 
 Task dispatch itself is event-driven (and a timer for the next scheduled task), so scheduled tasks run even with background monitoring paused. Jobs never take external actions; anything external is a task step and goes through permissions.
 
@@ -88,7 +100,7 @@ Agent roles add a second boundary: the *jarvis* role in chat may only use inline
 
 - Service binds to `127.0.0.1`; requests must carry a loopback `Host` (DNS-rebinding defence), a matching `Origin` if present (CSRF defence) and a per-start random token (embedded in the served page, required for every API call).
 - Strict CSP; no third-party scripts or fonts.
-- API keys and MCP secrets are AES-256-GCM encrypted at rest; never returned by the API; redacted from logs.
+- Model sign-ins stay in Roamies (`~/.gg/auth.json`, managed by the GG framework). Secrets Jarvis keeps (email/CalDAV passwords, MCP secrets, a transcription-server key) are AES-256-GCM encrypted at rest; never returned by the API; redacted from logs.
 - Untrusted content is delimited, sanitised against delimiter spoofing and scanned for injection phrases; the model that summarises it (`llm.generate`) has no tools.
 - Workspace sandbox: file skills resolve real paths and refuse anything outside the workspace (including via symlinks). `web.fetch` blocks private/loopback addresses (checked on every redirect hop) unless enabled.
 
@@ -96,7 +108,7 @@ Agent roles add a second boundary: the *jarvis* role in chat may only use inline
 - One Jarvis per data folder (`jarvis.lock` with pid and URL); a second start points at the first instead of running two task engines on one database.
 - MCP tool annotations are treated as hints: only read-only tools are retried automatically, never on a server's say-so.
 
-Known limits: browser speech recognition in Chromium may send audio to the browser vendor's service (choose the transcription service in Settings → Voice to control where audio goes). Outlook.com/Microsoft 365 mail needs OAuth, which is not implemented. Desktop builds are unsigned.
+Known limits: Jarvis reads Roamies' model choice but never writes it (change it in Roamies). Browser speech recognition in Chromium may send audio to the browser vendor's service (choose the transcription service in Settings → Voice to control where audio goes). Outlook.com/Microsoft 365 mail needs OAuth, which is not implemented. Desktop builds are unsigned.
 
 ## Jarvis vault (Obsidian)
 
@@ -118,7 +130,8 @@ server/
   api/               HTTP router, routes, SSE, static UI
   core/              settings (zod), secrets, events, activity/notifications, assistant state
   db/                SQLite wrapper + migrations
-  llm/               provider interface, Anthropic SDK adapter, OpenAI-compatible adapter, router
+  llm/               Roamies engine (GG framework), Roamies' Claude Code bridge, local embeddings
+  roamies/           Roamies detection and the requirement gate
   intelligence/      Jarvis core, intents, conversations, untrusted-content handling
   agents/            agent roles, planner, memory agent
   tasks/             task store + engine

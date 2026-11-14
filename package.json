@@ -1,7 +1,7 @@
 {
   "name": "jarvis",
   "version": "1.0.0",
-  "description": "Jarvis — a persistent AI personal operating system, represented by a purple dragon.",
+  "description": "Jarvis \u2014 a persistent AI personal operating system, represented by a purple dragon. Built on Roamies.",
   "private": true,
   "type": "module",
   "engines": {
@@ -16,12 +16,15 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p web/tsconfig.json",
     "test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 \"tests/**/*.test.ts\"",
     "test:e2e": "node --disable-warning=ExperimentalWarning tests/e2e/ui.e2e.ts && node --disable-warning=ExperimentalWarning tests/e2e/voice.e2e.ts",
-    "build:server": "tsc -p tsconfig.build.json",
+    "build:server": "tsc -p tsconfig.build.json && node -e \"require('fs').copyFileSync('server/llm/claudecode.mjs','dist-server/llm/claudecode.mjs')\"",
     "desktop": "npm run build && npm run build:server && electron .",
     "dist": "npm run build && npm run build:server && electron-builder --publish never"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.8.0",
+    "@anthropic-ai/claude-agent-sdk": "0.3.321",
+    "@kenkaiiii/gg-agent": "^5.100.2",
+    "@kenkaiiii/gg-ai": "^5.100.2",
+    "@kenkaiiii/gg-core": "^5.100.2",
     "imapflow": "^2.11.0",
     "mailparser": "^3.14.3",
     "node-ical": "^0.27.6",
@@ -51,12 +54,12 @@
     "vite": "^8.3.8"
   },
   "main": "desktop/main.cjs",
-  "author": "Jarvis",
+  "author": "Jarvis contributors",
   "homepage": "https://github.com/Sphinx3231/jarvis",
   "build": {
     "appId": "app.jarvis.desktop",
     "productName": "Jarvis",
-    "copyright": "Jarvis",
+    "copyright": "Jarvis contributors \u00b7 AGPL-3.0-only \u00b7 built on Roamies by KenKaiii",
     "asar": false,
     "directories": {
       "output": "release",
@@ -74,7 +77,10 @@
       "node_modules/onnxruntime-web/dist/ort.node.min.{js,mjs}",
       "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.{mjs,wasm}",
       "docs/*.md",
-      "README.md"
+      "README.md",
+      "!node_modules/@anthropic-ai/claude-agent-sdk-*/**",
+      "LICENSE",
+      "NOTICE.md"
     ],
     "mac": {
       "category": "public.app-category.productivity",
@@ -107,5 +113,10 @@
       "maintainer": "Jarvis <noreply@example.com>",
       "synopsis": "Your personal AI operating system"
     }
+  },
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sphinx3231/jarvis.git"
   }
 }

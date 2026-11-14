@@ -37,7 +37,7 @@ test('scheduler: memory maintenance and health check jobs do real work without a
     const msg = await app.scheduler.runJob('memory-maintenance');
     assert.match(msg, /merged 1 duplicate/);
     const health = await app.scheduler.runJob('health-check');
-    assert.match(health, /0\/0 model provider\(s\) reachable; MCP servers healthy/);
+    assert.match(health, /^model: problem \(Roamies has no AI sign-in yet.*\); MCP servers healthy$/);
     const monitor = await app.scheduler.runJob('task-monitor');
     assert.match(monitor, /0 running/);
   } finally {

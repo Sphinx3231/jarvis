@@ -21,7 +21,7 @@ export const SCOPES: ScopeDefinition[] = [
   { id: 'memory.read', label: 'Read memory', description: 'Search and recall stored memories.', external: false, defaultPolicy: 'allow', allowPermitted: true },
   { id: 'memory.write', label: 'Save memory', description: 'Store new (unverified) memories from conversations.', external: false, defaultPolicy: 'allow', allowPermitted: true },
   { id: 'memory.delete', label: 'Delete memory', description: 'Jarvis deleting a memory on its own. (You can always delete memories yourself.)', external: false, defaultPolicy: 'ask', allowPermitted: true },
-  { id: 'model', label: 'Use language model', description: 'Send task content to your configured model provider.', external: false, defaultPolicy: 'allow', allowPermitted: true },
+  { id: 'model', label: 'Use language model', description: 'Send task content to the model picked in Roamies.', external: false, defaultPolicy: 'allow', allowPermitted: true },
   { id: 'files.read', label: 'Read workspace files', description: 'List, read and search files inside the Jarvis workspace folder.', external: true, defaultPolicy: 'allow', allowPermitted: true },
   { id: 'files.write', label: 'Write workspace files', description: 'Create or modify files inside the Jarvis workspace folder.', external: true, defaultPolicy: 'ask', allowPermitted: true },
   { id: 'network.read', label: 'Fetch web pages', description: 'HTTP GET requests to public websites.', external: true, defaultPolicy: 'ask', allowPermitted: true },

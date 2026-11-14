@@ -16,7 +16,11 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   });
   const text = await res.text();
   const json = text ? JSON.parse(text) : null;
-  if (!res.ok) throw new ApiError(json?.error ?? `Request failed (${res.status})`, res.status);
+  if (!res.ok) {
+    // 423: Roamies went missing — the gate shows the "Roamies required" screen.
+    if (res.status === 423) window.dispatchEvent(new Event('jarvis-locked'));
+    throw new ApiError(json?.error ?? `Request failed (${res.status})`, res.status);
+  }
   return json as T;
 }
 
@@ -233,18 +237,37 @@ export interface NotificationEntry {
   read: boolean;
 }
 
-export interface ProviderStatus {
-  id: string;
-  name: string;
-  type: 'anthropic' | 'openai-compatible';
-  model: string;
-  baseUrl: string;
-  enabled: boolean;
-  requiresKey: boolean;
-  keyConfigured: boolean;
-  keySource: 'stored' | 'environment' | null;
-  usable: boolean;
-  role: 'primary' | 'fallback' | 'unused';
+export interface RoamiesDetection {
+  installed: boolean;
+  path: string | null;
+  how: string | null;
+  version: string | null;
+  ggDir: string;
+  configPath: string;
+  configured: boolean;
+  checkedAt: number;
+  searched: string[];
+}
+
+export interface RoamiesRequirement {
+  met: boolean;
+  running: boolean;
+  downloadUrl: string;
+  detection: RoamiesDetection;
+}
+
+/** The Roamies engine: the model and sign-ins chosen in Roamies. */
+export interface EngineStatus {
+  ready: boolean;
+  provider: { id: string; name: string } | null;
+  model: { id: string; name: string } | null;
+  source: 'roamies' | 'jarvis' | 'auto' | null;
+  route: 'api' | 'claude-code' | null;
+  signedIn: Array<{ id: string; name: string; claude?: boolean }>;
+  models: Array<{ id: string; name: string; provider: string }>;
+  problem: string | null;
+  configPath: string;
+  look: string | null;
   health: { ok: boolean; detail: string; checkedAt: number } | null;
   lastError: string | null;
   lastUsedAt: number | null;
@@ -265,11 +288,10 @@ export interface McpStatus {
 }
 
 export interface Integrations {
-  providers: ProviderStatus[];
+  model: EngineStatus & { override: string; thinking: Settings['llm']['thinking'] };
+  roamies: RoamiesDetection;
   embeddings: {
     enabled: boolean;
-    providerId: string;
-    model: string;
     active: boolean;
     memoriesEmbedded: number;
     builtin: { state: 'not_downloaded' | 'downloading' | 'ready' | 'error'; error: string | null; sizeBytes: number };
@@ -278,7 +300,7 @@ export interface Integrations {
   workspace: { path: string; exists: boolean; writable: boolean; readPolicy: string; writePolicy: string };
   web: { policy: string; allowPrivateNetwork: boolean };
   shell: { enabled: boolean; policy: string };
-  transcription: { providerId: string; model: string; available: boolean };
+  transcription: { service: 'none' | 'openai' | 'custom'; baseUrl: string; model: string; keySet: boolean; available: boolean };
   email: {
     enabled: boolean;
     address: string;
@@ -353,15 +375,13 @@ export interface JobStatus {
 export interface Settings {
   assistant: { userName: string };
   llm: {
-    providers: Array<{ id: string; type: 'anthropic' | 'openai-compatible'; name: string; baseUrl: string; model: string; enabled: boolean; requiresKey: boolean }>;
-    primary: string;
-    fallbackOrder: string[];
-    effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-    serverSideFallback: boolean;
+    /** Empty = the model picked in Roamies. */
+    model: string;
+    thinking: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
     maxToolIterations: number;
     requestTimeoutSec: number;
   };
-  embeddings: { enabled: boolean; providerId: string; model: string };
+  embeddings: { enabled: boolean };
   memory: { autoExtract: boolean; contextMessages: number; retrievalLimit: number; conversationRetentionDays: number; summarizeConversations: boolean };
   background: {
     enabled: boolean;
@@ -383,7 +403,7 @@ export interface Settings {
     lang: string;
     wakeWord: boolean;
     inputMode: 'auto' | 'browser' | 'transcription';
-    transcription: { providerId: string; model: string };
+    transcription: { service: 'none' | 'openai' | 'custom'; baseUrl: string; model: string };
   };
   notifications: { desktop: boolean; taskCompletion: boolean };
   appearance: { reduceMotion: boolean; accent: 'violet' | 'indigo' | 'fuchsia' };

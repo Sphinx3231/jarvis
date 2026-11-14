@@ -3,7 +3,7 @@ import type { SettingsStore } from '../core/settings.ts';
 import type { StateTracker } from '../core/state.ts';
 import { errorMessage, truncate, UserError } from '../core/util.ts';
 import { planFromIntent, type Planner } from '../agents/planner.ts';
-import type { LlmRouter } from '../llm/router.ts';
+import type { EngineTool, RoamiesEngine } from '../llm/engine.ts';
 import { decodeToolName, type LlmMessage, type ToolCall, type ToolResult, type ToolSpec } from '../llm/types.ts';
 import type { MemoryKind, MemoryStore } from '../memory/store.ts';
 import type { PermissionEngine } from '../permissions/engine.ts';
@@ -63,7 +63,7 @@ export class Jarvis {
   private d: {
     conversations: ConversationStore;
     memory: MemoryStore;
-    llm: LlmRouter;
+    llm: RoamiesEngine;
     registry: SkillRegistry;
     runner: SkillRunner;
     permissions: PermissionEngine;
@@ -92,6 +92,7 @@ export class Jarvis {
     const done = this.d.state.beginThinking();
     const actions: ChatAction[] = [];
     try {
+      await this.d.llm.refresh().catch(() => {});
       const intent = parseIntent(text);
       let reply: string;
       let handledBy: ChatResult['handledBy'];
@@ -103,7 +104,7 @@ export class Jarvis {
         handledBy = 'model';
       } else {
         reply =
-          "I don't have a language model configured yet, so I can only handle direct commands right now — for example “remember that …”, “remind me in 10 minutes to …”, “fetch https://…”, “run `…`”, “list files”, “show tasks” or “status”. Add an API key or enable a local model in Integrations and I can handle anything.";
+          "I don't have a language model configured yet, so I can only handle direct commands right now — for example “remember that …”, “remind me in 10 minutes to …”, “fetch https://…”, “run `…`”, “list files”, “show tasks” or “status”. Sign in to a model in Roamies (its Model page) and I can handle anything — I think with the same engine and model as Roamies.";
         handledBy = 'none';
       }
       const replyMessage = this.d.conversations.addMessage(conversationId, 'assistant', reply, { actions, handledBy });
@@ -207,7 +208,7 @@ export class Jarvis {
     const available = this.d.registry.info().filter((s) => s.available);
     const model = this.d.llm.activeProvider();
     return [
-      model ? `I'm connected to ${model.model}, so you can ask me anything in plain language.` : "No language model is configured, so I understand direct commands only (add one in Integrations).",
+      model ? `I'm thinking with ${model.model} through Roamies, so you can ask me anything in plain language.` : 'Roamies has no model signed in yet, so I understand direct commands only (sign in on the Model page in Roamies).',
       '',
       'Things I can do:',
       ...available.map((s) => `• ${s.title} — ${s.description}`),
@@ -231,7 +232,7 @@ export class Jarvis {
       `I'm online — up ${hours}h ${mins}m.`,
       `Tasks: ${s.tasks.running ?? 0} running, ${s.tasks.queued ?? 0} queued, ${s.approvalsPending} awaiting your approval.`,
       `Memory: ${s.memory.total} items (${s.memory.unverified} unverified).`,
-      `Model: ${s.model ? `${s.model.model} via ${s.model.provider}` : 'not configured'}.`,
+      `Model: ${s.model ? `${s.model.model} from ${s.model.provider}, through Roamies` : 'none yet — sign in on the Model page in Roamies'}.`,
       `Background monitoring: ${s.background.enabled ? 'on' : 'paused'}.`,
     ].join('\n');
   }
@@ -351,21 +352,19 @@ export class Jarvis {
     const inline = this.inlineSkills();
     const tools: ToolSpec[] = [...inline.map((sk) => this.d.registry.toolSpec(sk)), ...this.controlTools()];
 
-    let finalText = '';
-    for (let iteration = 0; iteration < s.llm.maxToolIterations; iteration++) {
-      const res = await this.d.llm.complete({ system: SYSTEM_PROMPT, messages, tools, signal });
-      if (res.stopReason === 'refusal') return res.text || "I can't help with that request.";
-      if (!res.toolCalls.length) {
-        finalText = res.text;
-        if (res.stopReason === 'max_tokens') finalText += '\n\n(My reply was cut off because it reached the length limit.)';
-        break;
-      }
-      messages.push({ role: 'assistant', text: res.text, toolCalls: res.toolCalls, raw: { providerId: res.providerId, content: res.raw } });
-      const results: ToolResult[] = [];
-      for (const call of res.toolCalls) results.push(await this.runTool(call, conversationId, via, actions, signal));
-      messages.push({ role: 'tool_results', results });
-      if (iteration === s.llm.maxToolIterations - 1) finalText = res.text;
-    }
+    // Every tool call still goes through runTool: inline skills via the skill runner (permission engine),
+    // everything else becomes a task. The model can never approve anything.
+    const engineTools: EngineTool[] = tools.map((spec) => ({
+      spec,
+      execute: async (input, id) => {
+        const r = await this.runTool({ id, name: spec.name, input }, conversationId, via, actions, signal);
+        return { content: r.content, isError: r.isError };
+      },
+    }));
+    const res = await this.d.llm.run({ system: SYSTEM_PROMPT, messages, tools: engineTools, maxTurns: s.llm.maxToolIterations, signal });
+    if (res.stopReason === 'refusal') return res.text || "I can't help with that request.";
+    let finalText = res.text;
+    if (res.stopReason === 'max_tokens') finalText += '\n\n(My reply was cut off because it reached the length limit.)';
     if (!finalText.trim()) finalText = this.describeActions(actions) || 'Done.';
     return finalText.trim();
   }

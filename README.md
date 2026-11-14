@@ -3,7 +3,20 @@
 <h1 align="center">Jarvis</h1>
 <p align="center">A persistent AI personal operating system, represented by a purple dragon.<br>It remembers context, organises and runs tasks in the background, coordinates skills and agents, and never acts beyond what you authorise.</p>
 
+<p align="center"><strong>Built on <a href="https://github.com/KenKaiii/Roamies">Roamies</a></strong> — Jarvis thinks with the Roamies engine and needs Roamies installed.</p>
+
 ---
+
+## Requires Roamies
+
+Jarvis is built on [Roamies](https://github.com/KenKaiii/Roamies) by KenKaiii. It thinks with the same engine (the [GG framework](https://github.com/KenKaiii/gg-framework)), the model you picked in Roamies and the sign-ins you made there — Claude, ChatGPT, Gemini, an API key or a local model. Jarvis never asks for your passwords or keys and never stores them: it asks the GG framework for a fresh credential for each request.
+
+1. [Install Roamies](https://github.com/KenKaiii/Roamies/releases/latest) and open it once to sign in on its Model page.
+2. Open Jarvis.
+
+Until Roamies is found, Jarvis shows only a **Roamies required** screen with a download link and **Check again** (it also re-checks by itself every few seconds and starts the moment Roamies appears — no restart). It looks for `Roamies.app` in `/Applications` or `~/Applications` on macOS, the Roamies installer's folder (or its uninstall entry) on Windows, and the `roamies` command (`.deb`/`.rpm`) or a `Roamies*.AppImage` in the usual folders on Linux. Installed somewhere else? Choose **Installed it somewhere else?** and give its path.
+
+Change model or sign in from the Model page in Roamies; Jarvis follows within seconds. Settings → Model can pick a different model from the same sign-ins and how much it thinks.
 
 ## Install the desktop app
 
@@ -39,24 +52,20 @@ To run only the service (then open the printed address in a Chromium-based brows
 npm start
 ```
 
-### Connect a model
+### The model
 
-Jarvis works without a model for direct commands (“remember that …”, “remind me in 10 minutes to …”, “fetch https://…”, “run \`…\`”, “list files”, “show tasks”, “status”). For open-ended requests, planning and summaries, configure a provider on **Integrations**:
-
-- **Anthropic Claude** (default primary, `claude-opus-5-5`) — paste an API key, or set `ANTHROPIC_API_KEY` before starting.
-- **OpenAI** or any **OpenAI-compatible** endpoint — paste a key or set `OPENAI_API_KEY`.
-- **Ollama / LM Studio** (local, no key) — enable it and set the model name.
+Jarvis uses the model from Roamies (see **Requires Roamies** above). Without a Roamies sign-in it still handles direct commands (“remember that …”, “remind me in 10 minutes to …”, “fetch https://…”, “run \`…\`”, “list files”, “show tasks”, “status”). When Roamies is signed in with Claude, Jarvis runs through Claude Code exactly as Roamies does — with none of Claude Code's own tools, only Jarvis's, each still checked by Jarvis's permission engine.
 
 ### Email, calendar, voice and more
 
 - **Email** — any IMAP/SMTP account with an app password (Gmail, iCloud, Fastmail, Yahoo, most hosts). Jarvis searches and reads mail; every message it sends needs your approval. Outlook.com/Microsoft 365 require Microsoft sign-in (OAuth), which isn't supported yet.
 - **Calendar** — CalDAV accounts (iCloud, Fastmail, Nextcloud…) to read and add events, plus read-only ICS feed links (Google, Outlook and most calendar apps can publish one).
 - **Semantic memory** — built in and on by default: a 23 MB model downloaded once runs on your computer, so Jarvis finds memories by meaning without sending them anywhere.
-- **Voice** — browser speech recognition where available; otherwise (desktop app, Firefox) Jarvis records and transcribes through OpenAI or a local Whisper server (Settings → Voice).
+- **Voice** — browser speech recognition where available; otherwise (desktop app, Firefox) Jarvis records and transcribes with the OpenAI API key saved in Roamies, or your own (e.g. local) Whisper server (Settings → Voice).
 - **MCP servers** — add tools from the Model Context Protocol ecosystem; the official filesystem server is one click away.
 - **Jarvis vault (Obsidian)** — Jarvis creates its own Obsidian vault on first start (`~/Documents/Jarvis Vault`, changeable in Integrations) and keeps everything it learns there: one note per memory, every task with its steps and results, your conversations, a daily journal and a live manual (every skill, agent, permission, integration and background job, plus these docs) — linked with `[[wikilinks]]`, tags and frontmatter, and updated within seconds. Open it in Obsidian with “Open folder as vault” once. Notes you edit are never overwritten, edits to memory notes flow back into Jarvis, and notes you add yourself are left alone. Jarvis never writes into another vault: it refuses any folder that already holds other files.
 
-Keys are encrypted on disk and never sent to the browser. Providers are tried in order (primary, then fallbacks).
+Account passwords and server keys Jarvis keeps (email, calendar, MCP, a transcription server) are encrypted on disk and never sent to the browser. Model sign-ins stay in Roamies.
 
 ### Configuration
 
@@ -66,7 +75,9 @@ Keys are encrypted on disk and never sent to the browser. Providers are tried in
 | `JARVIS_DATA_DIR` | `~/.jarvis` | Database, encryption key, workspace folder |
 | `JARVIS_MASTER_KEY` | generated file | 64 hex chars; overrides the generated key file |
 | `JARVIS_BROWSER` | auto-detected | Browser executable for the app window |
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `JARVIS_<PROVIDER>_API_KEY` | — | Provider keys from the environment |
+| `ROAMIES_DATA_DIR` | `~/.gg` | Where Roamies keeps `sidekick.json` (as in Roamies) |
+| `JARVIS_ROAMIES_PATH` | auto-detected | Treat this path as the Roamies install (tests and CI; an empty or missing path means “not installed”) |
+| `JARVIS_GG_DIR` | `~/.gg` | Roamies/GG settings and sign-ins folder (tests) |
 
 Everything else is in **Settings** inside the app.
 
@@ -93,6 +104,10 @@ npm run dist         # build installers for this OS into release/
 ```
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it fits together.
+
+## License
+
+Jarvis is free software under the [GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`), like Roamies and the GG framework it is built on. You may use, study, change and share it; if you distribute a changed version or let others use it over a network, you must offer its source under the same license. See [NOTICE.md](NOTICE.md) for credits and third-party components.
 
 ## Brand assets
 

@@ -158,6 +158,9 @@ function createTray() {
   }
 }
 
+// JARVIS_SMOKE_EXPECT=locked: Roamies is missing, so only the "Roamies required" screen may work.
+const EXPECT_LOCKED = process.env.JARVIS_SMOKE_EXPECT === 'locked';
+
 async function smokeTest() {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
@@ -166,9 +169,11 @@ async function smokeTest() {
         const token = document.querySelector('meta[name="jarvis-token"]')?.content;
         const res = await fetch('/api/status', { headers: { 'x-jarvis-token': token } });
         const body = await res.json();
-        return { dragon: !!document.querySelector('.dragon'), online: document.body.innerText.includes('Online'), status: res.status, version: body.status && body.status.version };
+        const about = await fetch('/api/about', { headers: { 'x-jarvis-token': token } });
+        return { dragon: !!document.querySelector('.dragon'), online: document.body.innerText.includes('Online'), locked: document.body.innerText.includes('Jarvis runs on Roamies'), status: res.status, about: about.status, version: body.status && body.status.version };
       })()`);
-      if (result.dragon && result.online && result.status === 200) {
+      const ok = EXPECT_LOCKED ? result.locked && result.status === 423 && result.about === 200 && !result.dragon : result.dragon && result.online && result.status === 200;
+      if (ok) {
         log('SMOKE TEST PASSED', JSON.stringify(result));
         return true;
       }

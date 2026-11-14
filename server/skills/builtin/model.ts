@@ -27,21 +27,21 @@ export const llmGenerate: Skill<z.infer<typeof Input>, Out> = {
   input: Input,
   outputDescription: 'Generated text plus the model/provider that produced it.',
   timeoutMs: 300_000,
-  dependsOn: 'Model provider',
-  availability: (s) => (s.llm.available() ? { available: true } : { available: false, reason: 'No model provider configured' }),
+  dependsOn: 'Roamies model sign-in',
+  availability: (s) => (s.llm.available() ? { available: true } : { available: false, reason: 'No model from Roamies (sign in on its Model page)' }),
   summarize: (i) => `Ask the model: ${i.instruction.slice(0, 100)}`,
   async execute(input, ctx) {
     const content = input.context
       ? `${input.instruction}\n\n${wrapUntrusted(input.contextSource ?? 'previous step output', input.context)}`
       : input.instruction;
-    const res = await ctx.services.llm.complete({
+    const res = await ctx.services.llm.generate({
       system: `You are Jarvis's text-processing component. Produce exactly what the instruction asks for, concisely. ${UNTRUSTED_POLICY}`,
-      messages: [{ role: 'user', content }],
+      prompt: content,
       maxTokens: input.maxTokens ?? 4000,
       signal: ctx.signal,
     });
     if (res.stopReason === 'refusal') throw new Error('The model declined this request');
-    return { text: res.text.trim(), model: res.model, provider: res.providerId };
+    return { text: res.text.trim(), model: res.model, provider: res.provider };
   },
   async verify(_i, out) {
     return out.text.length > 0 ? { ok: true, detail: `${out.text.length} characters from ${out.model}` } : { ok: false, detail: 'Model returned empty output' };
