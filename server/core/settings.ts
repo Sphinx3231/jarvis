@@ -79,6 +79,12 @@ export const SettingsSchema = z.object({
     pitch: z.number().min(0).max(2),
     lang: z.string().max(20),
     wakeWord: z.boolean(),
+    /** auto: browser speech recognition where it works, otherwise recorded audio + transcription. */
+    inputMode: z.enum(['auto', 'browser', 'transcription']),
+    transcription: z.object({
+      providerId: z.string(),
+      model: z.string().min(1).max(120),
+    }),
   }),
   notifications: z.object({
     desktop: z.boolean(),
@@ -117,7 +123,7 @@ export const DEFAULT_SETTINGS: Settings = {
     maxToolIterations: 6,
     requestTimeoutSec: 180,
   },
-  embeddings: { enabled: false, providerId: 'ollama', model: 'nomic-embed-text' },
+  embeddings: { enabled: true, providerId: 'builtin', model: 'nomic-embed-text' },
   memory: {
     autoExtract: true,
     contextMessages: 20,
@@ -136,7 +142,17 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   tasks: { stepTimeoutSec: 120, maxAttempts: 2 },
   permissions: { policies: {} },
-  voice: { enabled: true, autoSpeak: false, voiceName: '', rate: 1, pitch: 1, lang: 'en-US', wakeWord: false },
+  voice: {
+    enabled: true,
+    autoSpeak: false,
+    voiceName: '',
+    rate: 1,
+    pitch: 1,
+    lang: 'en-US',
+    wakeWord: false,
+    inputMode: 'auto',
+    transcription: { providerId: 'openai', model: 'whisper-1' },
+  },
   notifications: { desktop: true, taskCompletion: true },
   appearance: { reduceMotion: false, accent: 'violet' },
   integrations: {

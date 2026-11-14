@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { api } from './api';
 import { useLive } from './live';
 
 /**
@@ -29,13 +30,25 @@ const RecognitionImpl: RecognitionCtor | undefined =
   (window as unknown as { SpeechRecognition?: RecognitionCtor }).SpeechRecognition ??
   (window as unknown as { webkitSpeechRecognition?: RecognitionCtor }).webkitSpeechRecognition;
 
+const isElectron = /Electron\//.test(navigator.userAgent);
+
 export const voiceSupport = {
-  recognition: Boolean(RecognitionImpl),
+  /** Browser speech recognition. Electron exposes the API but has no recognition service behind it. */
+  recognition: Boolean(RecognitionImpl) && !isElectron,
+  /** Recording for server-side transcription. */
+  recording: Boolean(navigator.mediaDevices?.getUserMedia) && typeof MediaRecorder !== 'undefined',
   synthesis: typeof window !== 'undefined' && 'speechSynthesis' in window,
+  isElectron,
 };
+
+export type InputMethod = 'browser' | 'transcription' | 'none';
 
 interface VoiceContextValue {
   listening: boolean;
+  /** Recording finished; waiting for the transcription service. */
+  transcribing: boolean;
+  /** Which voice input method the microphone button will use. */
+  inputMethod: InputMethod;
   speaking: boolean;
   wakeActive: boolean;
   interim: string;
@@ -65,6 +78,10 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
   const { settings } = useLive();
   const voiceSettings = settings?.voice;
   const [listening, setListening] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  // Set when browser recognition turns out not to work here (auto mode then records instead).
+  const [browserFailed, setBrowserFailed] = useState(false);
+  const stopRecording = useRef<(() => void) | null>(null);
   const [speaking, setSpeaking] = useState(false);
   const [wakeActive, setWakeActive] = useState(false);
   const [interim, setInterim] = useState('');
@@ -108,16 +125,99 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
 
   const stopListening = useCallback(() => {
     recRef.current?.stop();
+    stopRecording.current?.();
+  }, []);
+
+  const mode = voiceSettings?.inputMode ?? 'auto';
+  const inputMethod: InputMethod =
+    mode === 'browser'
+      ? voiceSupport.recognition
+        ? 'browser'
+        : 'none'
+      : mode === 'transcription'
+        ? voiceSupport.recording
+          ? 'transcription'
+          : 'none'
+        : voiceSupport.recognition && !browserFailed
+          ? 'browser'
+          : voiceSupport.recording
+            ? 'transcription'
+            : 'none';
+
+  /** Record until the speaker pauses, then transcribe on the Jarvis service. */
+  const recordOnce = useCallback(async (): Promise<string> => {
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    } catch {
+      setError('Microphone access was blocked. Allow it to use voice.');
+      return '';
+    }
+    const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'].find((m) => MediaRecorder.isTypeSupported(m));
+    const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    const audioCtx = new AudioContext();
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 1024;
+    audioCtx.createMediaStreamSource(stream).connect(analyser);
+    const samples = new Float32Array(analyser.fftSize);
+    let heardSpeech = false;
+    const started = Date.now();
+    let lastLoud = started;
+    const done = new Promise<void>((resolve) => (recorder.onstop = () => resolve()));
+    const finish = () => recorder.state === 'recording' && recorder.stop();
+    stopRecording.current = finish;
+    const meter = setInterval(() => {
+      analyser.getFloatTimeDomainData(samples);
+      let sum = 0;
+      for (const v of samples) sum += v * v;
+      const rms = Math.sqrt(sum / samples.length);
+      const now = Date.now();
+      if (rms > 0.015) {
+        heardSpeech = true;
+        lastLoud = now;
+      }
+      if ((heardSpeech && now - lastLoud > 1500) || (!heardSpeech && now - started > 8000) || now - started > 60_000) finish();
+    }, 100);
+    recorder.start(250);
+    listeningRef.current = true;
+    setListening(true);
+    await done;
+    clearInterval(meter);
+    stopRecording.current = null;
+    stream.getTracks().forEach((t) => t.stop());
+    void audioCtx.close();
+    listeningRef.current = false;
+    setListening(false);
+    // Nothing was said: don't send silence anywhere.
+    if (!heardSpeech || !chunks.length) return '';
+    setTranscribing(true);
+    try {
+      const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+      const { text } = await api.postAudio<{ text: string }>('/api/voice/transcribe', blob);
+      return text;
+    } catch (e) {
+      setError(`Transcription failed: ${(e as Error).message}`);
+      return '';
+    } finally {
+      setTranscribing(false);
+    }
   }, []);
 
   const listenOnce = useCallback(() => {
+    if (listeningRef.current) return Promise.resolve('');
+    stopSpeaking(); // interrupt Jarvis when the user starts talking
+    setError(null);
+    if (inputMethod === 'transcription') {
+      wakeRef.current?.abort();
+      return recordOnce();
+    }
     return new Promise<string>((resolve) => {
-      if (!RecognitionImpl) {
-        setError('Speech recognition is not supported in this browser.');
+      if (inputMethod === 'none' || !RecognitionImpl) {
+        setError('Voice input is not available here. Choose a transcription service in Settings → Voice.');
         return resolve('');
       }
-      if (listeningRef.current) return resolve('');
-      stopSpeaking(); // interrupt Jarvis when the user starts talking
       wakeRef.current?.abort();
       const rec = new RecognitionImpl();
       rec.lang = voiceSettings?.lang ?? 'en-US';
@@ -133,7 +233,11 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
         setInterim(text);
       };
       rec.onerror = (e) => {
-        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') setError('Microphone access was blocked. Allow it in your browser to use voice.');
+        if (e.error === 'not-allowed') setError('Microphone access was blocked. Allow it in your browser to use voice.');
+        else if ((e.error === 'network' || e.error === 'service-not-allowed' || e.error === 'language-not-supported') && mode === 'auto' && voiceSupport.recording) {
+          setBrowserFailed(true);
+          setError('Browser speech recognition is unavailable here, so Jarvis will record and transcribe instead. Tap the microphone again.');
+        }
         else if (e.error !== 'no-speech' && e.error !== 'aborted') setError(`Voice input error: ${e.error}`);
       };
       rec.onend = () => {
@@ -149,11 +253,12 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
       setListening(true);
       rec.start();
     });
-  }, [stopSpeaking, voiceSettings?.lang]);
+  }, [stopSpeaking, voiceSettings?.lang, inputMethod, recordOnce, mode]);
 
   // Wake word mode: only when the user explicitly enables it.
   useEffect(() => {
-    const enabled = Boolean(voiceSettings?.enabled && voiceSettings.wakeWord && RecognitionImpl);
+    // The wake word needs continuous on-device/browser recognition; it never streams audio to a transcription service.
+    const enabled = Boolean(voiceSettings?.enabled && voiceSettings.wakeWord && voiceSupport.recognition && inputMethod === 'browser');
     if (!enabled || !RecognitionImpl) {
       setWakeActive(false);
       return;
@@ -197,14 +302,14 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
       wakeRef.current?.abort();
       setWakeActive(false);
     };
-  }, [voiceSettings?.enabled, voiceSettings?.wakeWord, voiceSettings?.lang]);
+  }, [voiceSettings?.enabled, voiceSettings?.wakeWord, voiceSettings?.lang, inputMethod]);
 
   const setWakeHandler = useCallback((fn: ((command: string) => void) | null) => {
     wakeHandler.current = fn;
   }, []);
 
   return (
-    <VoiceContext.Provider value={{ listening, speaking, wakeActive, interim, error, listenOnce, stopListening, speak, stopSpeaking, voices, setWakeHandler }}>
+    <VoiceContext.Provider value={{ listening, transcribing, inputMethod, speaking, wakeActive, interim, error, listenOnce, stopListening, speak, stopSpeaking, voices, setWakeHandler }}>
       {children}
     </VoiceContext.Provider>
   );

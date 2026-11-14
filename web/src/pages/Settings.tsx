@@ -94,8 +94,46 @@ export function SettingsPage() {
       </Card>
 
       <Card title="Voice" icon={<Mic size={18} />}>
-        <Field label="Voice features" hint={voiceSupport.recognition ? 'Microphone button and spoken replies.' : 'Speech recognition is not supported in this browser; spoken replies may still work.'}>
+        <Field label="Voice features" hint="Microphone button and spoken replies.">
           <Toggle checked={s.voice.enabled} onChange={(v) => save({ voice: { enabled: v } })} />
+        </Field>
+        <Field
+          label="Voice input"
+          hint={
+            <>
+              Automatic uses the browser’s speech recognition where it exists, otherwise records your voice and sends it to the transcription service below. In use now:{' '}
+              <strong>{voice.inputMethod === 'browser' ? 'browser recognition' : voice.inputMethod === 'transcription' ? 'transcription service' : 'none available'}</strong>.
+            </>
+          }
+        >
+          <select value={s.voice.inputMode} onChange={(e) => save({ voice: { inputMode: e.target.value as Settings['voice']['inputMode'] } })} aria-label="Voice input">
+            <option value="auto">Automatic</option>
+            <option value="browser" disabled={!voiceSupport.recognition}>
+              Browser speech recognition{voiceSupport.recognition ? '' : ' (not available here)'}
+            </option>
+            <option value="transcription" disabled={!voiceSupport.recording}>
+              Transcription service
+            </option>
+          </select>
+        </Field>
+        <Field label="Transcription service" hint="Any OpenAI-compatible endpoint: OpenAI (whisper-1 / gpt-4o-mini-transcribe) or a local Whisper server for fully offline voice. Audio is only sent after you speak.">
+          <div className="inline">
+            <select value={s.voice.transcription.providerId} onChange={(e) => save({ voice: { transcription: { providerId: e.target.value } } })} aria-label="Transcription provider">
+              {s.llm.providers
+                .filter((p) => p.type === 'openai-compatible')
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+            </select>
+            <input
+              defaultValue={s.voice.transcription.model}
+              aria-label="Transcription model"
+              className="num-wide"
+              onBlur={(e) => e.target.value.trim() && e.target.value !== s.voice.transcription.model && save({ voice: { transcription: { model: e.target.value.trim() } } })}
+            />
+          </div>
         </Field>
         <Field label="Speak every reply" hint="Replies to voice commands are always spoken.">
           <Toggle checked={s.voice.autoSpeak} onChange={(v) => save({ voice: { autoSpeak: v } })} disabled={!s.voice.enabled} />
@@ -119,8 +157,8 @@ export function SettingsPage() {
         <Field label="Recognition language">
           <input defaultValue={s.voice.lang} maxLength={20} onBlur={(e) => e.target.value !== s.voice.lang && save({ voice: { lang: e.target.value.trim() || 'en-US' } })} />
         </Field>
-        <Field label="Wake word (“Jarvis, …”)" hint="Keeps the microphone listening while Jarvis is open. Voice can never approve actions.">
-          <Toggle checked={s.voice.wakeWord} onChange={(v) => save({ voice: { wakeWord: v } })} disabled={!s.voice.enabled || !voiceSupport.recognition} />
+        <Field label="Wake word (“Jarvis, …”)" hint="Keeps the microphone listening while Jarvis is open. Needs browser speech recognition — it never streams audio to a transcription service. Voice can never approve actions.">
+          <Toggle checked={s.voice.wakeWord} onChange={(v) => save({ voice: { wakeWord: v } })} disabled={!s.voice.enabled || voice.inputMethod !== 'browser'} />
         </Field>
         {voiceSupport.synthesis && (
           <Button size="sm" onClick={() => voice.speak('Hello. I am Jarvis, and I am ready when you are.')} disabled={!s.voice.enabled}>

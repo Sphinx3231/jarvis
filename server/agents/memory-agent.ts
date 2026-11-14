@@ -46,6 +46,28 @@ export class MemoryAgent {
     });
   }
 
+  private embedding: Promise<number> | null = null;
+
+  /** Compute embeddings for memories that don't have one for the active model yet. */
+  embedPending(signal?: AbortSignal, max = 512): Promise<number> {
+    this.embedding ??= (async () => {
+      const embedder = this.llm.embeddings();
+      if (!embedder) return 0;
+      let done = 0;
+      while (done < max) {
+        const pending = this.memory.missingEmbeddings(32, embedder.model);
+        if (!pending.length) break;
+        const vectors = await embedder.embed(pending.map((p) => p.content), signal);
+        pending.forEach((p, i) => this.memory.setEmbedding(p.id, vectors[i], embedder.model));
+        done += pending.length;
+      }
+      return done;
+    })().finally(() => {
+      this.embedding = null;
+    });
+    return this.embedding;
+  }
+
   syncToolDocs(): void {
     this.memory.syncToolDocs(this.registry.docs());
   }
@@ -61,18 +83,11 @@ export class MemoryAgent {
     const pruned = this.conversations.pruneOlderThan(Date.now() - s.memory.conversationRetentionDays * 86_400_000);
     if (pruned) notes.push(`removed ${pruned} expired conversation(s)`);
 
-    const embedder = this.llm.embeddings();
-    if (embedder) {
-      const pending = this.memory.missingEmbeddings(64, embedder.model);
-      if (pending.length) {
-        try {
-          const vectors = await embedder.embed(pending.map((p) => p.content), signal);
-          pending.forEach((p, i) => this.memory.setEmbedding(p.id, vectors[i], embedder.model));
-          notes.push(`embedded ${pending.length} memories`);
-        } catch (err) {
-          notes.push(`embedding failed: ${errorMessage(err)}`);
-        }
-      }
+    try {
+      const embedded = await this.embedPending(signal);
+      if (embedded) notes.push(`embedded ${embedded} memories`);
+    } catch (err) {
+      notes.push(`embedding failed: ${errorMessage(err)}`);
     }
 
     if (s.memory.summarizeConversations && this.llm.available()) {

@@ -106,7 +106,7 @@ test('memory: dedupe merges near-duplicates created by edits', async () => {
 });
 
 test('memory: query helpers are safe against FTS syntax', () => {
-  assert.equal(ftsQuery('"); DROP TABLE memories; --'), '"drop" OR "table" OR "memories"');
+  assert.equal(ftsQuery('"); DROP TABLE memories; --'), '"drop" OR "table" OR "memories" OR "memor"*');
   assert.equal(ftsQuery('!!!'), null);
   assert.ok(similarity('Hello world', 'hello, world!') > 0.95);
   assert.ok(similarity('cats', 'quantum physics') < 0.2);

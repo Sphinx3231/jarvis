@@ -3,6 +3,7 @@ import type { SecretStore } from '../core/secrets.ts';
 import type { ProviderConfig, SettingsStore } from '../core/settings.ts';
 import { errorMessage, stableStringify } from '../core/util.ts';
 import { AnthropicProvider } from './anthropic.ts';
+import type { LocalModelManager } from './local-embeddings.ts';
 import { OpenAiCompatibleEmbeddings, OpenAiCompatibleProvider } from './openai-compatible.ts';
 import type { EmbeddingProvider, LlmProvider, LlmRequest, LlmResponse } from './types.ts';
 import { ProviderError } from './types.ts';
@@ -48,10 +49,13 @@ export class LlmRouter {
   private lastError = new Map<string, string>();
   private lastUsed = new Map<string, number>();
 
-  constructor(settings: SettingsStore, secrets: SecretStore, activity: ActivityLog) {
+  readonly localModel: LocalModelManager | null;
+
+  constructor(settings: SettingsStore, secrets: SecretStore, activity: ActivityLog, localModel: LocalModelManager | null = null) {
     this.settings = settings;
     this.secrets = secrets;
     this.activity = activity;
+    this.localModel = localModel;
   }
 
   private resolveKey(cfg: ProviderConfig): { key?: string; source: 'stored' | 'environment' | null } {
@@ -165,10 +169,53 @@ export class LlmRouter {
     });
   }
 
-  /** Embeddings are only offered through OpenAI-compatible endpoints (Anthropic has no embeddings API). */
+  /** Which transcription endpoint voice recordings would use, if any. */
+  transcriptionTarget(): { cfg: ProviderConfig; key?: string } | null {
+    const t = this.settings.get().voice.transcription;
+    const cfg = this.settings.get().llm.providers.find((p) => p.id === t.providerId);
+    if (!cfg || cfg.type !== 'openai-compatible' || !cfg.baseUrl) return null;
+    const { key } = this.resolveKey(cfg);
+    if (cfg.requiresKey && !key) return null;
+    return { cfg, key };
+  }
+
+  /** Speech to text through an OpenAI-compatible /audio/transcriptions endpoint (OpenAI, local Whisper servers). */
+  async transcribe(audio: Buffer, mimeType: string, opts: { language?: string; signal?: AbortSignal } = {}): Promise<{ text: string; provider: string }> {
+    const target = this.transcriptionTarget();
+    if (!target) throw new ProviderError('No transcription service is configured. Choose one under Settings → Voice.', { retryable: false });
+    const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('wav') ? 'wav' : mimeType.includes('mp4') || mimeType.includes('m4a') ? 'm4a' : mimeType.includes('mpeg') ? 'mp3' : 'webm';
+    const form = new FormData();
+    form.append('file', new Blob([new Uint8Array(audio)], { type: mimeType }), `speech.${ext}`);
+    form.append('model', this.settings.get().voice.transcription.model);
+    if (opts.language) form.append('language', opts.language.split('-')[0]);
+    form.append('response_format', 'json');
+    let res: Response;
+    try {
+      res = await fetch(`${target.cfg.baseUrl.replace(/\/+$/, '')}/audio/transcriptions`, {
+        method: 'POST',
+        headers: target.key ? { authorization: `Bearer ${target.key}` } : {},
+        body: form,
+        signal: opts.signal ?? AbortSignal.timeout(120_000),
+      });
+    } catch (err) {
+      throw new ProviderError(`Cannot reach ${target.cfg.name}: ${errorMessage(err)}`, { retryable: true });
+    }
+    const text = await res.text();
+    if (!res.ok) throw new ProviderError(`${target.cfg.name} transcription failed (HTTP ${res.status}): ${text.slice(0, 200)}`, { retryable: false, status: res.status });
+    let parsed: { text?: string };
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = { text };
+    }
+    return { text: (parsed.text ?? '').trim(), provider: target.cfg.name };
+  }
+
+  /** Built-in local model, or an OpenAI-compatible endpoint (Anthropic has no embeddings API). */
   embeddings(): EmbeddingProvider | null {
     const e = this.settings.get().embeddings;
     if (!e.enabled) return null;
+    if (e.providerId === 'builtin') return this.localModel?.get() ?? null;
     const cfg = this.settings.get().llm.providers.find((p) => p.id === e.providerId);
     if (!cfg || cfg.type !== 'openai-compatible' || !cfg.baseUrl) return null;
     const { key } = this.resolveKey(cfg);

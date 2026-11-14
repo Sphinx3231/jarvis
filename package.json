@@ -15,10 +15,11 @@
     "build": "vite build --config web/vite.config.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p web/tsconfig.json",
     "test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 \"tests/**/*.test.ts\"",
-    "test:e2e": "node --disable-warning=ExperimentalWarning tests/e2e/ui.e2e.ts"
+    "test:e2e": "node --disable-warning=ExperimentalWarning tests/e2e/ui.e2e.ts && node --disable-warning=ExperimentalWarning tests/e2e/voice.e2e.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
+    "onnxruntime-web": "^1.31.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {

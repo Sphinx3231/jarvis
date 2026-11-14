@@ -67,11 +67,23 @@ export function similarity(a: string, b: string): number {
   return inter / (ta.size + tb.size - inter);
 }
 
-/** Turn free text into a safe FTS5 query: quoted tokens OR'ed together. */
+const STOP_WORDS = new Set(
+  'a an and are as at be been but by can could did do does for from had has have he her his how i if in into is it its me my no not of on or our she so than that the their them then there these they this to was we were what when where which who why will with would you your about after all also am any because before being both each few further here just more most other over own same should some such too under until up very what\'s whom yours ourselves themselves please tell know remember'.split(
+    /\s+/,
+  ),
+);
+
+/** Turn free text into a safe FTS5 query: quoted tokens OR'ed together (stop words dropped). */
 export function ftsQuery(text: string): string | null {
-  const tokens = (text.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) ?? []).slice(0, 24);
-  const unique = [...new Set(tokens)];
-  return unique.length ? unique.map((t) => `"${t}"`).join(' OR ') : null;
+  const all = (text.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) ?? []).slice(0, 32);
+  const meaningful = all.filter((t) => !STOP_WORDS.has(t));
+  // A query made only of stop words still searches for them rather than returning nothing.
+  const unique = [...new Set(meaningful.length ? meaningful : all)].slice(0, 24);
+  if (!unique.length) return null;
+  // Each word matches exactly (Porter-stemmed) or by a shortened prefix, so different forms of
+  // the same word still match ("summarise" ~ "summaries", "deployment" ~ "deploying").
+  const terms = unique.flatMap((t) => (t.length >= 7 && !/^\d+$/.test(t) ? [`"${t}"`, `"${t.slice(0, Math.max(5, t.length - 3))}"*`] : [`"${t}"`]));
+  return [...new Set(terms)].join(' OR ');
 }
 
 function toVector(blob: unknown): Float32Array | null {
@@ -292,7 +304,7 @@ export class MemoryStore {
       const v = toVector(r.embedding);
       if (!v) continue;
       const score = cosine(q, v);
-      if (score > 0.3) scored.push({ ...this.map(r), score, matchedBy: 'semantic' });
+      if (score > 0.2) scored.push({ ...this.map(r), score, matchedBy: 'semantic' });
     }
     return scored.sort((a, b) => b.score - a.score).slice(0, opts.limit ?? 20);
   }
@@ -301,14 +313,15 @@ export class MemoryStore {
    * Hybrid retrieval used when Jarvis starts a request or task: keyword (BM25) plus optional
    * semantic similarity, weighted by confidence and verification. Marks the results as accessed.
    */
-  retrieve(query: string, opts: { limit?: number; queryVector?: number[] | null; embeddingModel?: string; includeToolDocs?: boolean } = {}): ScoredMemory[] {
+  retrieve(query: string, opts: { limit?: number; queryVector?: number[] | null; embeddingModel?: string; includeToolDocs?: boolean; markAccess?: boolean; kind?: MemoryKind } = {}): ScoredMemory[] {
     const limit = opts.limit ?? 6;
     if (limit <= 0) return [];
-    const exclude: MemoryKind[] = opts.includeToolDocs ? [] : ['tool_doc'];
+    const exclude: MemoryKind[] = opts.includeToolDocs || opts.kind ? [] : ['tool_doc'];
     const merged = new Map<string, ScoredMemory>();
-    for (const m of this.keywordSearch(query, { limit: 20, excludeKinds: exclude })) merged.set(m.id, m);
+    for (const m of this.keywordSearch(query, { limit: 20, excludeKinds: exclude, kind: opts.kind })) merged.set(m.id, m);
     if (opts.queryVector) {
       for (const m of this.semanticSearch(opts.queryVector, { limit: 20, excludeKinds: exclude, model: opts.embeddingModel })) {
+        if (opts.kind && m.kind !== opts.kind) continue;
         const prev = merged.get(m.id);
         merged.set(m.id, prev ? { ...prev, score: Math.max(prev.score, m.score) + 0.15, matchedBy: 'both' } : m);
       }
@@ -317,7 +330,7 @@ export class MemoryStore {
       .map((m) => ({ ...m, score: m.score * (0.6 + 0.4 * m.confidence) * (m.verified ? 1 : 0.85) }))
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
-    if (ranked.length) {
+    if (ranked.length && opts.markAccess !== false) {
       const ts = now();
       this.db.transaction(() => {
         for (const m of ranked) this.db.run('UPDATE memories SET access_count = access_count + 1, last_accessed_at = ? WHERE id = ?', ts, m.id);

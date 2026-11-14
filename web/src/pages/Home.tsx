@@ -7,7 +7,7 @@ import { api, type ActivityEntry, type ChatMessage, type ChatResult, type Dragon
 import { bytes, clock, timeAgo, uptime } from '../lib/format';
 import { useLive, useResource } from '../lib/live';
 import { navigate } from '../lib/router';
-import { useVoice, voiceSupport } from '../lib/voice';
+import { useVoice } from '../lib/voice';
 
 const CONV_KEY = 'jarvis.conversationId';
 const readConv = () => {
@@ -30,6 +30,7 @@ function useDragonState(): DragonState {
   const { state } = useLive();
   const voice = useVoice();
   if (voice.listening) return 'listening';
+  if (voice.transcribing) return 'thinking';
   if (voice.speaking) return 'speaking';
   return state.state;
 }
@@ -124,7 +125,7 @@ function CommandBar({ onSend, sending }: { onSend: (text: string, via: 'text' | 
     <div className="command">
       {voice.error && <div className="command__note">{voice.error}</div>}
       <div className={`command__bar ${voice.listening ? 'is-listening' : ''}`}>
-        {voiceOn && voiceSupport.recognition && (
+        {voiceOn && voice.inputMethod !== 'none' && (
           <button className={`command__mic ${voice.listening ? 'is-on' : ''}`} onClick={mic} aria-label={voice.listening ? 'Stop listening' : 'Speak to Jarvis'} title={voice.listening ? 'Stop listening' : 'Speak to Jarvis'}>
             <Mic size={20} />
           </button>
@@ -133,7 +134,7 @@ function CommandBar({ onSend, sending }: { onSend: (text: string, via: 'text' | 
           ref={inputRef}
           className="command__input"
           rows={1}
-          placeholder={voice.listening ? voice.interim || 'Listening…' : 'Tell Jarvis what to do…'}
+          placeholder={voice.listening ? voice.interim || 'Listening… (pause to finish)' : voice.transcribing ? 'Transcribing…' : 'Tell Jarvis what to do…'}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {

@@ -166,3 +166,30 @@ test('skills: registry only lists real capabilities and reports availability hon
     await cleanup();
   }
 });
+
+test('web.fetch: the address actually connected to is checked (DNS rebinding)', async () => {
+  const { createServer } = await import('node:http');
+  const { gzipSync } = await import('node:zlib');
+  const { guardedGet } = await import('../server/skills/builtin/web.ts');
+  const server = createServer((req, res) => {
+    if (req.url === '/big') return res.end('x'.repeat(50_000));
+    res.writeHead(200, { 'content-type': 'text/html', 'content-encoding': 'gzip' });
+    res.end(gzipSync('<title>Compressed</title><p>hello</p>'));
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  const port = (server.address() as { port: number }).port;
+  // A public-looking name whose DNS answer points at this machine.
+  const rebinding = (_h: string, _o: unknown, cb: (e: null, a: Array<{ address: string; family: number }>) => void) => cb(null, [{ address: '127.0.0.1', family: 4 }]);
+  try {
+    await assert.rejects(guardedGet(new URL(`http://totally-public.example:${port}/`), { allowPrivate: false, maxBytes: 1e6, resolver: rebinding }), /private address \(127\.0\.0\.1\)/);
+    await assert.rejects(guardedGet(new URL(`http://[::1]:${port}/`), { allowPrivate: false, maxBytes: 1e6 }), /private address/);
+    const ok = await guardedGet(new URL(`http://totally-public.example:${port}/`), { allowPrivate: true, maxBytes: 1e6, resolver: rebinding });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.toString(), '<title>Compressed</title><p>hello</p>', 'gzip decoded');
+    const big = await guardedGet(new URL(`http://127.0.0.1:${port}/big`), { allowPrivate: true, maxBytes: 1000 });
+    assert.equal(big.truncated, true);
+    assert.equal(big.body.length, 1000);
+  } finally {
+    server.close();
+  }
+});

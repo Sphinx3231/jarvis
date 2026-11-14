@@ -13,6 +13,7 @@ import { Planner } from './agents/planner.ts';
 import { McpManager } from './integrations/mcp.ts';
 import { ConversationStore } from './intelligence/conversations.ts';
 import { Jarvis } from './intelligence/jarvis.ts';
+import { LocalModelManager } from './llm/local-embeddings.ts';
 import { LlmRouter } from './llm/router.ts';
 import { MemoryStore } from './memory/store.ts';
 import { PermissionEngine } from './permissions/engine.ts';
@@ -48,6 +49,7 @@ export class JarvisApp {
   readonly settings: SettingsStore;
   readonly secrets: SecretStore;
   readonly llm: LlmRouter;
+  readonly localModel: LocalModelManager;
   readonly memory: MemoryStore;
   readonly conversations: ConversationStore;
   readonly tasks: TaskStore;
@@ -70,7 +72,8 @@ export class JarvisApp {
     this.activity = new ActivityLog(this.db, this.bus, { quiet: opts.quiet });
     this.settings = new SettingsStore(this.db, this.bus);
     this.secrets = new SecretStore(this.db, join(this.dataDir, 'master.key'));
-    this.llm = new LlmRouter(this.settings, this.secrets, this.activity);
+    this.localModel = new LocalModelManager(process.env.JARVIS_MODEL_DIR ?? join(this.dataDir, 'models', 'all-MiniLM-L6-v2'));
+    this.llm = new LlmRouter(this.settings, this.secrets, this.activity, this.localModel);
     this.memory = new MemoryStore(this.db, this.bus);
     this.conversations = new ConversationStore(this.db, this.bus);
     this.tasks = new TaskStore(this.db, this.bus);
@@ -158,8 +161,35 @@ export class JarvisApp {
     this.registry.onChange(() => this.bus.emit('integrations.changed', {}));
     this.bus.on('settings.changed', () => {
       this.ensureWorkspace();
-      if (this.running) void this.mcp.sync();
+      if (this.running) {
+        void this.mcp.sync();
+        this.prepareSemanticSearch();
+      }
     });
+
+    this.localModel.onChange = (state) => {
+      if (state === 'downloading') this.activity.log('info', 'memory', 'Downloading the built-in semantic search model (23 MB, one time)…');
+      if (state === 'ready') {
+        this.activity.log('success', 'memory', 'Semantic memory search is ready (runs on this computer)');
+        void this.memoryAgent.embedPending().catch(() => {});
+      }
+      if (state === 'error') this.activity.log('error', 'memory', `Could not set up semantic search: ${this.localModel.error}. Keyword search still works.`);
+      this.bus.emit('integrations.changed', {});
+    };
+    // New or edited memories get their embedding within seconds rather than at the next maintenance run.
+    let embedTimer: NodeJS.Timeout | null = null;
+    this.bus.on('memory.changed', () => {
+      if (!this.running || !this.llm.embeddings()) return;
+      if (embedTimer) clearTimeout(embedTimer);
+      embedTimer = setTimeout(() => void this.memoryAgent.embedPending().catch(() => {}), 1500);
+      embedTimer.unref?.();
+    });
+  }
+
+  /** Download the built-in model when it is the selected embedding provider. */
+  private prepareSemanticSearch(): void {
+    const e = this.settings.get().embeddings;
+    if (e.enabled && e.providerId === 'builtin' && this.localModel.state === 'not_downloaded') void this.localModel.ensure().catch(() => {});
   }
 
   workspaceDir(): string {
@@ -188,6 +218,8 @@ export class JarvisApp {
     this.activity.log('info', 'system', `Jarvis ${VERSION} started`);
     void this.mcp.sync();
     void this.llm.checkHealth();
+    this.prepareSemanticSearch();
+    void this.memoryAgent.embedPending().catch(() => {});
   }
 
   async stop(): Promise<void> {

@@ -57,6 +57,9 @@ export class Router {
 
 export async function readBody(req: IncomingMessage, limit = 2_000_000): Promise<unknown> {
   if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'DELETE') return undefined;
+  const contentType = String(req.headers['content-type'] ?? '');
+  const isAudio = contentType.startsWith('audio/');
+  if (isAudio) limit = 25_000_000; // voice recordings
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
@@ -64,8 +67,9 @@ export async function readBody(req: IncomingMessage, limit = 2_000_000): Promise
     if (size > limit) throw new UserError('Request body too large', 413);
     chunks.push(chunk as Buffer);
   }
+  if (isAudio) return Buffer.concat(chunks);
   if (!size) return {};
-  const ct = req.headers['content-type'] ?? '';
+  const ct = contentType;
   if (!ct.includes('application/json')) throw new UserError('Expected application/json', 415);
   try {
     return JSON.parse(Buffer.concat(chunks).toString('utf8'));

@@ -26,6 +26,12 @@ export const api = {
   put: <T>(path: string, body: unknown) => call<T>('PUT', path, body),
   patch: <T>(path: string, body: unknown) => call<T>('PATCH', path, body),
   del: <T>(path: string) => call<T>('DELETE', path),
+  postAudio: async <T>(path: string, audio: Blob): Promise<T> => {
+    const res = await fetch(path, { method: 'POST', headers: { 'x-jarvis-token': token, 'content-type': audio.type || 'audio/webm' }, body: audio });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) throw new ApiError(json?.error ?? `Request failed (${res.status})`, res.status);
+    return json as T;
+  },
   eventsUrl: () => `/api/events?token=${encodeURIComponent(token)}`,
   hasToken: () => token.length > 0,
 };
@@ -260,11 +266,19 @@ export interface McpStatus {
 
 export interface Integrations {
   providers: ProviderStatus[];
-  embeddings: { enabled: boolean; providerId: string; model: string; active: boolean; memoriesEmbedded: number };
+  embeddings: {
+    enabled: boolean;
+    providerId: string;
+    model: string;
+    active: boolean;
+    memoriesEmbedded: number;
+    builtin: { state: 'not_downloaded' | 'downloading' | 'ready' | 'error'; error: string | null; sizeBytes: number };
+  };
   mcp: McpStatus[];
   workspace: { path: string; exists: boolean; writable: boolean; readPolicy: string; writePolicy: string };
   web: { policy: string; allowPrivateNetwork: boolean };
   shell: { enabled: boolean; policy: string };
+  transcription: { providerId: string; model: string; available: boolean };
 }
 
 export interface Scope {
@@ -325,7 +339,17 @@ export interface Settings {
   };
   tasks: { stepTimeoutSec: number; maxAttempts: number };
   permissions: { policies: Record<string, 'allow' | 'ask' | 'deny'> };
-  voice: { enabled: boolean; autoSpeak: boolean; voiceName: string; rate: number; pitch: number; lang: string; wakeWord: boolean };
+  voice: {
+    enabled: boolean;
+    autoSpeak: boolean;
+    voiceName: string;
+    rate: number;
+    pitch: number;
+    lang: string;
+    wakeWord: boolean;
+    inputMode: 'auto' | 'browser' | 'transcription';
+    transcription: { providerId: string; model: string };
+  };
   notifications: { desktop: boolean; taskCompletion: boolean };
   appearance: { reduceMotion: boolean; accent: 'violet' | 'indigo' | 'fuchsia' };
   integrations: { workspaceDir: string; web: { allowPrivateNetwork: boolean; maxBytes: number }; shell: { enabled: boolean } };

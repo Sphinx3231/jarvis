@@ -148,6 +148,10 @@ textarea {
 input.num {
   width: 92px;
 }
+input.num-wide {
+  width: 170px;
+  min-width: 0 !important;
+}
 input[type='checkbox'] {
   accent-color: var(--accent);
 }

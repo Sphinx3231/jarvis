@@ -228,12 +228,68 @@ function AddMcp({ onClose }: { onClose: () => void }) {
   );
 }
 
-function BrowserCapabilities() {
+function SemanticMemoryCard({ data, compatible, patch }: { data: Integrations; compatible: ProviderStatus[]; patch: (p: unknown, msg?: string) => Promise<unknown> }) {
+  const act = useAction();
+  const e = data.embeddings;
+  const builtin = e.providerId === 'builtin';
+  const [busy, setBusy] = useState(false);
+  const modelState = e.builtin.state;
+  return (
+    <Card title="Semantic memory" icon={<Database size={18} />}>
+      <Field label="Search memories by meaning" hint="Finds memories even when you use different words. Keyword search always works too.">
+        <Toggle checked={e.enabled} onChange={(v) => patch({ embeddings: { enabled: v } })} ariaLabel="Semantic memory search" />
+      </Field>
+      <Field label="Runs on" hint={builtin ? 'A small model (all-MiniLM-L6-v2, 23 MB) that runs on this computer. Your memories never leave it.' : 'An OpenAI-compatible embeddings endpoint, e.g. Ollama with nomic-embed-text.'}>
+        <select value={e.providerId} onChange={(ev) => patch({ embeddings: { providerId: ev.target.value } })} aria-label="Embedding provider">
+          <option value="builtin">This computer (built-in)</option>
+          {compatible.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {!builtin && (
+        <Field label="Embedding model">
+          <input defaultValue={e.model} onBlur={(ev) => ev.target.value.trim() && ev.target.value !== e.model && patch({ embeddings: { model: ev.target.value.trim() } })} />
+        </Field>
+      )}
+      {builtin && (
+        <Field label="Built-in model" hint={e.builtin.error ?? undefined}>
+          <div className="inline">
+            {modelState === 'ready' && <Badge tone="success">Installed</Badge>}
+            {modelState === 'downloading' && <Badge tone="info">Downloading…</Badge>}
+            {modelState === 'not_downloaded' && <Badge>Not downloaded</Badge>}
+            {modelState === 'error' && <Badge tone="danger">Download failed</Badge>}
+            {(modelState === 'not_downloaded' || modelState === 'error') && (
+              <Button size="sm" busy={busy} onClick={async () => (setBusy(true), await act(() => api.post('/api/integrations/embeddings/download'), 'Model installed'), setBusy(false))}>
+                {modelState === 'error' ? 'Retry' : 'Download (23 MB)'}
+              </Button>
+            )}
+            {modelState === 'ready' && (
+              <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} onClick={() => confirm('Remove the built-in model? Semantic search will stop until it is downloaded again.') && act(() => api.del('/api/integrations/embeddings/model'), 'Model removed')}>
+                Remove
+              </Button>
+            )}
+          </div>
+        </Field>
+      )}
+      <Field label="Status">
+        {e.active ? <Badge tone="success">Active · {e.memoriesEmbedded} memories indexed</Badge> : <Badge>{e.enabled ? (builtin ? 'Waiting for the model' : 'Provider not usable') : 'Off — keyword search only'}</Badge>}
+      </Field>
+    </Card>
+  );
+}
+
+function BrowserCapabilities({ transcription }: { transcription: Integrations['transcription'] }) {
   const [perm, setPerm] = useState(() => ('Notification' in window ? Notification.permission : 'unsupported'));
   return (
     <Card title="This device" icon={<Mic size={18} />}>
-      <Field label="Speech recognition" hint="Used for voice commands. In Chromium-based browsers audio may be processed by the browser vendor’s service.">
-        {voiceSupport.recognition ? <Badge tone="success">Available</Badge> : <Badge tone="warning">Not supported by this browser</Badge>}
+      <Field label="Browser speech recognition" hint="In Chromium-based browsers audio may be processed by the browser vendor’s service.">
+        {voiceSupport.recognition ? <Badge tone="success">Available</Badge> : <Badge>Not available here</Badge>}
+      </Field>
+      <Field label="Voice transcription service" hint={`Used when browser recognition is unavailable or chosen in Settings → Voice (${transcription.model}).`}>
+        {transcription.available ? <Badge tone="success">Configured</Badge> : <Badge tone="warning">Not configured — add an OpenAI key or a local Whisper server</Badge>}
       </Field>
       <Field label="Spoken replies" hint="Uses voices installed on this computer.">
         {voiceSupport.synthesis ? <Badge tone="success">Available</Badge> : <Badge tone="warning">Not supported</Badge>}
@@ -279,26 +335,7 @@ export function IntegrationsPage() {
         </ul>
       </Card>
 
-      <Card title="Semantic memory (embeddings)" icon={<Database size={18} />}>
-        <Field label="Use embeddings for memory search" hint="Optional. Needs an OpenAI-compatible embeddings endpoint (e.g. Ollama with nomic-embed-text). Keyword search always works.">
-          <Toggle checked={data.embeddings.enabled} onChange={(v) => patch({ embeddings: { enabled: v } })} />
-        </Field>
-        <Field label="Provider">
-          <select value={data.embeddings.providerId} onChange={(e) => patch({ embeddings: { providerId: e.target.value } })}>
-            {compatible.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Embedding model">
-          <input defaultValue={data.embeddings.model} onBlur={(e) => e.target.value.trim() && e.target.value !== data.embeddings.model && patch({ embeddings: { model: e.target.value.trim() } })} />
-        </Field>
-        <Field label="Status">
-          {data.embeddings.active ? <Badge tone="success">Active · {data.embeddings.memoriesEmbedded} memories embedded</Badge> : <Badge>{data.embeddings.enabled ? 'Provider not usable' : 'Off'}</Badge>}
-        </Field>
-      </Card>
+      <SemanticMemoryCard data={data} compatible={compatible} patch={patch} />
 
       <Card
         title="MCP servers"
@@ -356,7 +393,7 @@ export function IntegrationsPage() {
           </Field>
         </Card>
       </div>
-      <BrowserCapabilities />
+      <BrowserCapabilities transcription={data.transcription} />
       <p className="muted small center">
         <Plug size={12} /> Email, calendar and other accounts connect through MCP servers — Jarvis doesn’t pretend to have integrations it can’t actually use.
       </p>

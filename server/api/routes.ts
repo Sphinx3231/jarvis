@@ -4,7 +4,7 @@ import type { JarvisApp } from '../app.ts';
 import { AGENTS } from '../agents/agents.ts';
 import { DraftStepSchema } from '../agents/planner.ts';
 import { McpServerSchema } from '../core/settings.ts';
-import { UserError } from '../core/util.ts';
+import { errorMessage, UserError } from '../core/util.ts';
 import { providerSecretName } from '../llm/router.ts';
 import { MEMORY_KINDS } from '../memory/store.ts';
 import { TASK_STATUSES } from '../tasks/store.ts';
@@ -67,6 +67,16 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
     const b = parse(ChatBody, body);
     return app.jarvis.handleMessage({ conversationId: b.conversationId, text: b.message, via: b.via });
   });
+  router.post('/api/voice/transcribe', async ({ req, body }) => {
+    if (!Buffer.isBuffer(body) || body.length < 100) throw new UserError('Send the recording as an audio/* request body');
+    const mime = String(req.headers['content-type']).split(';')[0];
+    try {
+      const result = await app.llm.transcribe(body, mime, { language: app.settings.get().voice.lang });
+      return result;
+    } catch (err) {
+      throw new UserError(errorMessage(err), 502);
+    }
+  });
   router.get('/api/conversations', () => ({ conversations: app.conversations.list(50) }));
   router.get('/api/conversations/:id/messages', ({ params }) => {
     if (!app.conversations.get(params.id)) throw new UserError('Conversation not found', 404);
@@ -121,7 +131,7 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
   });
 
   // ------------------------------------------------------------------ memory
-  router.get('/api/memory', ({ query }) => {
+  router.get('/api/memory', async ({ query }) => {
     const q = query.get('q')?.trim();
     const kind = query.get('kind') as (typeof MEMORY_KINDS)[number] | null;
     if (kind && !MEMORY_KINDS.includes(kind)) throw new UserError('Unknown memory kind');
@@ -129,9 +139,18 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
     const verified = verifiedParam === null ? undefined : verifiedParam === 'true';
     // Tool documentation is generated from the skill registry; it has its own filter.
     const excludeKinds = kind ? [] : (['tool_doc'] as const).slice();
-    const memories = q
-      ? app.memory.keywordSearch(q, { kind: kind ?? undefined, limit: 100, excludeKinds }).filter((m) => verified === undefined || m.verified === verified)
-      : app.memory.list({ kind: kind ?? undefined, verified, excludeKinds, limit: Number(query.get('limit') ?? 200) });
+    let memories;
+    if (q) {
+      // Hybrid search: keywords plus meaning (when semantic search is available).
+      const embedder = app.llm.embeddings();
+      let vector: number[] | null = null;
+      if (embedder) vector = (await embedder.embed([q], AbortSignal.timeout(5000)).catch(() => [null]))[0];
+      memories = app.memory
+        .retrieve(q, { limit: 100, queryVector: vector, embeddingModel: embedder?.model, markAccess: false, kind: kind ?? undefined })
+        .filter((m) => verified === undefined || m.verified === verified);
+    } else {
+      memories = app.memory.list({ kind: kind ?? undefined, verified, excludeKinds, limit: Number(query.get('limit') ?? 200) });
+    }
     return { memories, stats: app.memory.stats() };
   });
   router.post('/api/memory', ({ body }) => {
@@ -163,11 +182,17 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
     const embedder = app.llm.embeddings();
     return {
       providers: app.llm.status(),
-      embeddings: { ...s.embeddings, active: Boolean(embedder), memoriesEmbedded: app.memory.stats().embedded },
+      embeddings: {
+        ...s.embeddings,
+        active: Boolean(embedder),
+        memoriesEmbedded: app.memory.stats().embedded,
+        builtin: { state: app.localModel.state, error: app.localModel.error, sizeBytes: 23_203_878 },
+      },
       mcp: app.mcp.status(),
       workspace: { path: dir, exists: existsSync(dir), writable, readPolicy: app.permissions.policyFor('files.read'), writePolicy: app.permissions.policyFor('files.write') },
       web: { policy: app.permissions.policyFor('network.read'), allowPrivateNetwork: s.integrations.web.allowPrivateNetwork },
       shell: { enabled: s.integrations.shell.enabled, policy: app.permissions.policyFor('shell.exec') },
+      transcription: { providerId: s.voice.transcription.providerId, model: s.voice.transcription.model, available: Boolean(app.llm.transcriptionTarget()) },
     };
   });
   router.put('/api/integrations/providers/:id/key', ({ params, body }) => {
@@ -188,6 +213,16 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
     if (!app.settings.get().llm.providers.some((p) => p.id === params.id)) throw new UserError('Provider not found', 404);
     await app.llm.checkHealth(params.id);
     return { provider: app.llm.status().find((p) => p.id === params.id) };
+  });
+  router.post('/api/integrations/embeddings/download', async () => {
+    await app.localModel.ensure().catch((err: Error) => {
+      throw new UserError(`Download failed: ${err.message}`, 502);
+    });
+    return { state: app.localModel.state };
+  });
+  router.delete('/api/integrations/embeddings/model', () => {
+    app.localModel.remove();
+    return { state: app.localModel.state };
   });
   router.post('/api/integrations/mcp', async ({ body }) => {
     const b = parse(McpServerSchema.extend({ secrets: SecretsBody.optional() }), body);
