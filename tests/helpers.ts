@@ -17,6 +17,8 @@ mkdirSync(process.env.JARVIS_ROAMIES_PATH, { recursive: true });
 process.env.JARVIS_GG_DIR ??= join(roamiesRoot, 'gg');
 mkdirSync(process.env.JARVIS_GG_DIR, { recursive: true });
 delete process.env.ROAMIES_DATA_DIR;
+// Never talk to a real Ollama on the machine running the tests (tests start their own fake one).
+process.env.OLLAMA_HOST = '127.0.0.1:1';
 
 /** Write Roamies' settings file (the provider and model picked in Roamies). */
 export function roamiesConfig(cfg: Record<string, unknown>): void {

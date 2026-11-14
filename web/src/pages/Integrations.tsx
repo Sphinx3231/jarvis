@@ -49,6 +49,7 @@ function RoamiesModelCard({ data }: { data: Integrations }) {
             {health}
           </div>
           {m.problem && <div className="small bad">{m.problem}</div>}
+          {m.ready && m.warning && <div className="small warn">{m.warning}</div>}
           {m.ready && m.health && <div className={`small ${m.health.ok ? 'muted' : 'bad'}`}>{m.health.detail} · checked {timeAgo(m.health.checkedAt)}</div>}
           {m.ready && m.lastError && m.lastError !== m.health?.detail && <div className="small bad">Last error: {m.lastError}</div>}
           <div className="integration__row">
@@ -71,11 +72,72 @@ function RoamiesModelCard({ data }: { data: Integrations }) {
           </div>
         </li>
       </ul>
+      <LocalServers local={m.local} />
       <Field label="Roamies" hint={r.path ?? undefined}>
         <Badge tone="success">Installed{r.version ? ` · ${r.version}` : ''}</Badge>
       </Field>
-      <p className="muted small">Jarvis never sees or stores your Roamies passwords or keys: it asks the GG framework for a fresh credential for each request. A different model from the same sign-ins can be chosen in Settings → Model.</p>
+      <p className="muted small">What the model will and won't do is up to the model itself: Jarvis adds no content rules of its own. It only asks before acting on your behalf (see Settings → Permissions). Jarvis never sees or stores your Roamies passwords or keys: it asks the GG framework for a fresh credential for each request. A different model from the same sign-ins can be chosen in Settings → Model.</p>
     </Card>
+  );
+}
+
+/** Models running on this computer: Ollama is found by itself; other OpenAI-compatible servers can be added. */
+function LocalServers({ local }: { local: Integrations['model']['local'] }) {
+  const act = useAction();
+  const [url, setUrl] = useState('');
+  const [scanning, setScanning] = useState(false);
+  return (
+    <div className="local-models">
+      <div className="integration__row">
+        <span className="integration__title">Local models</span>
+        <span className="spacer" />
+        <Button size="sm" icon={<RefreshCw size={14} />} busy={scanning} onClick={async () => (setScanning(true), await act(() => api.post('/api/integrations/local/scan')), setScanning(false))}>
+          Scan
+        </Button>
+      </div>
+      <p className="muted small">Models running on this computer — no account needed. Pick one in Roamies or in Settings → Model. Models that can't use tools can chat but can't act.</p>
+      <ul className="integrations">
+        {local.map((l) => (
+          <li key={l.id} className="integration">
+            <div className="integration__head">
+              <div>
+                <div className="integration__title">{l.label}</div>
+                <div className="muted small">
+                  <code>{l.baseUrl}</code>
+                </div>
+              </div>
+              {l.reachable ? <Badge tone="success">{l.models.length} model{l.models.length === 1 ? '' : 's'}</Badge> : <Badge>{l.kind === 'ollama' ? 'Not running' : 'Not reachable'}</Badge>}
+              {l.kind === 'custom' && (
+                <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} aria-label={`Remove ${l.label}`} onClick={() => act(() => api.del(`/api/integrations/local/servers?url=${encodeURIComponent(l.baseUrl)}`), 'Removed')} />
+              )}
+            </div>
+            {!l.reachable && l.reason && <div className="small muted">{l.reason}</div>}
+            {l.models.length > 0 && (
+              <div className="chips">
+                {l.models.map((mm) => (
+                  <Badge key={mm.id} tone={mm.tools ? 'accent' : 'neutral'} title={`${Math.round(mm.contextWindow / 1024)}k context${mm.contextKnown ? '' : ' (guessed)'}`}>
+                    {mm.name}
+                    {mm.tools ? '' : ' · chat only'}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+      <form
+        className="inline"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (await act(() => api.post('/api/integrations/local/servers', { url: url.trim() }), 'Server added')) setUrl('');
+        }}
+      >
+        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Another server, e.g. http://127.0.0.1:1234/v1 (LM Studio)" aria-label="Local model server address" />
+        <Button size="sm" type="submit" icon={<Plus size={14} />} disabled={!/^https?:\/\/./.test(url.trim())}>
+          Add
+        </Button>
+      </form>
+    </div>
   );
 }
 

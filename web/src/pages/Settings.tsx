@@ -60,7 +60,7 @@ export function SettingsPage() {
       </Card>
 
       <Card title="Model" icon={<Sparkles size={18} />}>
-        <Field label="Model" hint="Jarvis thinks with the Roamies engine. By default it uses the model you picked in Roamies; you can choose another model from the same Roamies sign-ins here.">
+        <Field label="Model" hint="Jarvis thinks with the Roamies engine. By default it uses the model you picked in Roamies; you can choose another model from the same Roamies sign-ins, or a local model (Ollama, LM Studio…), here. What the model will or won't do is up to the model.">
           <select value={s.llm.model} onChange={(e) => save({ llm: { model: e.target.value } })} aria-label="Model">
             <option value="">The model picked in Roamies{engine?.source === 'roamies' && engine.model ? ` (${engine.model.name})` : ''}</option>
             {s.llm.model && !engine?.models.some((m) => m.id === s.llm.model) && <option value={s.llm.model}>{s.llm.model}</option>}
@@ -71,6 +71,7 @@ export function SettingsPage() {
                   .map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name}
+                      {m.tools ? '' : ' (chat only — no tools)'}
                     </option>
                   ))}
               </optgroup>
@@ -90,6 +91,7 @@ export function SettingsPage() {
           <NumberInput value={s.llm.maxToolIterations} min={1} max={12} onCommit={(v) => save({ llm: { maxToolIterations: v } })} />
         </Field>
         {engine && !engine.ready && <div className="note note--warning">{engine.problem} Until then Jarvis handles direct commands only.</div>}
+        {engine?.ready && engine.warning && <div className="note note--warning">{engine.warning}</div>}
       </Card>
 
       <Card title="Voice" icon={<Mic size={18} />}>

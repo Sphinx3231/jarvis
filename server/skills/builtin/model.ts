@@ -40,7 +40,7 @@ export const llmGenerate: Skill<z.infer<typeof Input>, Out> = {
       maxTokens: input.maxTokens ?? 4000,
       signal: ctx.signal,
     });
-    if (res.stopReason === 'refusal') throw new Error('The model declined this request');
+    if (res.stopReason === 'refusal') throw new Error(`The model (${res.model}) declined this request`);
     return { text: res.text.trim(), model: res.model, provider: res.provider };
   },
   async verify(_i, out) {

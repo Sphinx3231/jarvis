@@ -18,6 +18,16 @@ Until Roamies is found, Jarvis shows only a **Roamies required** screen with a d
 
 Change model or sign in from the Model page in Roamies; Jarvis follows within seconds. Settings → Model can pick a different model from the same sign-ins and how much it thinks.
 
+### Local models (Ollama, LM Studio, llama.cpp…)
+
+Jarvis runs on local models too, with no account. It finds a running [Ollama](https://ollama.com) by itself (at `127.0.0.1:11434`, or wherever `OLLAMA_HOST` points) and lists its models under Integrations → Model; add any other OpenAI-compatible server (LM Studio, llama.cpp, vLLM…) by its address there. Pick a local model in Roamies or in Settings → Model. If nothing is signed in, Jarvis uses a running local model by itself.
+
+Models that support tools (e.g. Qwen 3, Llama 3.1) can do everything. Models that don't (e.g. DeepSeek-R1 in Ollama) can still chat, and direct commands still work, but they can't search memory, plan tasks or act — Jarvis says so rather than pretending. Give a local model at least 16k (better 32k) tokens of context (Ollama: Settings → Context length).
+
+### Guardrails come from the model
+
+Jarvis adds no content rules of its own: what it will or won't talk about is decided entirely by the model it is connected to — Claude's own behaviour with Claude, DeepSeek's with a local DeepSeek, and so on. Your message reaches the model as you wrote it and its answer comes back as written; if the model declines, Jarvis tells you the model declined. What Jarvis does keep are *your* controls over actions taken on your behalf — asking before it runs commands, sends email or writes files (Settings → Permissions) — and its protection against instructions hidden in web pages and files.
+
 ## Install the desktop app
 
 Installers for **Windows** (`.exe`), **macOS** (`.dmg`) and **Linux** (`.AppImage`, `.deb`) are built by the *Desktop app* GitHub Actions workflow (Actions → Desktop app → latest run → Artifacts), or locally with `npm run dist` (output in `release/`). The desktop app includes everything it needs — no Node.js or browser required. It keeps running in the system tray when you close the window; choose **Quit Jarvis** from the tray to stop it.
@@ -78,11 +88,13 @@ Account passwords and server keys Jarvis keeps (email, calendar, MCP, a transcri
 | `ROAMIES_DATA_DIR` | `~/.gg` | Where Roamies keeps `sidekick.json` (as in Roamies) |
 | `JARVIS_ROAMIES_PATH` | auto-detected | Treat this path as the Roamies install (tests and CI; an empty or missing path means “not installed”) |
 | `JARVIS_GG_DIR` | `~/.gg` | Roamies/GG settings and sign-ins folder (tests) |
+| `OLLAMA_HOST` | `127.0.0.1:11434` | Where Jarvis looks for Ollama (same variable Ollama uses) |
 
 Everything else is in **Settings** inside the app.
 
 ## What Jarvis does
 
+- **Any model.** Whatever Roamies is signed in to, or a local model on your own computer.
 - **Talks and understands.** Natural-language requests go to the central intelligence: fast rule-based intents for explicit commands, otherwise a model with tools. Read-only tools (memory, tasks, status, workspace files) run inline; anything that does work becomes a task.
 - **Runs tasks in the background.** A persistent task engine with priorities, scheduling, recurrence, pause/resume/cancel/retry, per-step verification, retries for steps that are safe to repeat, and crash recovery that **never repeats an action whose outcome is uncertain**.
 - **Asks before acting.** Every skill call goes through one permission engine. Internal work runs automatically; external actions ask first by default; shell commands always ask. Approvals are single-use; you can remember one *exact* action for recurring work. Voice and chat can never approve anything.

@@ -109,6 +109,11 @@ export class Planner {
   async plan(title: string, description: string, signal?: AbortSignal): Promise<{ steps: DraftStep[] } | { error: string }> {
     const request = `${title}${description ? `\n\n${description}` : ''}`;
     await this.llm.refresh().catch(() => {});
+    if (this.llm.available() && !this.llm.supportsTools()) {
+      const rule = planFromIntent(parseIntent(title), { llmAvailable: false }) ?? planFromIntent(parseIntent(description), { llmAvailable: false });
+      if (rule) return { steps: rule.steps };
+      return { error: `The model in use (${this.llm.activeProvider()?.model}) can't use tools, so it can't plan tasks. Phrase it as a direct command (e.g. "fetch https://…", "run \`…\`") or pick a model with tool support.` };
+    }
     if (!this.llm.available()) {
       const rule = planFromIntent(parseIntent(title), { llmAvailable: false }) ?? planFromIntent(parseIntent(description), { llmAvailable: false });
       if (rule) return { steps: rule.steps };

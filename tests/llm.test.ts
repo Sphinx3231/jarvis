@@ -229,7 +229,7 @@ test('jarvis: refusals and provider errors are reported honestly', async () => {
       },
     ]);
     const r1 = await app.jarvis.handleMessage({ text: 'please refuse this one' });
-    assert.equal(r1.reply.content, "I can't help with that request.");
+    assert.equal(r1.reply.content, 'The model (jarvis-test) declined this request.', 'a refusal is the model’s, and said so');
     const r2 = await app.jarvis.handleMessage({ text: 'trigger an error now please' });
     assert.ok(r2.error);
     assert.match(r2.reply.content, /couldn't complete that: .*rejected the request/);

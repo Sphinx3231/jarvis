@@ -34,6 +34,8 @@ export const SettingsSchema = z.object({
     /** A different model from the same Roamies sign-ins; empty = the model picked in Roamies. */
     model: z.string().max(160),
     thinking: z.enum(['off', 'low', 'medium', 'high', 'xhigh', 'max']),
+    /** Extra local model servers (OpenAI-compatible base URLs: LM Studio, llama.cpp, vLLM…). Ollama is found by itself. */
+    localServers: z.array(z.string().url().regex(/^https?:\/\//)).max(8),
     maxToolIterations: z.number().int().min(1).max(12),
     requestTimeoutSec: z.number().int().min(10).max(900),
   }),
@@ -138,6 +140,7 @@ export const DEFAULT_SETTINGS: Settings = {
   llm: {
     model: '',
     thinking: 'medium',
+    localServers: [],
     maxToolIterations: 6,
     requestTimeoutSec: 180,
   },

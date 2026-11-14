@@ -256,6 +256,16 @@ export interface RoamiesRequirement {
   detection: RoamiesDetection;
 }
 
+export interface LocalServerStatus {
+  id: string;
+  label: string;
+  baseUrl: string;
+  kind: 'ollama' | 'custom';
+  reachable: boolean;
+  reason: string | null;
+  models: Array<{ id: string; name: string; tools: boolean; thinking: boolean; contextWindow: number; contextKnown: boolean }>;
+}
+
 /** The Roamies engine: the model and sign-ins chosen in Roamies. */
 export interface EngineStatus {
   ready: boolean;
@@ -264,7 +274,10 @@ export interface EngineStatus {
   source: 'roamies' | 'jarvis' | 'auto' | null;
   route: 'api' | 'claude-code' | null;
   signedIn: Array<{ id: string; name: string; claude?: boolean }>;
-  models: Array<{ id: string; name: string; provider: string }>;
+  models: Array<{ id: string; name: string; provider: string; tools: boolean }>;
+  tools: boolean;
+  local: LocalServerStatus[];
+  warning: string | null;
   problem: string | null;
   configPath: string;
   look: string | null;
@@ -378,6 +391,7 @@ export interface Settings {
     /** Empty = the model picked in Roamies. */
     model: string;
     thinking: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    localServers: string[];
     maxToolIterations: number;
     requestTimeoutSec: number;
   };

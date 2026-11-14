@@ -2570,6 +2570,25 @@ button.chip:hover {
   color: var(--text-faint);
   text-align: center;
 }
+.local-models {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 6px 0 12px;
+}
+.local-models form.inline {
+  display: flex;
+}
+.local-models form.inline input {
+  flex: 1;
+  min-width: 0;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
 .stack {
   display: flex;
   flex-direction: column;

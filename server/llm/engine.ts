@@ -2,7 +2,27 @@ import { mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { stream, type ContentPart, type Message, type Provider, type ThinkingLevel, type Tool } from '@kenkaiiii/gg-ai';
 import type { AgentTool } from '@kenkaiiii/gg-agent';
-import { AUTH_PROVIDERS, AuthStorage, claudeCodeEnv, getAuthStorageKeys, getDefaultModel, getMaxThinkingLevel, getModel, getModelsForProvider, resolveClaudeCodeBinary } from '@kenkaiiii/gg-core';
+import {
+  AUTH_PROVIDERS,
+  AuthStorage,
+  DEFAULT_LOCAL_ENDPOINTS,
+  LOCAL_API_KEY_PLACEHOLDER,
+  claudeCodeEnv,
+  clearRuntimeModels,
+  discoverLocalModels,
+  getAuthStorageKeys,
+  getDefaultModel,
+  getMaxThinkingLevel,
+  getModel,
+  getModelsForProvider,
+  localAuthStorageKey,
+  localModelShortName,
+  parseLocalModelId,
+  registerRuntimeModels,
+  resolveClaudeCodeBinary,
+  type LocalEndpoint,
+  type LocalEndpointProbe,
+} from '@kenkaiiii/gg-core';
 import { z } from 'zod';
 import type { ActivityLog } from '../core/activity.ts';
 import type { SecretStore } from '../core/secrets.ts';
@@ -53,6 +73,45 @@ export interface RunResult {
   turns: number;
 }
 
+/** A model server on this computer (or the local network): Ollama, LM Studio, llama.cpp, vLLM… */
+export interface LocalServerStatus {
+  id: string;
+  label: string;
+  baseUrl: string;
+  /** ollama: the default Ollama (OLLAMA_HOST honoured); custom: added in Jarvis. */
+  kind: 'ollama' | 'custom';
+  reachable: boolean;
+  reason: string | null;
+  models: Array<{ id: string; name: string; tools: boolean; thinking: boolean; contextWindow: number; contextKnown: boolean }>;
+}
+
+/** Below this, a local model has too little context for Jarvis's instructions and tools. */
+const MIN_LOCAL_CONTEXT = 16_384;
+
+/** OLLAMA_HOST as Ollama reads it ("host", "host:port" or a URL) → its OpenAI-compatible base URL. */
+export function ollamaBaseUrl(host = process.env.OLLAMA_HOST): string {
+  const fallback = DEFAULT_LOCAL_ENDPOINTS.find((e) => e.id === 'ollama')?.baseUrl ?? 'http://127.0.0.1:11434/v1';
+  if (!host?.trim()) return fallback;
+  try {
+    const u = new URL(/^[a-z]+:\/\//i.test(host.trim()) ? host.trim() : `http://${host.trim()}`);
+    if (u.hostname === '0.0.0.0' || u.hostname === '[::]') u.hostname = '127.0.0.1';
+    if (!u.port && !/^[a-z]+:\/\/[^/]+:\d+/i.test(host.trim())) u.port = '11434';
+    return `${u.origin}/v1`;
+  } catch {
+    return fallback;
+  }
+}
+
+/** A stable id for a server URL (it is part of model ids saved in settings). */
+const serverId = (url: string): string => {
+  try {
+    const u = new URL(url);
+    return `server-${u.hostname.replace(/[^a-z0-9]+/gi, '-')}-${u.port || (u.protocol === 'https:' ? '443' : '80')}`.toLowerCase();
+  } catch {
+    return 'server';
+  }
+};
+
 export interface EngineStatus {
   ready: boolean;
   provider: { id: string; name: string } | null;
@@ -61,7 +120,12 @@ export interface EngineStatus {
   source: 'roamies' | 'jarvis' | 'auto' | null;
   route: 'api' | 'claude-code' | null;
   signedIn: Array<{ id: string; name: string; claude?: boolean }>;
-  models: Array<{ id: string; name: string; provider: string }>;
+  models: Array<{ id: string; name: string; provider: string; tools: boolean }>;
+  /** Whether the model in use can call tools (local models may not). Without tools Jarvis can talk but not act. */
+  tools: boolean;
+  local: LocalServerStatus[];
+  /** Something that works but not well (e.g. a local model with a tiny context window). */
+  warning: string | null;
   problem: string | null;
   configPath: string;
   look: string | null;
@@ -84,7 +148,10 @@ interface RoamiesConfig {
 }
 
 const providerName = (id: string): string => (id === 'local' ? 'Local models' : AUTH_PROVIDERS.find((p) => p.value === id)?.label ?? id);
-const modelName = (id: string): string => getModel(id)?.name ?? id;
+const modelName = (id: string): string => {
+  const local = parseLocalModelId(id);
+  return local ? localModelShortName(local.rawId) : getModel(id)?.name ?? id;
+};
 
 function readJsonFile(path: string): Record<string, unknown> | null {
   try {
@@ -157,6 +224,7 @@ export class RoamiesEngine {
   private health: EngineStatus['health'] = null;
   private lastError: string | null = null;
   private lastUsedAt: number | null = null;
+  private probes: LocalEndpointProbe[] = [];
   /** Test seam for the Claude Code route (replaces the Claude Agent SDK's query()). */
   claudeCodeQuery: ClaudeCodeAgentOptions['query'] | undefined;
 
@@ -184,6 +252,57 @@ export class RoamiesEngine {
     return { provider: str(raw.provider), model: str(raw.model), look: str(raw.look) };
   }
 
+  /** The local servers Jarvis looks at: Ollama (where Roamies connects it, or OLLAMA_HOST) plus servers added in Settings. */
+  localEndpoints(): LocalEndpoint[] {
+    const ollama = DEFAULT_LOCAL_ENDPOINTS.find((e) => e.id === 'ollama')!;
+    const list: LocalEndpoint[] = [{ ...ollama, baseUrl: ollamaBaseUrl() }];
+    for (const url of this.settings.get().llm.localServers) {
+      const id = serverId(url);
+      if (list.some((e) => e.id === id)) continue;
+      list.push({ id, label: `Local server (${new URL(url).host})`, baseUrl: url.replace(/\/+$/, ''), kind: 'custom', custom: true });
+    }
+    return list;
+  }
+
+  /** Ask the local servers what they serve (gg-core caches answers for 30 s; `force` re-asks). */
+  async discoverLocal(force = false): Promise<void> {
+    try {
+      const { probes, models } = await discoverLocalModels(this.localEndpoints(), { timeoutMs: 1500, force });
+      clearRuntimeModels((m) => m.provider === 'local');
+      registerRuntimeModels(models);
+      this.probes = probes;
+    } catch {
+      this.probes = [];
+    }
+  }
+
+  private localStatus(): LocalServerStatus[] {
+    const endpoints = this.localEndpoints();
+    return endpoints.map((e) => {
+      const p = this.probes.find((x) => x.endpoint.id === e.id && x.endpoint.baseUrl === e.baseUrl);
+      return {
+        id: e.id,
+        label: e.label,
+        baseUrl: e.baseUrl,
+        kind: e.custom ? 'custom' : 'ollama',
+        reachable: Boolean(p?.reachable),
+        reason: p ? (p.reachable ? null : p.reason ?? 'not reachable') : 'not checked yet',
+        models: (p?.reachable ? p.models : []).map((m) => ({
+          id: `local/${e.id}/${m.rawId}`,
+          name: localModelShortName(m.rawId),
+          tools: m.supportsTools,
+          thinking: m.supportsThinking,
+          contextWindow: m.contextWindow,
+          contextKnown: m.contextWindowKnown,
+        })),
+      };
+    });
+  }
+
+  private localModelInfo(id: string): LocalServerStatus['models'][number] | undefined {
+    return this.localStatus().flatMap((s) => s.models).find((m) => m.id === id);
+  }
+
   /**
    * Re-reads Roamies' model choice and sign-ins when either file (or Jarvis's model setting) changed.
    * Cheap when nothing changed: two stat calls.
@@ -192,7 +311,9 @@ export class RoamiesEngine {
     // A load already under way may have read the files before they changed: wait, then look again.
     while (this.refreshing) await this.refreshing.catch(() => {});
     const d = this.gate.detection();
-    const stamp = [d.installed, d.configPath, fileStamp(d.configPath), fileStamp(join(d.ggDir, 'auth.json')), this.settings.get().llm.model].join('|');
+    const s = this.settings.get().llm;
+    // Local servers start and stop on their own: look again at most every 30 s.
+    const stamp = [d.installed, d.configPath, fileStamp(d.configPath), fileStamp(join(d.ggDir, 'auth.json')), s.model, s.localServers.join(','), Math.floor(Date.now() / 30_000)].join('|');
     if (!force && stamp === this.stamp && this.snapshot) return;
     this.refreshing = this.load(stamp).finally(() => {
       this.refreshing = null;
@@ -206,18 +327,23 @@ export class RoamiesEngine {
     const base = { configPath: d.configPath, look: cfg.look };
     if (!d.installed) {
       this.target = null;
-      this.snapshot = { ...base, ready: false, provider: null, model: null, source: null, route: null, signedIn: [], models: [], problem: 'Roamies is not installed.' };
+      this.snapshot = { ...base, ready: false, provider: null, model: null, source: null, route: null, signedIn: [], models: [], tools: false, local: [], warning: null, problem: 'Roamies is not installed.' };
       this.stamp = stamp;
       return;
     }
     const auth = this.authStorage();
+    await this.discoverLocal();
+    const local = this.localStatus();
+    const localModels = local.flatMap((l) => l.models);
     const claude = await auth.hasClaudeCodeLogin().catch(() => false);
-    const providers = [...new Set([...PREFERRED, ...AUTH_PROVIDERS.map((p) => p.value), 'local'])];
+    const providers = [...new Set([...PREFERRED, ...AUTH_PROVIDERS.map((p) => p.value)])];
     const signedIn: EngineStatus['signedIn'] = [];
     for (const p of providers) {
       const has = (p === 'anthropic' && claude) || (await auth.hasProviderAuth(p).catch(() => false));
       if (has) signedIn.push({ id: p, name: providerName(p), ...(p === 'anthropic' && claude ? { claude: true } : {}) });
     }
+    // Local models need no sign-in: connected in Roamies, or simply running on this computer.
+    if (localModels.length || (await auth.hasProviderAuth('local').catch(() => false))) signedIn.push({ id: 'local', name: providerName('local') });
     if (cfg.provider && !signedIn.some((s) => s.id === cfg.provider) && cfg.provider === 'palsu') signedIn.push({ id: 'palsu', name: 'Test provider' });
 
     const override = this.settings.get().llm.model.trim();
@@ -225,7 +351,7 @@ export class RoamiesEngine {
     let model: string | null = null;
     let source: Target['source'] | null = null;
     if (override) {
-      provider = getModel(override)?.provider ?? cfg.provider;
+      provider = parseLocalModelId(override) ? 'local' : getModel(override)?.provider ?? cfg.provider;
       model = override;
       source = 'jarvis';
     } else if (cfg.provider && cfg.model) {
@@ -238,22 +364,42 @@ export class RoamiesEngine {
         provider = first.id;
         model = cfg.provider === first.id && cfg.model ? cfg.model : getDefaultModel(first.id as Provider)?.id ?? null;
         source = 'auto';
+      } else if (localModels.length) {
+        // Nothing signed in, but a local model is running: use it (one that can use tools, if any).
+        provider = 'local';
+        model = (localModels.find((m) => m.tools) ?? localModels[0]).id;
+        source = 'auto';
       }
     }
 
     let problem: string | null = null;
+    let warning: string | null = null;
     let route: Target['route'] | null = null;
-    if (!provider || !model) problem = signedIn.length ? 'No model is picked in Roamies yet. Pick one on the Model page in Roamies.' : 'Roamies has no AI sign-in yet. Open Roamies and sign in on its Model page (Claude, ChatGPT or an API key).';
-    else if (!signedIn.some((s) => s.id === provider)) problem = `${providerName(provider)} isn't signed in. Sign in on the Model page in Roamies.`;
+    const pickedLocal = provider === 'local' && model ? parseLocalModelId(model) : undefined;
+    if (!provider || !model) problem = signedIn.length ? 'No model is picked in Roamies yet. Pick one on the Model page in Roamies.' : 'Roamies has no AI sign-in yet. Open Roamies and sign in on its Model page (Claude, ChatGPT or an API key), or start a local model server such as Ollama.';
+    else if (provider === 'local') {
+      const server = local.find((l) => l.id === pickedLocal?.endpointId);
+      const m = this.localModelInfo(model);
+      if (!pickedLocal) problem = `“${model}” is not a local model id.`;
+      else if (!server) problem = `The local server for ${modelName(model)} isn't set up in Jarvis. Add it under Integrations → Model.`;
+      else if (!server.reachable) problem = `${server.label} isn't running (${server.reason ?? 'not reachable'}). Start it and Jarvis will pick it up within 30 seconds.`;
+      else if (!m) problem = `${server.label} doesn't have ${modelName(model)}. Pull it (e.g. ollama pull ${pickedLocal.rawId}) or pick another model.`;
+      else {
+        route = 'api';
+        if (!m.tools) warning = `${m.name} can't use tools, so Jarvis can talk with it but can't search memory, plan tasks or act through it. Direct commands still work. Pick a model with tool support (e.g. qwen3, llama3.1) for everything else.`;
+        else if (m.contextWindow < MIN_LOCAL_CONTEXT) warning = `${server.label} gives ${m.name} only ${Math.round(m.contextWindow / 1024)}k tokens of context, which is too little for Jarvis to work well. Raise the context length (Ollama: Settings → Context length 32k, or OLLAMA_CONTEXT_LENGTH=32768).`;
+      }
+    } else if (!signedIn.some((s) => s.id === provider)) problem = `${providerName(provider)} isn't signed in. Sign in on the Model page in Roamies.`;
     else {
       route = provider === 'anthropic' && claude ? 'claude-code' : 'api';
       if (route === 'claude-code' && !resolveClaudeCodeBinary()) problem = "Claude Code isn't installed for Roamies anymore. Sign in with Claude again on the Model page in Roamies.";
     }
 
     this.target = !problem && provider && model && route ? { provider, model, source: source!, route } : null;
-    const models = signedIn
-      .filter((s) => s.id !== 'local' && s.id !== 'palsu')
-      .flatMap((s) => getModelsForProvider(s.id as Provider).map((m) => ({ id: m.id, name: m.name, provider: s.id })));
+    const models = [
+      ...signedIn.filter((s) => s.id !== 'local' && s.id !== 'palsu').flatMap((s) => getModelsForProvider(s.id as Provider).map((m) => ({ id: m.id, name: m.name, provider: s.id, tools: true }))),
+      ...localModels.map((m) => ({ id: m.id, name: m.name, provider: 'local', tools: m.tools })),
+    ];
     this.snapshot = {
       ...base,
       ready: Boolean(this.target),
@@ -263,6 +409,9 @@ export class RoamiesEngine {
       route,
       signedIn,
       models,
+      tools: provider === 'local' && model ? Boolean(this.localModelInfo(model)?.tools) : Boolean(this.target),
+      local,
+      warning,
       problem,
     };
     const was = this.stamp ? this.lastReady : null;
@@ -294,6 +443,9 @@ export class RoamiesEngine {
       route: null,
       signedIn: [],
       models: [],
+      tools: false,
+      local: [],
+      warning: null,
       problem: 'Not checked yet',
       configPath: this.gate.detection().configPath,
       look: null,
@@ -318,8 +470,21 @@ export class RoamiesEngine {
     return this.target;
   }
 
+  /** Whether the model in use can call tools. Jarvis only offers tools to models that can use them. */
+  supportsTools(): boolean {
+    if (!this.target) return false;
+    return this.target.provider === 'local' ? Boolean(this.localModelInfo(this.target.model)?.tools) : true;
+  }
+
   private async credentials(t: Target): Promise<{ apiKey?: string; baseUrl?: string; accountId?: string }> {
     if (t.provider === 'palsu') return {};
+    if (t.provider === 'local') {
+      // The server Jarvis found it on; a key Roamies saved for that server, if any.
+      const parsed = parseLocalModelId(t.model);
+      const endpoint = this.localEndpoints().find((e) => e.id === parsed?.endpointId);
+      const saved = parsed ? await this.authStorage().getCredentials(localAuthStorageKey(parsed.endpointId)).catch(() => undefined) : undefined;
+      return { apiKey: endpoint?.apiKey || saved?.accessToken || LOCAL_API_KEY_PLACEHOLDER, baseUrl: endpoint?.baseUrl ?? saved?.baseUrl };
+    }
     const c = await this.authStorage().resolveCredentials(t.provider, { storageKeys: getAuthStorageKeys(t.provider as Provider, t.model) });
     return { apiKey: c.accessToken, ...(c.baseUrl ? { baseUrl: c.baseUrl } : {}), ...(c.accountId !== undefined ? { accountId: c.accountId } : {}) };
   }
@@ -385,7 +550,7 @@ export class RoamiesEngine {
   private async runApi(t: Target, req: RunRequest): Promise<RunResult> {
     const messages = [...req.messages];
     const maxTurns = req.maxTurns ?? this.settings.get().llm.maxToolIterations;
-    const specs = req.tools?.map((x) => x.spec);
+    const specs = this.supportsTools() ? req.tools?.map((x) => x.spec) : undefined;
     let text = '';
     let stop: StopReason = 'end';
     let turns = 0;
@@ -477,6 +642,7 @@ export class RoamiesEngine {
     let result: { ok: boolean; detail: string };
     if (!this.target) result = { ok: false, detail: this.snapshot?.problem ?? 'No model available' };
     else if (this.target.route === 'claude-code') result = { ok: true, detail: `Signed in with Claude through Claude Code (${modelName(this.target.model)})` };
+    else if (this.target.provider === 'local') result = { ok: true, detail: `${modelName(this.target.model)} is running locally` };
     else {
       try {
         await this.credentials(this.target);

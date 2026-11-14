@@ -197,6 +197,7 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
 
   // ------------------------------------------------------------------ integrations
   router.get('/api/integrations', async () => {
+    await app.llm.refresh().catch(() => {});
     const dir = app.workspaceDir();
     let writable = false;
     try {
@@ -238,6 +239,29 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
       },
       transcription: { ...s.voice.transcription, keySet: app.secrets.has(TRANSCRIPTION_SECRET), available: Boolean(await app.llm.transcriptionTarget()) },
     };
+  });
+  // Local model servers (Ollama is found by itself; others are added here).
+  router.post('/api/integrations/local/scan', async () => {
+    await app.llm.discoverLocal(true);
+    await app.llm.refresh(true);
+    app.bus.emit('integrations.changed', {});
+    return { local: app.llm.status().local };
+  });
+  router.post('/api/integrations/local/servers', async ({ body }) => {
+    const b = parse(z.object({ url: z.string().url().regex(/^https?:\/\//, 'Use an http:// or https:// address') }), body);
+    let url = b.url.trim().replace(/\/+$/, '');
+    if (!/\/v\d+$/.test(url)) url = `${url}/v1`;
+    const servers = app.settings.get().llm.localServers;
+    if (!servers.includes(url)) app.settings.update({ llm: { localServers: [...servers, url] } });
+    await app.llm.discoverLocal(true);
+    await app.llm.refresh(true);
+    app.activity.log('info', 'integrations', `Local model server added: ${url}`);
+    return { local: app.llm.status().local };
+  });
+  router.delete('/api/integrations/local/servers', ({ query }) => {
+    const url = query.get('url') ?? '';
+    app.settings.update({ llm: { localServers: app.settings.get().llm.localServers.filter((x) => x !== url) } });
+    return { ok: true };
   });
   router.post('/api/integrations/model/test', async () => {
     await app.llm.checkHealth();
