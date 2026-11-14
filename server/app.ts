@@ -13,6 +13,7 @@ import { Planner } from './agents/planner.ts';
 import { McpManager } from './integrations/mcp.ts';
 import { CalendarService, calendarSkills } from './integrations/calendar.ts';
 import { EmailService, emailSkills } from './integrations/email.ts';
+import { HackerOneService, hackeroneSkills } from './integrations/hackerone.ts';
 import { ObsidianSync, obsidianSkills } from './integrations/obsidian.ts';
 import { ConversationStore } from './intelligence/conversations.ts';
 import { Jarvis } from './intelligence/jarvis.ts';
@@ -71,6 +72,7 @@ export class JarvisApp {
   readonly state: StateTracker;
   readonly mcp: McpManager;
   readonly email: EmailService;
+  readonly pipeline: HackerOneService;
   readonly calendar: CalendarService;
   readonly obsidian: ObsidianSync;
   readonly scheduler: Scheduler;
@@ -94,6 +96,7 @@ export class JarvisApp {
     this.tasks = new TaskStore(this.db, this.bus);
     this.permissions = new PermissionEngine(this.db, this.settings, this.bus, this.activity);
 
+    this.pipeline = new HackerOneService({ settings: this.settings, secrets: this.secrets, db: this.db, activity: this.activity, bus: this.bus });
     const services: SkillServices = {
       memory: this.memory,
       settings: this.settings,
@@ -102,13 +105,14 @@ export class JarvisApp {
       workspaceDir: () => this.workspaceDir(),
       listTasks: (status) =>
         this.tasks.list({ status: status as TaskStatus | 'active' | undefined, limit: 50 }).map((t) => ({ id: t.id, title: t.title, status: t.status, priority: t.priority, progress: t.progress })),
+      pipeline: this.pipeline,
       statusSnapshot: () => this.statusSnapshot(),
     };
     this.registry = new SkillRegistry(services);
     registerBuiltinSkills(this.registry);
     this.email = new EmailService(this.settings, this.secrets);
     this.calendar = new CalendarService(this.settings, this.secrets);
-    for (const skill of [...emailSkills(this.email), ...calendarSkills(this.calendar)]) this.registry.register(skill);
+    for (const skill of [...emailSkills(this.email), ...calendarSkills(this.calendar), ...hackeroneSkills(this.pipeline)]) this.registry.register(skill);
     this.runner = new SkillRunner({
       db: this.db,
       registry: this.registry,
@@ -196,6 +200,23 @@ export class JarvisApp {
         return `${r.written} written, ${r.unchanged} unchanged, ${r.removed} removed${r.imported ? `, ${r.imported} edit(s) imported` : ''}${r.keptUserEdits.length ? `, ${r.keptUserEdits.length} of your edits kept` : ''}`;
       },
     });
+    // The autonomous bug-bounty pipeline: keep discovering programs and refreshing earnings while the user leaves it on.
+    this.scheduler.register({
+      name: 'hackerone-pipeline',
+      title: 'Bug-bounty pipeline',
+      description: 'While you leave it running, keeps your HackerOne earnings and reports up to date and discovers new programs. Read-only — it never tests or attacks anything.',
+      intervalMs: () => this.settings.get().integrations.hackerone.intervalMin * 60_000,
+      run: async () => {
+        const h1 = this.settings.get().integrations.hackerone;
+        if (!h1.enabled || !h1.autoRun) return 'paused (turn on "keep running" in the Pipeline page)';
+        const missing = this.pipeline.missing();
+        if (missing) return `skipped: ${missing}`;
+        const r = await this.pipeline.sync();
+        if (!r.ok) throw new Error(r.detail);
+        return r.detail;
+      },
+    });
+
     // Keep the vault current within seconds of meaningful changes.
     for (const type of ['memory.changed', 'task.updated', 'settings.changed', 'integrations.changed'] as const) {
       this.bus.on(type, (e) => {
@@ -389,6 +410,8 @@ export class JarvisApp {
     const vaultProblem = this.settings.get().integrations.obsidian.enabled ? this.obsidian.problem() : null;
     if (vaultProblem) out.push({ id: 'obsidian', level: 'warning', text: `Jarvis vault: ${vaultProblem}`, page: 'integrations' });
     else if (this.obsidian.lastReport && !this.obsidian.lastReport.ok) out.push({ id: 'obsidian', level: 'error', text: `Updating the Jarvis vault failed: ${this.obsidian.lastReport.error}`, page: 'integrations' });
+    const h1 = this.settings.get().integrations.hackerone;
+    if (h1.enabled && this.pipeline.lastCheck && !this.pipeline.lastCheck.ok) out.push({ id: 'pipeline', level: 'warning', text: `Bug-bounty pipeline: ${this.pipeline.lastCheck.detail}`, page: 'integrations' });
     for (const s of this.mcp.status()) {
       if (s.state === 'error') out.push({ id: `mcp-${s.id}`, level: 'error', text: `MCP server "${s.name}" is not connected: ${s.error ?? 'error'}`, page: 'integrations' });
     }

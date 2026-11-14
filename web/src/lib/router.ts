@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 
-export type Route = { page: 'home' | 'tasks' | 'memory' | 'skills' | 'integrations' | 'activity' | 'settings'; id?: string };
+export type Route = { page: 'home' | 'tasks' | 'pipeline' | 'memory' | 'skills' | 'integrations' | 'activity' | 'settings'; id?: string };
 
-const PAGES = new Set(['tasks', 'memory', 'skills', 'integrations', 'activity', 'settings']);
+const PAGES = new Set(['tasks', 'pipeline', 'memory', 'skills', 'integrations', 'activity', 'settings']);
 
 export function parseHash(hash: string): Route {
   const [page, id] = hash.replace(/^#\/?/, '').split('/');

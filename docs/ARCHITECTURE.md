@@ -122,6 +122,10 @@ Contents: `Jarvis.md` (live status and index), `Manual/` (one note per skill gen
 
 It updates within ~5 s of meaningful changes and on the `obsidian-sync` schedule. The `obsidian_files` table stores, per vault, the hash of every file Jarvis wrote: a file whose hash no longer matches was edited by the user and is never overwritten or deleted; for memory notes the edited text, `verified` and `kind` are imported back as a correction. Notes the user adds are never touched. Writes are atomic (temp file + rename) and confined to the vault (real paths checked). Moving the vault creates a fresh one and leaves the old untouched. Secrets and feed URLs are never written. Skills: `obsidian.search`/`obsidian.read` (ask first) and `obsidian.write_note` (new notes only).
 
+## Bug-bounty pipeline (HackerOne)
+
+`integrations/hackerone.ts` reads the HackerOne Hacker API (HTTPS Basic auth with your username and an API token, stored encrypted; base URL overridable with `JARVIS_HACKERONE_API`). It is **read-only and observational**: it tracks earnings and reports and discovers programs, and never tests, scans or attacks anything — working a target is a normal task that goes through the permission engine. It pulls three JSON:API collections with pagination (`/payments/earnings`, `/me/reports`, `/programs`) and stores them in `h1_earnings`, `h1_reports` and `h1_programs` (migration 5), so the pipeline can be analysed over time. A program is "newly discovered" when its `first_seen` is later than the earliest import cohort (so the first bulk sync is the baseline, not a flood of "new") and within 14 days. `summary()` computes total / last-30-day / average / monthly earnings, reports by state, and new programs. The `hackerone-pipeline` scheduler job refreshes everything on its interval **for as long as `integrations.hackerone.autoRun` is on** (it reports `paused` otherwise); it is separate from the connection, so pausing the autonomous run never disconnects. Read-only, permission-gated skills (`hackerone.programs`, `hackerone.earnings`, `hackerone.reports`, scope `hackerone.read`) let the model and tasks reason about the pipeline. The UI is the **Pipeline** page plus a HackerOne card on Integrations. Nothing about the pipeline is sent to the model unless you ask.
+
 ## Desktop app
 
 `desktop/main.cjs` (Electron) forks the compiled service (`dist-server/`, built with `tsc -p tsconfig.build.json`) using Electron's embedded Node.js and shows the UI in a sandboxed window. Microphone and notification permissions are granted only to the Jarvis origin; other links open in the default browser. Closing the window hides it to the tray; quitting asks the service over IPC to stop safely. `JARVIS_SMOKE_TEST=1` launches, checks the UI and API, and exits — used by `.github/workflows/desktop.yml` on Windows, macOS and Linux.
@@ -142,7 +146,7 @@ server/
   skills/            types, registry, runner, built-in skills
   permissions/       permission engine, approvals, grants
   scheduler/         background jobs
-  integrations/      MCP client + manager, email (IMAP/SMTP), calendar (CalDAV/ICS)
+  integrations/      MCP client + manager, email (IMAP/SMTP), calendar (CalDAV/ICS), HackerOne pipeline
 web/src/             React UI (pages, components, live events, voice)
 desktop/main.cjs     Electron desktop app
 scripts/launch.ts    browser app-window launcher (run from source)

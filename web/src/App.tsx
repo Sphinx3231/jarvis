@@ -8,6 +8,7 @@ import { ActivityPage } from './pages/Activity';
 import { HomePage } from './pages/Home';
 import { IntegrationsPage } from './pages/Integrations';
 import { MemoryPage } from './pages/Memory';
+import { PipelinePage } from './pages/Pipeline';
 import { SettingsPage } from './pages/Settings';
 import { SkillsPage } from './pages/Skills';
 import { TasksPage } from './pages/Tasks';
@@ -43,6 +44,7 @@ export function App() {
         <main className="content" id="content">
           {route.page === 'home' && <HomePage status={status} />}
           {route.page === 'tasks' && <TasksPage selectedId={route.id} />}
+          {route.page === 'pipeline' && <PipelinePage />}
           {route.page === 'memory' && <MemoryPage />}
           {route.page === 'skills' && <SkillsPage />}
           {route.page === 'integrations' && <IntegrationsPage />}

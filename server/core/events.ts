@@ -13,6 +13,7 @@ export type JarvisEventType =
   | 'settings.changed'
   | 'roamies.changed'
   | 'integrations.changed'
+  | 'pipeline.updated'
   | 'job.ran';
 
 export interface JarvisEvent {

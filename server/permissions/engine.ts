@@ -31,6 +31,7 @@ export const SCOPES: ScopeDefinition[] = [
   { id: 'calendar.write', label: 'Add calendar events', description: 'Create events in your CalDAV calendar.', external: true, defaultPolicy: 'ask', allowPermitted: true },
   { id: 'obsidian.read', label: 'Read Obsidian notes', description: 'Search and read notes in your Obsidian vault.', external: true, defaultPolicy: 'ask', allowPermitted: true },
   { id: 'obsidian.write', label: 'Write Obsidian notes', description: 'Create notes in the Jarvis folder of your vault when you ask (automatic documentation sync is controlled on the Integrations page).', external: true, defaultPolicy: 'ask', allowPermitted: true },
+  { id: 'hackerone.read', label: 'Read HackerOne pipeline', description: 'Read your HackerOne earnings and reports and discover programs (read-only).', external: true, defaultPolicy: 'allow', allowPermitted: true },
   { id: 'shell.exec', label: 'Run shell commands', description: 'Execute commands on this computer (inside the workspace folder).', external: true, defaultPolicy: 'ask', allowPermitted: false },
 ];
 

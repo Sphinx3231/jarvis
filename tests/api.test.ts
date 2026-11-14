@@ -118,7 +118,7 @@ test('api: chat, tasks, approvals, memory, settings and skills endpoints', async
     assert.equal(shell.scopeLabel, 'Run shell commands');
 
     const jobs = await s.call('GET', '/api/jobs');
-    assert.deepEqual(jobs.json.jobs.map((j: { name: string }) => j.name), ['task-monitor', 'memory-maintenance', 'health-check', 'obsidian-sync']);
+    assert.deepEqual(jobs.json.jobs.map((j: { name: string }) => j.name), ['task-monitor', 'memory-maintenance', 'health-check', 'obsidian-sync', 'hackerone-pipeline']);
     assert.equal(jobs.json.jobs[0].paused, true, 'background paused in tests');
     const ran = await s.call('POST', '/api/jobs/memory-maintenance/run');
     assert.equal(ran.status, 200);

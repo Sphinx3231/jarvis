@@ -8,9 +8,11 @@
  */
 import assert from 'node:assert/strict';
 import { mkdirSync, rmSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { startJarvis } from '../../server/main.ts';
+import { HACKERONE_SECRET } from '../../server/integrations/hackerone.ts';
 import { tempDir } from '../helpers.ts';
 
 const require = createRequire(import.meta.url);
@@ -25,6 +27,7 @@ try {
 const outDir = process.env.E2E_SCREENSHOTS ?? join(process.cwd(), 'test-results');
 mkdirSync(outDir, { recursive: true });
 const dir = tempDir('jarvis-e2e-');
+let h1: ReturnType<typeof createServer> | null = null;
 // Start without Roamies: Jarvis must show only the "Roamies required" screen.
 const roamiesApp = join(dir, 'Roamies.app');
 process.env.JARVIS_ROAMIES_PATH = roamiesApp;
@@ -135,6 +138,35 @@ try {
   await page.locator('.job', { hasText: 'Task monitor' }).waitFor();
   step('activity shows the audit trail and background jobs');
 
+  // Bug-bounty pipeline: a stand-in HackerOne so the dashboard shows real numbers.
+  const h1Data = {
+    programs: [{ id: 'acme', attributes: { handle: 'acme', name: 'Acme', offers_bounties: true, currency: 'usd' } }],
+    reports: [{ id: '1', attributes: { title: 'XSS in login', state: 'resolved', created_at: new Date().toISOString() } }],
+    earnings: [{ id: 'e1', attributes: { amount: 1500, currency: 'usd', awarded_at: new Date().toISOString() } }],
+  };
+  h1 = createServer((req, res) => {
+    const path = (req.url ?? '').split('?')[0];
+    const list = path.endsWith('/programs') ? h1Data.programs : path.endsWith('/me/reports') ? h1Data.reports : path.endsWith('/payments/earnings') ? h1Data.earnings : null;
+    if (!list) return res.writeHead(404).end();
+    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ data: list, links: {} }));
+  });
+  await new Promise<void>((r) => h1.listen(0, '127.0.0.1', () => r()));
+  process.env.JARVIS_HACKERONE_API = `http://127.0.0.1:${(h1.address() as { port: number }).port}`;
+  running.app.settings.update({ integrations: { hackerone: { enabled: true, username: 'hunter', autoRun: true } } });
+  running.app.secrets.set(HACKERONE_SECRET, 'e2e-token-123456');
+  await running.app.pipeline.sync();
+  h1Data.programs.push({ id: 'globex', attributes: { handle: 'globex', name: 'Globex', offers_bounties: true, currency: 'usd' } });
+  await running.app.pipeline.sync();
+
+  await page.getByRole('link', { name: 'Pipeline' }).click();
+  await page.getByRole('heading', { name: 'Bug-bounty pipeline' }).waitFor();
+  await page.getByText('$1,500').first().waitFor();
+  await page.locator('.pl-run').getByText('Running').waitFor();
+  await page.locator('.pl-programs', { hasText: 'Globex' }).waitFor();
+  await page.locator('.pl-programs__tags', { hasText: 'New' }).first().waitFor();
+  await shot('09b-pipeline');
+  step('pipeline dashboard shows earnings, reports and a newly discovered program');
+
   await page.getByRole('link', { name: 'Settings' }).click();
   await page.getByLabel('Policy for Run shell commands').waitFor();
   assert.equal(await page.getByLabel('Policy for Run shell commands').locator('option[value="allow"]').isDisabled(), true);
@@ -160,5 +192,6 @@ try {
 } finally {
   await browser.close();
   await running.stop();
+  h1?.close();
   rmSync(dir, { recursive: true, force: true });
 }

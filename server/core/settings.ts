@@ -124,6 +124,16 @@ export const SettingsSchema = z.object({
       }),
       intervalMin: z.number().int().min(1).max(1440),
     }),
+    /** The autonomous bug-bounty pipeline. Read-only: tracks earnings and reports and discovers programs. */
+    hackerone: z.object({
+      enabled: z.boolean(),
+      username: z.string().max(100),
+      /** Keep discovering programs and refreshing earnings/reports for as long as this is on. */
+      autoRun: z.boolean(),
+      intervalMin: z.number().int().min(5).max(1440),
+      /** Treat only programs that pay bounties as newly discovered opportunities. */
+      bountyOnly: z.boolean(),
+    }),
     calendar: z.object({
       caldav: z.object({
         enabled: z.boolean(),
@@ -197,6 +207,7 @@ export const DEFAULT_SETTINGS: Settings = {
       include: { manual: true, memories: true, tasks: true, journal: true, conversations: true },
       intervalMin: 15,
     },
+    hackerone: { enabled: false, username: '', autoRun: false, intervalMin: 30, bountyOnly: true },
     calendar: {
       caldav: { enabled: false, serverUrl: '', username: '' },
       feeds: [],

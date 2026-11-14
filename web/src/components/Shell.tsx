@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, Bell, Brain, Crown, House, ListChecks, Plug, Settings, Wrench, X } from 'lucide-react';
+import { Activity, Bell, Brain, Crown, House, ListChecks, Plug, Settings, Target, Wrench, X } from 'lucide-react';
 import { api, type NotificationEntry, type StatusResponse } from '../lib/api';
 import { timeAgo } from '../lib/format';
 import { useLive, useResource } from '../lib/live';
@@ -8,6 +8,7 @@ import { navigate, type Route } from '../lib/router';
 const NAV: Array<{ id: Route['page']; label: string; icon: typeof House }> = [
   { id: 'home', label: 'Home', icon: House },
   { id: 'tasks', label: 'Tasks', icon: ListChecks },
+  { id: 'pipeline', label: 'Pipeline', icon: Target },
   { id: 'memory', label: 'Memory', icon: Brain },
   { id: 'skills', label: 'Skills', icon: Wrench },
   { id: 'integrations', label: 'Integrations', icon: Plug },

@@ -20,6 +20,7 @@ export interface SkillServices {
   llm: RoamiesEngine;
   workspaceDir: () => string;
   listTasks: (status?: string) => Array<{ id: string; title: string; status: string; priority: number; progress: number }>;
+  pipeline: import('../integrations/hackerone.ts').HackerOneService;
   statusSnapshot: () => Record<string, unknown>;
 }
 
@@ -41,7 +42,7 @@ export interface Skill<I = any, O = any> {
   name: string;
   title: string;
   description: string;
-  category: 'memory' | 'tasks' | 'system' | 'model' | 'files' | 'web' | 'shell' | 'email' | 'calendar' | 'mcp';
+  category: 'memory' | 'tasks' | 'system' | 'model' | 'files' | 'web' | 'shell' | 'email' | 'calendar' | 'mcp' | 'pipeline';
   /** Permission scope checked by the permission engine before every execution. */
   scope: string;
   risk: RiskLevel;

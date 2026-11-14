@@ -303,6 +303,46 @@ export interface McpStatus {
   connectedAt: number | null;
 }
 
+export interface PipelineProgram {
+  handle: string;
+  name: string;
+  currency: string | null;
+  offersBounties: boolean;
+  state: string | null;
+  url: string;
+  firstSeen: number;
+  lastSeen: number;
+  isNew: boolean;
+}
+
+export interface PipelineReport {
+  id: string;
+  title: string;
+  state: string;
+  program: string | null;
+  severity: string | null;
+  bounty: number | null;
+  currency: string | null;
+  createdAt: number | null;
+}
+
+/** The autonomous bug-bounty pipeline: earnings, reports and discovered programs. */
+export interface PipelineSummary {
+  connected: boolean;
+  missing: string | null;
+  enabled: boolean;
+  autoRun: boolean;
+  running: boolean;
+  intervalMin: number;
+  bountyOnly: boolean;
+  username: string;
+  tokenSet: boolean;
+  lastCheck: { ok: boolean; detail: string; at: number } | null;
+  earnings: { currency: string; total: number; count: number; last30d: number; averageBounty: number; monthly: Array<{ month: string; amount: number }> };
+  reports: { total: number; byState: Record<string, number>; resolved: number; recent: PipelineReport[] };
+  programs: { total: number; bountyPaying: number; newCount: number; discovered: PipelineProgram[] };
+}
+
 export interface Integrations {
   model: EngineStatus & { override: string; thinking: Settings['llm']['thinking'] };
   roamies: RoamiesDetection;
@@ -340,6 +380,16 @@ export interface Integrations {
     openUri: string;
     trackedNotes: number;
     lastReport: { at: number; ok: boolean; written: number; unchanged: number; removed: number; keptUserEdits: string[]; imported: number; error: string | null; durationMs: number } | null;
+  };
+  hackerone: {
+    enabled: boolean;
+    username: string;
+    autoRun: boolean;
+    intervalMin: number;
+    bountyOnly: boolean;
+    tokenSet: boolean;
+    missing: string | null;
+    lastCheck: { ok: boolean; detail: string; at: number } | null;
   };
   calendar: {
     caldav: { enabled: boolean; serverUrl: string; username: string; passwordSet: boolean; missing: string | null };
@@ -424,5 +474,5 @@ export interface Settings {
   };
   notifications: { desktop: boolean; taskCompletion: boolean };
   appearance: { reduceMotion: boolean; accent: 'violet' | 'indigo' | 'fuchsia' };
-  integrations: { workspaceDir: string; web: { allowPrivateNetwork: boolean; maxBytes: number }; shell: { enabled: boolean } };
+  integrations: { workspaceDir: string; web: { allowPrivateNetwork: boolean; maxBytes: number }; shell: { enabled: boolean }; hackerone: { enabled: boolean; username: string; autoRun: boolean; intervalMin: number; bountyOnly: boolean } };
 }

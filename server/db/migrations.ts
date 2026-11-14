@@ -236,4 +236,45 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE approvals ADD COLUMN reason TEXT;
     `,
   },
+  {
+    version: 5,
+    sql: `
+      -- The autonomous bug-bounty pipeline: HackerOne programs discovered, reports and earnings.
+      -- Everything Jarvis learns about the pipeline lives here so it can be analysed over time.
+      CREATE TABLE h1_programs (
+        handle TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        currency TEXT,
+        offers_bounties INTEGER NOT NULL DEFAULT 0,
+        state TEXT,
+        url TEXT,
+        first_seen INTEGER NOT NULL,
+        last_seen INTEGER NOT NULL,
+        raw TEXT
+      );
+      CREATE TABLE h1_reports (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        state TEXT NOT NULL,
+        program TEXT,
+        severity TEXT,
+        bounty REAL,
+        currency TEXT,
+        created_at INTEGER,
+        synced_at INTEGER NOT NULL
+      );
+      CREATE TABLE h1_earnings (
+        id TEXT PRIMARY KEY,
+        amount REAL NOT NULL,
+        currency TEXT,
+        program TEXT,
+        report_id TEXT,
+        awarded_at INTEGER,
+        synced_at INTEGER NOT NULL
+      );
+      CREATE INDEX idx_h1_programs_first_seen ON h1_programs (first_seen);
+      CREATE INDEX idx_h1_earnings_awarded ON h1_earnings (awarded_at);
+      CREATE INDEX idx_h1_reports_state ON h1_reports (state);
+    `,
+  },
 ];

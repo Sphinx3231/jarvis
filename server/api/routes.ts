@@ -7,6 +7,7 @@ import { DraftStepSchema } from '../agents/planner.ts';
 import { McpServerSchema } from '../core/settings.ts';
 import { errorMessage, UserError } from '../core/util.ts';
 import { TRANSCRIPTION_SECRET } from '../llm/engine.ts';
+import { HACKERONE_SECRET } from '../integrations/hackerone.ts';
 import { ROAMIES_REPO_URL } from '../roamies/detect.ts';
 import { EMAIL_SECRET } from '../integrations/email.ts';
 import { CALDAV_SECRET } from '../integrations/calendar.ts';
@@ -240,8 +241,53 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
         lastCheck: app.calendar.lastCheck,
       },
       transcription: { ...s.voice.transcription, keySet: app.secrets.has(TRANSCRIPTION_SECRET), available: Boolean(await app.llm.transcriptionTarget()) },
+      hackerone: { ...s.integrations.hackerone, tokenSet: app.pipeline.hasToken(), missing: app.pipeline.missing(), lastCheck: app.pipeline.lastCheck },
     };
   });
+
+  // ------------------------------------------------------------------ bug-bounty pipeline
+  router.get('/api/pipeline', () => ({ pipeline: app.pipeline.summary() }));
+  router.get('/api/pipeline/programs', ({ query }) => ({
+    programs: app.pipeline.programs({
+      query: query.get('query') ?? undefined,
+      bountyOnly: query.get('bountyOnly') === 'true',
+      newOnly: query.get('newOnly') === 'true',
+      limit: Number(query.get('limit') ?? 100),
+    }),
+  }));
+  router.post('/api/pipeline/sync', async () => {
+    const r = await app.pipeline.sync();
+    if (!r.ok && app.pipeline.missing()) throw new UserError(r.detail, 400);
+    return { ...r, pipeline: app.pipeline.summary() };
+  });
+  router.put('/api/integrations/hackerone', ({ body }) => {
+    const b = parse(
+      z.object({
+        enabled: z.boolean().optional(),
+        username: z.string().max(100).optional(),
+        autoRun: z.boolean().optional(),
+        intervalMin: z.number().int().min(5).max(1440).optional(),
+        bountyOnly: z.boolean().optional(),
+      }),
+      body,
+    );
+    const settings = app.settings.update({ integrations: { hackerone: b } });
+    app.bus.emit('integrations.changed', {});
+    return { hackerone: settings.integrations.hackerone };
+  });
+  router.put('/api/integrations/hackerone/token', ({ body }) => {
+    const b = parse(z.object({ token: z.string().min(8).max(500) }), body);
+    app.secrets.set(HACKERONE_SECRET, b.token.trim());
+    app.activity.log('info', 'integrations', 'HackerOne API token updated');
+    app.bus.emit('integrations.changed', {});
+    return { ok: true };
+  });
+  router.delete('/api/integrations/hackerone/token', () => {
+    app.secrets.delete(HACKERONE_SECRET);
+    app.bus.emit('integrations.changed', {});
+    return { ok: true };
+  });
+  router.post('/api/integrations/hackerone/test', async () => ({ result: await app.pipeline.test() }));
   // Local model servers (Ollama is found by itself; others are added here).
   router.post('/api/integrations/local/scan', async () => {
     await app.llm.discoverLocal(true);
@@ -421,7 +467,7 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
   router.patch('/api/settings', ({ body }) => {
     const patch = (body ?? {}) as { permissions?: { policies?: Record<string, unknown> }; integrations?: { mcpServers?: unknown } };
     if (patch.permissions?.policies) app.permissions.validatePolicyPatch(patch.permissions.policies);
-    if (patch.integrations && ['mcpServers', 'email', 'calendar', 'obsidian'].some((k) => k in (patch.integrations as object))) throw new UserError('Manage accounts and servers on the Integrations page');
+    if (patch.integrations && ['mcpServers', 'email', 'calendar', 'obsidian', 'hackerone'].some((k) => k in (patch.integrations as object))) throw new UserError('Manage accounts and servers on the Integrations page');
     const settings = app.settings.update(patch);
     app.activity.log('info', 'settings', 'Settings updated');
     return { settings };

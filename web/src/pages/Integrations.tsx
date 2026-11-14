@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Bell, BookOpen, CalendarDays, Database, Folder, Globe, KeyRound, Mail, Mic, Plug, Plus, RefreshCw, Server, Sparkles, Terminal, Trash2, X } from 'lucide-react';
+import { Bell, BookOpen, CalendarDays, Database, Folder, Globe, KeyRound, Mail, Mic, Plug, Plus, RefreshCw, Server, Sparkles, Target, Terminal, Trash2, X } from 'lucide-react';
 import { Badge, Button, Card, ErrorNote, Field, Loading, PageHeader, PolicyBadge, Toggle } from '../components/ui';
 import { api, type Integrations, type MailServer, type McpStatus } from '../lib/api';
 import { timeAgo } from '../lib/format';
@@ -668,6 +668,71 @@ function VaultCard({ data }: { data: Integrations['obsidian'] }) {
   );
 }
 
+function HackerOneCard({ data }: { data: Integrations['hackerone'] }) {
+  const act = useAction();
+  const [username, setUsername] = useState(data.username);
+  const [token, setToken] = useState('');
+  const [testing, setTesting] = useState(false);
+  const save = (patch: Partial<Integrations['hackerone']>) => act(() => api.put('/api/integrations/hackerone', patch), 'Saved');
+  const test = async () => (setTesting(true), await act(() => api.post('/api/integrations/hackerone/test'), 'Checked'), setTesting(false));
+  return (
+    <Card title="HackerOne — bug-bounty pipeline" icon={<Target size={18} />} action={<CheckBadge check={data.lastCheck} missing={data.enabled ? data.missing : null} />}>
+      <p className="muted small">
+        Jarvis tracks your bounty earnings and report status and discovers new programs. It only reads your HackerOne data — it never tests or attacks anything. Create a token under HackerOne → Settings → API Tokens; it is stored encrypted and sent only to HackerOne.
+      </p>
+      <Field label="Run the pipeline" hint="Turn on to connect; see everything on the Pipeline page.">
+        <Toggle checked={data.enabled} onChange={(v) => save({ enabled: v })} ariaLabel="Enable the bug-bounty pipeline" />
+      </Field>
+      <Field label="HackerOne username">
+        <div className="inline">
+          <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" placeholder="your-handle" />
+          {username.trim() !== data.username && (
+            <Button size="sm" variant="primary" onClick={() => save({ username: username.trim() })}>
+              Save
+            </Button>
+          )}
+        </div>
+      </Field>
+      <Field label="API token" hint={data.tokenSet ? 'A token is stored. Enter a new one to replace it.' : 'Needed to read your reports and earnings.'}>
+        <div className="inline">
+          <input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder={data.tokenSet ? 'Stored — enter a new token to replace' : 'Paste your HackerOne API token'} />
+          {token.trim().length >= 8 && (
+            <Button size="sm" variant="primary" onClick={async () => (await act(() => api.put('/api/integrations/hackerone/token', { token: token.trim() }), 'Token saved securely')) && setToken('')}>
+              Save token
+            </Button>
+          )}
+          {data.tokenSet && !token && (
+            <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} onClick={() => act(() => api.del('/api/integrations/hackerone/token'), 'Token removed')}>
+              Remove
+            </Button>
+          )}
+        </div>
+      </Field>
+      <Field label="Keep running on its own" hint="While on, Jarvis refreshes earnings/reports and discovers programs on a schedule — for as long as you leave it on.">
+        <Toggle checked={data.autoRun} onChange={(v) => save({ autoRun: v })} ariaLabel="Keep the pipeline running" disabled={!data.enabled} />
+      </Field>
+      <Field label="Refresh every" hint="How often the pipeline checks HackerOne while running.">
+        <select value={data.intervalMin} onChange={(e) => save({ intervalMin: Number(e.target.value) })} aria-label="Refresh interval">
+          {[15, 30, 60, 180, 360, 720, 1440].map((m) => (
+            <option key={m} value={m}>
+              {m < 60 ? `${m} min` : `${m / 60} h`}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Only surface paying programs" hint="Count only programs that pay bounties as newly discovered opportunities.">
+        <Toggle checked={data.bountyOnly} onChange={(v) => save({ bountyOnly: v })} ariaLabel="Only bounty-paying programs" />
+      </Field>
+      <div className="integration__row">
+        <span className="spacer" />
+        <Button size="sm" icon={<RefreshCw size={14} />} busy={testing} onClick={() => void test()}>
+          Check connection
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
 function BrowserCapabilities({ transcription }: { transcription: Integrations['transcription'] }) {
   const [perm, setPerm] = useState(() => ('Notification' in window ? Notification.permission : 'unsupported'));
   return (
@@ -747,6 +812,8 @@ export function IntegrationsPage() {
         <EmailCard key={`${data.email.address}-${data.email.imap.host}`} data={data.email} />
         <CalendarCard data={data.calendar} />
       </div>
+
+      <HackerOneCard data={data.hackerone} />
 
       <div className="grid-2">
         <Card title="Local files" icon={<Folder size={18} />}>
