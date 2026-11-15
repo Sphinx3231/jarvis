@@ -20,7 +20,7 @@ for the server — plus `node:sqlite`). Zod v4.
 ```bash
 npm install
 npm run app          # launches server + opens the UI (scripts/launch.ts)
-npm test             # 113 unit + integration tests (node --test, concurrency 1)
+npm test             # 119 unit + integration tests (node --test, concurrency 1)
 npm run build        # builds the web UI (vite → web/dist)
 npm run typecheck    # tsc for server + web
 npm run test:e2e     # Playwright e2e (ui.e2e.ts + voice.e2e.ts); Chromium is pre-installed
@@ -29,7 +29,7 @@ npm run test:e2e     # Playwright e2e (ui.e2e.ts + voice.e2e.ts); Chromium is pr
 E2E screenshots: set `E2E_SCREENSHOTS=<dir>` (and `E2E_SCALE=2` for retina shots). The e2e boots a
 real Jarvis on a temp dir, drives the built UI in Chromium, and asserts real behavior.
 
-**Current status:** typecheck clean · 113/113 tests pass (incl. real X11 integration) · both e2e flows pass.
+**Current status:** typecheck clean · 119/119 tests pass (incl. real X11 integration) · both e2e flows pass.
 
 ---
 
@@ -1560,7 +1560,7 @@ The ultimate objective is:
   when ON; API `GET /api/computer` and `POST /api/computer/stop`; event `computer.changed`.
 - Tests: `tests/computer.test.ts` (7) — capability honesty, toggle gating, level gating, skill
   availability, permission-engine path, emergency stop, toggle-off abort. Pinned skill list updated in
-  `tests/skills.test.ts`. **113/113 tests pass (incl. real X11 integration), typecheck clean.**
+  `tests/skills.test.ts`. **119/119 tests pass (incl. real X11 integration), typecheck clean.**
 
 **Verified HERE (cloud Linux, headless):** OS/display detection, process telemetry via `ps`, CPU/RAM
 from `node:os`, network counters, gating, STOP/abort, the permission path, the capability report.
@@ -1622,3 +1622,37 @@ level, with the UNDERSTAND→PLAN→CHECK-PERMISSIONS→OBSERVE→ACT→VERIFY l
 (xdotool-driven click/type against a test X11 app). Then the **learning pipeline** (Phase 5) with the
 mandatory multi-lesson course acceptance test (persist to memory, restart, recall, compare, refuse to
 invent).
+
+### Phase 4 — Native Interaction (mouse/keyboard/scroll/window switch)
+
+Input by spawning the platform tool (no native addons). New file `server/computer/input.ts`:
+`XdotoolDriver` (Linux/X11 — verified), `MacInputDriver` (osascript/cliclick — unverified),
+`WindowsInputDriver` (PowerShell SendKeys / System.Windows.Forms — unverified). `manager.control()`
+gates every action by the toggle **and** the `interact` level, threads the STOP signal, and records
+the result as probe evidence (with an independent verify where cheap — e.g. a mouse move is checked
+with `getmouselocation`). New skill `computer.control` (scope `computer.control`, risk
+**consequential**, **never auto-allowed** — every action needs approval, or Full Access); its
+availability is honest (unavailable unless the toggle is on, the level is `interact`+, **and** a real
+input path exists on the host). API `POST /api/computer/control`.
+
+| Capability | Implemented | Unit-tested | Integration-tested (real) | Real hardware | Notes |
+|---|---|---|---|---|---|
+| Mouse move (Linux/X11) | ✅ | ✅ (gating) | ✅ lands at exact x,y (getmouselocation) | ⏳ Kali | xdotool |
+| Click / scroll (Linux/X11) | ✅ | — | plumbing via xdotool click/4-5 | ⏳ Kali | verified path, click target app not asserted |
+| Type / key (Linux/X11) | ✅ | — | ✅ text reaches a focused window | ⏳ Kali | xdotool type/key |
+| Window switch (Linux/X11) | ✅ | — | ✅ active window changes (Alpha→Beta) | ⏳ Kali | xdotool/wmctrl |
+| Interact gating + approval | ✅ | ✅ (level gate, scope never auto-allow) | ✅ needs_approval via runner | ✅ (logic) | consequential scope |
+| Mouse/keyboard (Windows) | ✅ | — | — | ❌ not verified | SendKeys/Cursor; `unverified` |
+| Mouse/keyboard (macOS) | ✅ | — | — | ❌ not verified | osascript + cliclick; Accessibility perm; `unverified` |
+| Browser control (all) | ❌ | — | — | — | Phase 4b — Playwright/CDP, deferred |
+
+Integration evidence here (Xvfb + openbox): `computer.control` moved the cursor to 333,222 (verified),
+typed "jarvis phase four" into a focused xterm (read back from a file), and switched the active window
+Alpha→Beta (verified via `getactivewindow getwindowname`). **Windows/macOS input is implemented but
+NOT verified** — reported `unverified` until a probe/action succeeds there.
+
+**Next concrete milestone:** the **learning pipeline** (Phase 5) — a "watch this and learn"
+observation loop that turns OCR'd lesson text into structured notes (FACT/INFERENCE/UNCERTAIN) stored
+as memories with source attribution, plus the **mandatory multi-lesson course acceptance test**:
+observe lessons → extract definitions/concepts → persist → restart → recall → compare across lessons →
+refuse to invent absent facts. Then browser control (Phase 4b) and the Phase 3 UI/Neo surfacing.

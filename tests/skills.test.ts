@@ -147,6 +147,7 @@ test('skills: registry only lists real capabilities and reports availability hon
       'calendar.create_event',
       'calendar.events',
       'computer.capabilities',
+      'computer.control',
       'computer.observe',
       'computer.telemetry',
       'email.read',

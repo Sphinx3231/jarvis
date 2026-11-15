@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess, execFileSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { hasBinary } from '../server/computer/exec.ts';
@@ -29,8 +29,14 @@ let wm: ChildProcess | null = null;
 let term: ChildProcess | null = null;
 let workdir = '';
 let savedDisplay: string | undefined;
+const extra: ChildProcess[] = [];
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const xterm = (title: string, cmd: string) => {
+  const p = spawn('xterm', ['-T', title, '-e', cmd], { stdio: 'ignore', env: { ...process.env, DISPLAY: DISP } });
+  extra.push(p);
+  return p;
+};
 
 before(async () => {
   if (!CAN_RUN) return;
@@ -52,7 +58,7 @@ before(async () => {
 });
 
 after(async () => {
-  for (const p of [term, wm, xvfb]) p?.kill('SIGTERM');
+  for (const p of [...extra, term, wm, xvfb]) p?.kill('SIGTERM');
   await wait(300);
   if (savedDisplay === undefined) delete process.env.DISPLAY;
   else process.env.DISPLAY = savedDisplay;
@@ -112,6 +118,67 @@ test('integration: verify() probes pass and upgrade the capability report to ava
     const caps = new Map(app.computer.status().capabilities.map((c) => [c.id, c]));
     assert.equal(caps.get('screen.capture')!.status, 'available');
     assert.equal(caps.get('screen.ocr')!.status, 'available');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('integration: mouse move lands at the exact coordinates', { skip: SKIP }, async () => {
+  const { app, cleanup } = await makeApp();
+  try {
+    app.settings.update({ computerAccess: { enabled: true, level: 'interact' } });
+    assert.equal(app.registry.info().find((s) => s.name === 'computer.control')!.available, true, 'control available at interact level');
+    const res = await app.computer.control({ kind: 'move', x: 333, y: 222 });
+    assert.ok(res.verified, 'move is verified');
+    assert.equal(res.verified!.ok, true, res.verified!.detail);
+    assert.match(res.verified!.detail, /333,222/);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('integration: typing reaches a focused window', { skip: SKIP }, async () => {
+  const { app, cleanup } = await makeApp();
+  try {
+    app.settings.update({ computerAccess: { enabled: true, level: 'interact' } });
+    const out = join(workdir, 'typed.txt');
+    xterm('Typer', `read l; echo "$l" > ${out}`);
+    await wait(1600);
+    await app.computer.control({ kind: 'activate_window', title: 'Typer' });
+    await wait(300);
+    await app.computer.control({ kind: 'type', text: 'jarvis phase four' });
+    await app.computer.control({ kind: 'key', keys: 'Return' });
+    await wait(800);
+    assert.match(readFileSync(out, 'utf8'), /jarvis phase four/);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('integration: window switching changes the active window', { skip: SKIP }, async () => {
+  const { app, cleanup } = await makeApp();
+  try {
+    app.settings.update({ computerAccess: { enabled: true, level: 'interact' } });
+    xterm('Alpha', 'sleep 60');
+    xterm('Beta', 'sleep 60');
+    await wait(1600);
+    const a = await app.computer.control({ kind: 'activate_window', title: 'Alpha' });
+    assert.equal(a.verified!.ok, true, a.verified!.detail);
+    const b = await app.computer.control({ kind: 'activate_window', title: 'Beta' });
+    assert.equal(b.verified!.ok, true, b.verified!.detail);
+    assert.match(b.verified!.detail, /Beta/);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('integration: the control skill runs through the permission engine (needs approval)', { skip: SKIP }, async () => {
+  const { app, cleanup } = await makeApp();
+  try {
+    app.settings.update({ computerAccess: { enabled: true, level: 'interact' } });
+    // computer.control is consequential: a direct invoke must stop for approval, never auto-run.
+    const needs = await app.runner.invoke({ agent: 'executor', skill: 'computer.control', input: { action: { kind: 'move', x: 5, y: 5 } } });
+    assert.equal(needs.status, 'needs_approval');
   } finally {
     await cleanup();
   }

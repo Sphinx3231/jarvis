@@ -327,6 +327,23 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
       throw new UserError(errorMessage(err), 400);
     }
   });
+  // One input action (mouse/keyboard/scroll/window switch). Gated by the toggle + the interact level.
+  router.post('/api/computer/control', async ({ body }) => {
+    const Action = z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('move'), x: z.number(), y: z.number() }),
+      z.object({ kind: z.literal('click'), button: z.enum(['left', 'right', 'middle']).optional(), count: z.number().int().min(1).max(5).optional(), x: z.number().optional(), y: z.number().optional() }),
+      z.object({ kind: z.literal('type'), text: z.string().min(1).max(2000) }),
+      z.object({ kind: z.literal('key'), keys: z.string().min(1).max(60) }),
+      z.object({ kind: z.literal('scroll'), direction: z.enum(['up', 'down', 'left', 'right']), amount: z.number().int().min(1).max(50).optional() }),
+      z.object({ kind: z.literal('activate_window'), title: z.string().min(1).max(200) }),
+    ]);
+    const action = parse(Action, body);
+    try {
+      return { result: await app.computer.control(action) };
+    } catch (err) {
+      throw new UserError(errorMessage(err), 400);
+    }
+  });
 
   router.put('/api/integrations/hackerone', ({ body }) => {
     const b = parse(

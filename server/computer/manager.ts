@@ -6,6 +6,8 @@ import type { SettingsStore } from '../core/settings.ts';
 import { sleep, UserError } from '../core/util.ts';
 import { currentAdapter } from './adapters.ts';
 import { captureScreen, detectCaptureTool } from './capture.ts';
+import { actionCapability, currentInputDriver } from './input.ts';
+import type { InputAction, InputDriver, InputResult } from './input.ts';
 import { ocrAvailable, ocrImage, verifyOcr } from './ocr.ts';
 import type { AccessLevel, Capability, DisplayInfo, Observation, OsAdapter, Telemetry } from './types.ts';
 import { levelRank } from './types.ts';
@@ -49,6 +51,7 @@ interface ManagerDeps {
   activity: ActivityLog;
   bus: EventBus;
   adapter?: OsAdapter;
+  inputDriver?: InputDriver;
   /** Directory for retained screenshots (defaults to the OS temp dir). */
   shotsDir?: () => string;
 }
@@ -90,6 +93,7 @@ export class ComputerAccessManager {
   private activity: ActivityLog;
   private bus: EventBus;
   private adapter: OsAdapter;
+  private inputDriver: InputDriver;
   /** Aborted when the user turns Computer Access off or hits the emergency stop; in-flight control actions listen to it. */
   private controller = new AbortController();
   private stoppedAt: number | null = null;
@@ -103,6 +107,7 @@ export class ComputerAccessManager {
     this.activity = deps.activity;
     this.bus = deps.bus;
     this.adapter = deps.adapter ?? currentAdapter();
+    this.inputDriver = deps.inputDriver ?? currentInputDriver();
     this.shotsDir = deps.shotsDir ?? (() => tmpdir());
     this.lastEnabled = this.enabled();
   }
@@ -258,6 +263,28 @@ export class ComputerAccessManager {
       obs.windows = { list: w.windows, available: w.available, detail: w.detail };
     }
     return obs;
+  }
+
+  /**
+   * Perform one input action (mouse/keyboard/scroll/window switch). Gated by the toggle AND the
+   * "interact" level; the permission engine separately gates the consequential `computer.control`
+   * scope (never auto-allowed). Threads the STOP signal and records the result as probe evidence.
+   */
+  /** Whether this host has a working input path at all (honest; used to gate the control skill). */
+  interactionAvailable(): { available: boolean; reason?: string } {
+    return this.inputDriver.available(this.adapter.detectDisplay());
+  }
+
+  async control(action: InputAction, signal?: AbortSignal): Promise<InputResult> {
+    const gate = this.permits('interact');
+    if (!gate.ok) throw new UserError(gate.reason);
+    const avail = this.inputDriver.available(this.adapter.detectDisplay());
+    if (!avail.available) throw new UserError(`Interaction is unavailable here: ${avail.reason}`);
+    const res = await this.inputDriver.perform(action, this.combinedSignal(signal));
+    const capId = actionCapability(action.kind);
+    if (res.ok) this.probes.set(capId, { id: capId, ok: res.verified ? res.verified.ok : true, detail: res.verified?.detail ?? res.detail, at: Date.now() });
+    this.activity.log('info', 'system', `Computer Access: ${res.action} — ${res.detail}${res.verified ? ` (verified: ${res.verified.ok ? 'yes' : 'no'})` : ''}`);
+    return res;
   }
 
   /**

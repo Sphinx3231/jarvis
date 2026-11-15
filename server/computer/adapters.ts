@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { platform as osPlatform } from 'node:os';
 import { detectCaptureTool } from './capture.ts';
 import { firstBinary, hasBinary, run } from './exec.ts';
+import { currentInputDriver } from './input.ts';
 import { ocrAvailable } from './ocr.ts';
 import type { ActiveWindow, Capability, DisplayInfo, OsAdapter, ProcessInfo, WindowInfo } from './types.ts';
 
@@ -35,7 +36,12 @@ function observeCapabilities(platform: NodeJS.Platform, display: DisplayInfo): C
   const cap = detectCaptureTool(platform, display);
   const ocr = ocrAvailable();
   const winTool = windowToolPresent(platform, display);
-  const inputReq = 'a native input module (e.g. nut.js) built for this OS';
+  const input = currentInputDriver(platform).available(display);
+  const inputReq = platform === 'linux' ? 'xdotool (apt install xdotool) on X11' : platform === 'darwin' ? 'cliclick (mouse) / osascript (keyboard) + Accessibility permission' : 'PowerShell / a native input module';
+  const inputStatus = (label: string, id: string, level: 'interact'): Capability =>
+    input.available
+      ? { id, label, level, status: 'unverified', detail: `Input tool detected${input.reason ? ` (${input.reason})` : ''}. Verify or act to confirm it works here.`, requires: inputReq }
+      : { id, label, level, status: 'unavailable', detail: input.reason ?? 'No input tool.', requires: inputReq };
   const out: Capability[] = [
     cap
       ? { id: 'screen.capture', label: 'Capture the screen', level: 'observe', status: 'unverified', detail: `Capture tool detected (${cap.id}). Run a verification or an observation to confirm it works here.`, requires: cap.install }
@@ -46,9 +52,9 @@ function observeCapabilities(platform: NodeJS.Platform, display: DisplayInfo): C
     winTool
       ? { id: 'accessibility', label: 'Inspect windows / accessibility', level: 'observe', status: 'limited', detail: 'Top-level window listing is available. The widget-level accessibility tree (AT-SPI / UI Automation / AX) needs native bindings and is not wired yet.', requires: platform === 'win32' ? 'UI Automation bindings for the full tree' : platform === 'darwin' ? 'AX API for the full tree' : 'AT-SPI bindings for the full tree' }
       : { id: 'accessibility', label: 'Inspect windows / accessibility', level: 'observe', status: 'unavailable', detail: display.headless ? 'No display, so no windows to inspect.' : 'No window tool (wmctrl/xdotool).', requires: 'wmctrl / xdotool (X11)' },
-    { id: 'input.mouse', label: 'Move and click the mouse', level: 'interact', status: 'unavailable', detail: 'Not wired yet (Phase 4).', requires: inputReq },
-    { id: 'input.keyboard', label: 'Type on the keyboard', level: 'interact', status: 'unavailable', detail: 'Not wired yet (Phase 4).', requires: inputReq },
-    { id: 'window.manage', label: 'Manage windows', level: 'interact', status: 'unavailable', detail: 'Not wired yet (Phase 4).', requires: platform === 'win32' ? 'Win32 window APIs' : platform === 'darwin' ? 'AppleScript / AX API' : 'wmctrl/xdotool control' },
+    inputStatus('Move and click the mouse', 'input.mouse', 'interact'),
+    inputStatus('Type on the keyboard', 'input.keyboard', 'interact'),
+    inputStatus('Switch and manage windows', 'window.manage', 'interact'),
     { id: 'app.manage', label: 'Open and manage apps', level: 'extended', status: 'unavailable', detail: 'Not wired yet (Phase 4).', requires: 'OS process/launch control' },
     { id: 'browser.control', label: 'Drive a browser session', level: 'extended', status: 'unavailable', detail: 'Not wired yet (Phase 4).', requires: 'Playwright/CDP against the user’s browser' },
   ];

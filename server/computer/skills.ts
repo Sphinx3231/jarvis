@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Skill } from '../skills/types.ts';
+import type { InputResult } from './input.ts';
 import type { Capability, Observation, Telemetry } from './types.ts';
 import type { ComputerStatus } from './manager.ts';
 
@@ -141,4 +142,66 @@ export const computerObserve: Skill<z.infer<typeof ObserveInput>, Observation> =
   },
 };
 
-export const computerSkills: Skill[] = [computerCapabilities, computerTelemetry, computerObserve];
+// ---------------------------------------------------------------- computer.control
+
+const ActionUnion = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('move'), x: z.number(), y: z.number() }).describe('Move the mouse to screen x,y'),
+  z.object({ kind: z.literal('click'), button: z.enum(['left', 'right', 'middle']).optional(), count: z.number().int().min(1).max(5).optional(), x: z.number().optional(), y: z.number().optional() }).describe('Click (optionally at x,y)'),
+  z.object({ kind: z.literal('type'), text: z.string().min(1).max(2000) }).describe('Type text'),
+  z.object({ kind: z.literal('key'), keys: z.string().min(1).max(60).describe('e.g. "Return", "ctrl+a", "alt+Tab"') }).describe('Press a key or combination'),
+  z.object({ kind: z.literal('scroll'), direction: z.enum(['up', 'down', 'left', 'right']), amount: z.number().int().min(1).max(50).optional() }).describe('Scroll'),
+  z.object({ kind: z.literal('activate_window'), title: z.string().min(1).max(200) }).describe('Switch to the window whose title matches'),
+]);
+const ControlInput = z.object({ action: ActionUnion });
+
+export const computerControl: Skill<z.infer<typeof ControlInput>, InputResult> = {
+  name: 'computer.control',
+  title: 'Use the mouse and keyboard',
+  description:
+    'Act on the computer: move/click the mouse, type, press keys, scroll, or switch windows. Requires Computer Access Mode at the "interact" level, and every action needs your approval (it is never auto-allowed). Verifies the result where it can.',
+  category: 'system',
+  scope: 'computer.control',
+  risk: 'consequential',
+  idempotent: false,
+  inlineSafe: false,
+  untrustedOutput: false,
+  input: ControlInput,
+  outputDescription: 'The action performed and, where possible, an independent verification.',
+  dependsOn: 'Computer Access',
+  timeoutMs: 45_000,
+  availability: (s) => {
+    const c = s.settings.get().computerAccess;
+    if (!c.enabled) return { available: false, reason: 'Turn on Computer Access (Settings) to let Jarvis use this computer' };
+    if (c.level === 'observe') return { available: false, reason: 'Computer Access is at the "observe" level; set it to "interact" to allow mouse/keyboard' };
+    const i = s.computer.interactionAvailable();
+    if (!i.available) return { available: false, reason: i.reason ?? 'No input tool available on this host' };
+    return { available: true };
+  },
+  summarize: (i) => {
+    const a = i.action;
+    switch (a.kind) {
+      case 'move':
+        return `Move mouse to ${a.x},${a.y}`;
+      case 'click':
+        return `${a.button ?? 'left'} click${a.x !== undefined ? ` at ${a.x},${a.y}` : ''}`;
+      case 'type':
+        return `Type ${JSON.stringify(a.text.slice(0, 40))}${a.text.length > 40 ? '…' : ''}`;
+      case 'key':
+        return `Press ${a.keys}`;
+      case 'scroll':
+        return `Scroll ${a.direction}`;
+      case 'activate_window':
+        return `Switch to window "${a.title}"`;
+    }
+  },
+  async execute(input, ctx) {
+    return ctx.services.computer.control(input.action, ctx.signal);
+  },
+  async verify(_i, out) {
+    if (out.verified) return { ok: out.verified.ok, detail: out.verified.detail };
+    return { ok: out.ok, detail: out.detail };
+  },
+  describe: (o) => `${o.action}: ${o.detail}${o.verified ? ` — verified ${o.verified.ok ? 'OK' : 'FAILED'} (${o.verified.detail})` : ''}`,
+};
+
+export const computerSkills: Skill[] = [computerCapabilities, computerTelemetry, computerObserve, computerControl];

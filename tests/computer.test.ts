@@ -159,6 +159,43 @@ test('computer: the observe skill is gated behind the toggle', async () => {
   }
 });
 
+test('computer: interaction is gated by the interact level and is honest when unavailable', async () => {
+  const { app, cleanup } = await makeApp();
+  try {
+    enable(app, 'observe');
+    // At observe level, control is refused for needing a higher level.
+    await assert.rejects(() => app.computer.control({ kind: 'move', x: 1, y: 1 }), /interact/);
+    const find = () => app.registry.info().find((s) => s.name === 'computer.control')!;
+    assert.equal(find().available, false);
+    assert.match(find().unavailableReason!, /interact/);
+    assert.equal(find().risk, 'consequential');
+    assert.equal(find().scope, 'computer.control');
+
+    // At interact level on a headless host there is no input path — reported honestly, not faked.
+    enable(app, 'interact');
+    if (app.computer.display().headless) {
+      await assert.rejects(() => app.computer.control({ kind: 'move', x: 1, y: 1 }), /unavailable/i);
+      assert.equal(find().available, false);
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
+test('computer: the control scope can never be allowed automatically', async () => {
+  const { app, cleanup } = await makeApp();
+  try {
+    // The API-level validation rejects a global "allow" for this consequential scope…
+    assert.throws(() => app.permissions.validatePolicyPatch({ 'computer.control': 'allow' }), /cannot be allowed/i);
+    // …and even if one were stored, the engine downgrades it to "ask".
+    app.settings.update({ permissions: { policies: { 'computer.control': 'allow' } } });
+    assert.equal(app.permissions.policyFor('computer.control'), 'ask');
+    assert.equal(app.permissions.scopes().find((s) => s.id === 'computer.control')!.allowPermitted, false);
+  } finally {
+    await cleanup();
+  }
+});
+
 test('computer: emergency stop turns access off and aborts in-flight actions', async () => {
   const { app, cleanup } = await makeApp();
   try {
