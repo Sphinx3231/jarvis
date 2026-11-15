@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import type { JarvisApp } from '../app.ts';
 import { AGENTS } from '../agents/agents.ts';
+import { SUB_AGENTS } from '../agents/subagents.ts';
 import { errorMessage, sha256, truncate } from '../core/util.ts';
 import { MEMORY_KINDS, type Memory, type MemoryKind } from '../memory/store.ts';
 import type { Task } from '../tasks/store.ts';
@@ -405,6 +406,7 @@ export class ObsidianSync {
     const notes = new Map<string, string>();
     if (inc.manual) this.manualNotes(notes);
     if (inc.memories) this.memoryNotes(notes);
+    if (inc.memories) this.agentNotes(notes);
     if (inc.tasks) this.taskNotes(notes);
     if (inc.journal) this.journalNotes(notes);
     if (inc.conversations) this.conversationNotes(notes);
@@ -432,7 +434,7 @@ export class ObsidianSync {
         ? ['## Manual', `- ${this.link('Manual/Skills', 'Skills')}`, `- ${this.link('Manual/Agents', 'Agents')}`, `- ${this.link('Manual/Permissions', 'Permissions')}`, `- ${this.link('Manual/Integrations', 'Integrations')}`, `- ${this.link('Manual/Background jobs', 'Background jobs')}`]
         : []),
       ...[...notes.keys()].filter((k) => k.startsWith('Manual/Docs/')).map((k) => `- ${this.link(k, k.split('/').pop()!.replace(/\.md$/, ''))}`),
-      ...(inc.memories ? ['', '## Knowledge', `- ${this.link('Memory/Memory', 'Memory index')}`] : []),
+      ...(inc.memories ? ['', '## Knowledge', `- ${this.link('Memory/Memory', 'Memory index')}`, `- ${this.link('Agents/Agents', 'Agents — the shared mind')}`] : []),
       ...(inc.tasks ? ['', '## Work', `- ${this.link('Tasks/Task log', 'Task log')}`] : []),
       ...(inc.journal && journalDays.length ? ['', '## Journal', ...journalDays.slice(0, 7).map((k) => `- ${this.link(k, k.slice(8, 18))}`)] : []),
       '',
@@ -649,6 +651,58 @@ export class ObsidianSync {
         'What Jarvis remembers. Unverified memories are assumptions until you confirm them (set `verified: true` in a note, or confirm on the Memory page).',
         '',
         ...(index.length ? index : ['_Nothing stored yet._']),
+      ].join('\n'),
+    );
+  }
+
+  /**
+   * One shared knowledge mind: each sub-agent gets a note holding everything it has learned (its
+   * memories, tagged `agent:<id>`), plus an index across the whole team. The memories themselves
+   * also live under Memory/ and are searchable by Jarvis and by every other agent — this is the
+   * navigable, per-agent view of that one mind.
+   */
+  private agentNotes(notes: Map<string, string>): void {
+    const index: string[] = [];
+    let total = 0;
+    for (const a of SUB_AGENTS) {
+      const rows = this.app.db.all<{ content: string; created_at: number; verified: number }>(
+        'SELECT content, created_at, verified FROM memories WHERE source = ? ORDER BY created_at DESC LIMIT 200',
+        `agent:${a.id}`,
+      );
+      total += rows.length;
+      const rel = `Agents/${safeName(a.name)}.md`;
+      notes.set(
+        rel,
+        [
+          frontmatter({ type: 'agent', agent: a.id, color: a.color, memories: rows.length, tags: ['jarvis/agent', `jarvis/agent/${a.id}`], jarvis_generated: true }),
+          `# ${a.name}`,
+          '',
+          `> [!info] ${a.name}\n> ${a.role}`,
+          '',
+          `**${rows.length}** ${rows.length === 1 ? 'memory' : 'memories'} in ${a.name}'s mind. Everything here is part of one shared knowledge mind: Jarvis and every other agent can recall it too.`,
+          '',
+          '## What it has learned',
+          ...(rows.length
+            ? rows.map((r) => `- **${day(r.created_at)} ${time(r.created_at)}** — ${truncate(r.content.replace(/\s+/g, ' '), 300)}${r.verified ? '' : ' *(unverified)*'}`)
+            : ['_Nothing learned yet. This agent writes here as it runs._']),
+          '',
+          `Part of the ${this.link('Agents/Agents', 'shared knowledge mind')} · back to ${this.link('Jarvis', 'Jarvis')}.`,
+          '',
+        ].join('\n'),
+      );
+      index.push(`### ${this.link(rel, a.name)}`, a.role, `${rows.length} ${rows.length === 1 ? 'memory' : 'memories'}.`, '');
+    }
+    notes.set(
+      'Agents/Agents.md',
+      [
+        frontmatter({ tags: ['jarvis/agent'], jarvis_generated: true }),
+        '# Agents — the shared mind',
+        '',
+        `Jarvis runs a team of ${SUB_AGENTS.length} sub-agents. Each keeps its own memory, but it is all **one mind**: every finding is stored in Jarvis's memory (tagged \`agent:<name>\`), so Jarvis — the harness — and every other agent can recall all of it. Right now the team holds **${total}** ${total === 1 ? 'memory' : 'memories'}.`,
+        '',
+        ...index,
+        `Each agent's memories also appear in ${this.link('Memory/Memory', 'the Memory index')} and are searchable from anywhere in Jarvis.`,
+        '',
       ].join('\n'),
     );
   }

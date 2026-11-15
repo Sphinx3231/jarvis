@@ -64,6 +64,35 @@ test('sub-agents: Friday tracks profit, Tom finds small new programs, and both r
   }
 });
 
+test('sub-agents: findings join one shared Obsidian knowledge mind', async () => {
+  const { app, cleanup } = await makeApp();
+  try {
+    seed(app);
+    await app.subAgents.runAgent('friday');
+    await app.subAgents.runAgent('tom');
+    const notes = app.obsidian.buildNotes();
+
+    // Each agent gets its own note holding what it learned…
+    const friday = notes.get('Agents/Friday.md');
+    assert.ok(friday, 'Friday has a vault note');
+    assert.match(friday!, /# Friday/);
+    assert.match(friday!, /earned USD 2,000/);
+    assert.match(notes.get('Agents/Tom.md')!, /TinyCorp/);
+
+    // …and an index ties the team into one mind Jarvis can recall.
+    const idx = notes.get('Agents/Agents.md');
+    assert.ok(idx, 'the shared-mind index exists');
+    assert.match(idx!, /one mind/i);
+    for (const name of ['Friday', 'Tom', 'Neo', 'Sentinel', 'Echo']) assert.match(idx!, new RegExp(`\\[\\[Agents/${name}`));
+
+    // The same findings are also plain memories, so Jarvis (and every other agent) can search them.
+    const recalled = app.memory.keywordSearch('TinyCorp');
+    assert.ok(recalled.some((m) => /TinyCorp/.test(m.content)), 'an agent memory is recallable by search');
+  } finally {
+    await cleanup();
+  }
+});
+
 test('sub-agents: an agent error is captured, not thrown', async () => {
   const { app, cleanup } = await makeApp();
   try {
