@@ -75,7 +75,7 @@ const NUM_KEYS = ['spinRate', 'arcRate', 'arcLen', 'coreBase', 'pulseAmp', 'puls
 
 export interface OrbAgent { id: string; name: string; color: string; summary: string; working: boolean; }
 
-export function Core({ state, size = 220, reduceMotion = false, agents }: { state: CoreState; size?: number; reduceMotion?: boolean; agents?: OrbAgent[] }) {
+export function Core({ state, size = 220, reduceMotion = false, agents, wordmark = false }: { state: CoreState; size?: number; reduceMotion?: boolean; agents?: OrbAgent[]; wordmark?: boolean }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const stateRef = useRef<State>(state);
   const osReduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -183,6 +183,10 @@ export function Core({ state, size = 220, reduceMotion = false, agents }: { stat
         const bp = animate && now < shakeUntil ? 1 + 0.15 * Math.sin(now * 0.05) : 1;
         set(parts.bang, `translate(110 110) scale(${bp.toFixed(3)}) translate(-110 -110)`);
       }
+      // Saturn ring (wordmark/hero mode): a slow precession for a living, 3-D feel.
+      const saturn = svg.querySelector('#c-saturn');
+      if (saturn) set(saturn as SVGElement, `rotate(${(animate ? (t * 7) % 360 : -8).toFixed(2)} 110 110)`);
+
       // Satellite agent orbs: a slow orbit around Jarvis, each twinkling (brighter while working).
       const orbsG = svg.querySelector('#c-orbs');
       if (orbsG) set(orbsG as SVGElement, `rotate(${animate ? (t * 5) % 360 : 0} 110 110)`);
@@ -223,7 +227,7 @@ export function Core({ state, size = 220, reduceMotion = false, agents }: { stat
   });
 
   return (
-    <div className={`core core--${state}`} style={{ ['--size' as string]: `${size}px` }} role="img" aria-label={`Jarvis is ${CORE_LABEL[state].toLowerCase()}`}>
+    <div className={`core core--${state} ${wordmark ? 'core--wordmark' : ''}`} style={{ ['--size' as string]: `${size}px` }} role="img" aria-label={`Jarvis is ${CORE_LABEL[state].toLowerCase()}`}>
       <svg ref={svgRef} viewBox="0 0 220 220" className="core__svg" aria-hidden>
         <defs>
           <radialGradient id="c-grad-core" cx="50%" cy="50%" r="50%">
@@ -234,9 +238,25 @@ export function Core({ state, size = 220, reduceMotion = false, agents }: { stat
           <filter id="c-blur" x="-70%" y="-70%" width="240%" height="240%">
             <feGaussianBlur stdDeviation="10" />
           </filter>
+          <linearGradient id="c-wm-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor={C.bright} />
+            <stop offset="55%" stopColor={C.soft} />
+            <stop offset="100%" stopColor={C.accent} />
+          </linearGradient>
+          <linearGradient id="c-saturn-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor={C.deep} stopOpacity="0.15" />
+            <stop offset="35%" stopColor={C.bright} />
+            <stop offset="50%" stopColor={C.soft} />
+            <stop offset="65%" stopColor={C.bright} />
+            <stop offset="100%" stopColor={C.deep} stopOpacity="0.15" />
+          </linearGradient>
         </defs>
 
         <circle id="c-glow" cx="110" cy="110" r="70" fill={C.accent} opacity="0.4" filter="url(#c-blur)" />
+
+        {/* luminous planet body (shown in wordmark/hero mode, behind the JARVIS mark) */}
+        <circle id="c-sphere" cx="110" cy="110" r="50" fill="url(#c-grad-core)" opacity="0" />
+        <circle id="c-sphereEdge" cx="110" cy="110" r="50" fill="none" stroke={C.bright} strokeWidth="1" opacity="0" />
 
         {/* radial filaments (the "burst") */}
         <g id="c-spokes" stroke={C.soft} strokeWidth="1.1" strokeLinecap="round">
@@ -300,12 +320,27 @@ export function Core({ state, size = 220, reduceMotion = false, agents }: { stat
           </g>
         )}
 
+        {/* Saturn ring — the hero signature (wordmark mode) */}
+        <g id="c-saturn" opacity="0">
+          <ellipse cx="110" cy="110" rx="103" ry="30" fill="none" stroke="url(#c-saturn-grad)" strokeWidth="3.2" transform="rotate(-20 110 110)" />
+          <ellipse cx="110" cy="110" rx="116" ry="35" fill="none" stroke={C.soft} strokeWidth="1" strokeDasharray="2 11" opacity="0.5" transform="rotate(-20 110 110)" />
+          <ellipse cx="110" cy="110" rx="90" ry="25" fill="none" stroke={C.accent} strokeWidth="1" strokeDasharray="1 9" opacity="0.6" transform="rotate(-20 110 110)" />
+        </g>
+
         {/* error exclamation */}
         <g id="c-bang" opacity="0">
           <circle cx="150" cy="58" r="13" fill={C.bad} />
           <rect x="148" y="51" width="4" height="9" rx="2" fill="#1a0540" />
           <circle cx="150" cy="64" r="2.2" fill="#1a0540" />
         </g>
+
+        {/* JARVIS wordmark (hero mode) — in-SVG so it scales with the core */}
+        {wordmark && (
+          <g id="c-wordmark" style={{ pointerEvents: 'none' }}>
+            <text x="108" y="106" textAnchor="middle" className="core__name">JARVIS</text>
+            <text x="110" y="126" textAnchor="middle" className="core__tag">AI&#160;&#160;PERSONAL&#160;&#160;ASSISTANT</text>
+          </g>
+        )}
       </svg>
     </div>
   );

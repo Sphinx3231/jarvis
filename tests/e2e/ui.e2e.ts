@@ -56,7 +56,7 @@ try {
   // Services have only just started after unlocking: wait for the core to settle.
   await page.locator('.core--idle').waitFor({ timeout: 10_000 });
   assert.equal(await page.locator('.core--idle').count(), 1);
-  assert.match(await page.locator('.hero__title').innerText(), /I’m Jarvis\./);
+  assert.equal((await page.locator('#c-wordmark .core__name').textContent())?.trim(), 'JARVIS', 'the hero shows the JARVIS wordmark in the core');
   // The core is a live inline-SVG vector rig — prove it is actually animating (rotating/pulsing),
   // not a static image: its outer ring transform must change between frames.
   const coreXform = () => page.locator('#c-ringOuter').getAttribute('transform');
@@ -67,9 +67,10 @@ try {
   const a2 = await coreXform();
   assert.notEqual(a1, a2, 'the idle core animates frame to frame');
   await shot('01-home-idle');
-  // Five colored sub-agent orbs (Friday, Tom, Neo, Sentinel, Echo) ring the core.
-  await page.locator('.c-orb').first().waitFor({ timeout: 5000 });
-  assert.equal(await page.locator('.c-orb').count(), 5, 'five sub-agent orbs surround Jarvis');
+  // Five sub-agents (Friday, Tom, Neo, Sentinel, Echo) ring the core as labeled satellite nodes.
+  await page.locator('.anode').first().waitFor({ timeout: 5000 });
+  assert.equal(await page.locator('.anode').count(), 5, 'five sub-agent nodes surround Jarvis');
+  await page.locator('.anode', { hasText: 'Friday' }).waitFor();
   assert.ok(await page.locator('.agents__row', { hasText: 'Friday' }).count(), 'the Agents card lists Friday');
   step('home renders with the core as a live animating vector, service online');
 

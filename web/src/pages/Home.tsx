@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowRight, Brain, CircleCheck, Clock, Cpu, Keyboard, ListChecks, MessageSquarePlus, Mic, SendHorizontal, Sparkles, Square, TriangleAlert, Volume2, Wrench, Zap } from 'lucide-react';
+import { Activity, ArrowRight, Brain, CircleCheck, Clock, Cpu, Crosshair, Keyboard, ListChecks, MessageSquarePlus, Mic, Radio, SendHorizontal, ShieldCheck, Sparkles, Square, TrendingUp, TriangleAlert, Volume2, Wrench, Zap } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { ApprovalsCard } from '../components/Approvals';
 import { Core, CORE_LABEL, type OrbAgent } from '../components/Core';
 import { Card, Progress } from '../components/ui';
@@ -60,6 +61,55 @@ function AgentsCard() {
       </ul>
       {!data.enabled && <p className="muted small">Agents are paused (Settings → turn them on).</p>}
     </Card>
+  );
+}
+
+const AGENT_ICON: Record<string, ReactNode> = {
+  friday: <TrendingUp size={20} />,
+  tom: <Crosshair size={20} />,
+  neo: <Activity size={20} />,
+  sentinel: <ShieldCheck size={20} />,
+  echo: <Radio size={20} />,
+};
+// Fixed slots around the core so the ring reads like the reference. `tx` anchors the pill
+// (left edge / right edge / centered) so side nodes never clip in the narrower windowed layout.
+const ANCHOR = { l: 'translate(0, -50%)', r: 'translate(-100%, -50%)', c: 'translate(-50%, -50%)' };
+const AGENT_SLOTS = [
+  { left: '6%', top: '20%', a: 'l' as const },
+  { left: '94%', top: '20%', a: 'r' as const },
+  { left: '2%', top: '50%', a: 'l' as const },
+  { left: '98%', top: '50%', a: 'r' as const },
+  { left: '50%', top: '74%', a: 'c' as const },
+];
+
+/** The agents as labeled satellite nodes ringing Jarvis — click one to run it now. */
+function AgentNodes({ agents }: { agents: AgentsResponse['agents'] }) {
+  const act = useAction();
+  return (
+    <div className="stage__agents">
+      {agents.map((a, i) => {
+        const slot = AGENT_SLOTS[i] ?? { left: `${50 + 44 * Math.cos((i / agents.length) * 2 * Math.PI - Math.PI / 2)}%`, top: `${46 + 40 * Math.sin((i / agents.length) * 2 * Math.PI - Math.PI / 2)}%`, a: 'c' as const };
+        const working = a.state === 'working';
+        return (
+          <button
+            key={a.id}
+            className={`anode ${working ? 'is-working' : ''}`}
+            style={{ left: slot.left, top: slot.top, transform: ANCHOR[slot.a], ['--c' as string]: a.color }}
+            onClick={() => act(() => api.post(`/api/subagents/${a.id}/run`), `${a.name} ran`)}
+            title={`${a.role}\n${a.lastSummary}`}
+            aria-label={`${a.name} — ${working ? 'working' : 'online'}. Run now.`}
+          >
+            <span className="anode__icon">{AGENT_ICON[a.id] ?? <Sparkles size={20} />}</span>
+            <span className="anode__body">
+              <span className="anode__name">{a.name}</span>
+              <span className="anode__status">
+                <i className="anode__dot" /> {working ? 'Working' : 'Online'}
+              </span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -401,14 +451,40 @@ export function HomePage({ status }: { status: StatusResponse | null }) {
   return (
     <div className="home">
       <div className={`home__main ${hasConversation ? 'has-conversation' : ''}`}>
-        <div className="hero">
-          <Core state={coreState} size={hasConversation ? 140 : 400} reduceMotion={settings?.appearance.reduceMotion} agents={orbAgents} />
-          <div className="hero__text">
-            <h1 className="hero__title">
-              Hello{name ? `, ${name}` : ''}. I’m <span className="accent">Jarvis.</span>
-            </h1>
-            {!hasConversation && <p className="hero__sub">How can I help you today?</p>}
-            <div className={`state-pill state-pill--${coreState}`}>
+        {hasConversation ? (
+          <div className="hero hero--compact">
+            <Core state={coreState} size={140} reduceMotion={settings?.appearance.reduceMotion} agents={orbAgents} />
+            <div className="hero__text">
+              <h1 className="hero__title">
+                Hello{name ? `, ${name}` : ''}. I’m <span className="accent">Jarvis.</span>
+              </h1>
+              <div className={`state-pill state-pill--${coreState}`}>
+                <span className="state-pill__dot" />
+                {CORE_LABEL[coreState]}
+                <span className="state-pill__detail">· {statusLine}</span>
+                {voice.wakeActive && (
+                  <span className="state-pill__detail" title="Wake word is on: say “Hey Jarvis…”">
+                    · <Volume2 size={12} /> wake word on
+                  </span>
+                )}
+              </div>
+            </div>
+            <button className="btn btn--ghost btn--sm hero__new" onClick={newConversation} title="Start a new conversation">
+              <MessageSquarePlus size={15} /> <span>New chat</span>
+            </button>
+          </div>
+        ) : (
+          <div className="stage">
+            <AgentNodes agents={agentsRes.data?.agents ?? []} />
+            <div className="stage__core">
+              <Core state={coreState} size={440} reduceMotion={settings?.appearance.reduceMotion} wordmark />
+            </div>
+            <div className="stage__portal" aria-hidden>
+              <i />
+              <i />
+              <i />
+            </div>
+            <div className={`state-pill state-pill--${coreState} stage__state`}>
               <span className="state-pill__dot" />
               {CORE_LABEL[coreState]}
               <span className="state-pill__detail">· {statusLine}</span>
@@ -419,12 +495,7 @@ export function HomePage({ status }: { status: StatusResponse | null }) {
               )}
             </div>
           </div>
-          {hasConversation && (
-            <button className="btn btn--ghost btn--sm hero__new" onClick={newConversation} title="Start a new conversation">
-              <MessageSquarePlus size={15} /> <span>New chat</span>
-            </button>
-          )}
-        </div>
+        )}
         {hasConversation && <Conversation messages={messages} sending={sending} />}
         <CommandBar onSend={send} sending={sending} />
       </div>
