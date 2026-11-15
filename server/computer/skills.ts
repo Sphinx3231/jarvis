@@ -1,0 +1,94 @@
+import { z } from 'zod';
+import type { Skill } from '../skills/types.ts';
+import type { Capability, Telemetry } from './types.ts';
+import type { ComputerStatus } from './manager.ts';
+
+/**
+ * Computer Access Mode — the observe-level skills.
+ *
+ *  - computer.capabilities — report the OS, display server and, honestly, what this machine can and
+ *    cannot do (telemetry works; native screen/input/accessibility are reported as unavailable until
+ *    wired and verified on a real desktop). Pure report, safe to run anytime.
+ *  - computer.telemetry   — a live snapshot of what the computer is doing (processes, CPU/RAM, the
+ *    active window, network). Gated behind the Computer Access toggle; its output is untrusted data.
+ *
+ * Mouse/keyboard/window control (scope computer.control, risk consequential) land in a later slice
+ * once the native modules are wired; they are not registered here so nothing fake is ever listed.
+ */
+
+// ---------------------------------------------------------------- computer.capabilities
+
+const CapInput = z.object({});
+
+export const computerCapabilities: Skill<Record<string, never>, ComputerStatus> = {
+  name: 'computer.capabilities',
+  title: 'Computer Access capabilities',
+  description:
+    'Report Computer Access Mode: the operating system, display server, whether access is on and at what level, and an honest capability list (what Jarvis can actually do on this machine versus what needs native modules or OS permissions). Knowledge only — observes nothing.',
+  category: 'system',
+  scope: 'internal',
+  risk: 'internal',
+  idempotent: true,
+  inlineSafe: true,
+  untrustedOutput: false,
+  input: CapInput as z.ZodType<Record<string, never>>,
+  outputDescription: 'OS, display, access level and a per-capability status report.',
+  availability: () => ({ available: true }),
+  summarize: () => 'Report Computer Access capabilities',
+  async execute(_i, ctx) {
+    return ctx.services.computer.status();
+  },
+  async verify(_i, out) {
+    return { ok: Array.isArray(out.capabilities), detail: `${out.capabilities.length} capabilities reported on ${out.os}` };
+  },
+  describe: (o) => {
+    const mark = (c: Capability) => (c.status === 'available' ? '[on]' : c.status === 'unavailable' ? '[--]' : '[~]');
+    return [
+      `Computer Access: ${o.enabled ? `ON (${o.level})` : 'off'} — ${o.os}, display ${o.display.server}${o.display.headless ? ' (headless)' : ''}`,
+      ...o.capabilities.map((c) => `  ${mark(c)} ${c.label} [${c.status}] — ${c.detail}`),
+    ].join('\n');
+  },
+};
+
+// ---------------------------------------------------------------- computer.telemetry
+
+const TelemetryInput = z.object({
+  top: z.number().int().min(1).max(50).optional().describe('How many top processes to include (by CPU).'),
+});
+
+export const computerTelemetry: Skill<z.infer<typeof TelemetryInput>, Telemetry> = {
+  name: 'computer.telemetry',
+  title: 'Observe this computer',
+  description:
+    'Snapshot what the computer is doing right now: CPU and memory use, the top processes, the active window (where the display allows) and network interfaces. Requires Computer Access Mode to be on.',
+  category: 'system',
+  scope: 'computer.observe',
+  risk: 'read',
+  idempotent: true,
+  inlineSafe: true,
+  untrustedOutput: true,
+  input: TelemetryInput,
+  outputDescription: 'A telemetry snapshot: cpu, memory, processes, active window and network.',
+  dependsOn: 'Computer Access',
+  availability: (s) => (s.settings.get().computerAccess.enabled ? { available: true } : { available: false, reason: 'Turn on Computer Access (Settings) to let Jarvis observe this computer' }),
+  summarize: () => 'Read what this computer is doing',
+  async execute(input, ctx) {
+    return ctx.services.computer.telemetry(ctx.signal, input.top ?? 12);
+  },
+  async verify(_i, out) {
+    return { ok: out.memory.totalBytes > 0, detail: `cpu ${out.cpu.usagePercent ?? '?'}%, mem ${out.memory.usedPercent}%, ${out.processes.total} processes` };
+  },
+  describe: (o) => {
+    const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)}GB`;
+    const win = o.activeWindow.available ? `${o.activeWindow.title ?? o.activeWindow.app ?? '(untitled)'}` : `(unavailable: ${o.activeWindow.detail})`;
+    return [
+      `Host ${o.hostname} (${o.platform}) — up ${Math.floor(o.uptimeSec / 3600)}h`,
+      `CPU: ${o.cpu.usagePercent ?? '?'}% of ${o.cpu.cores} cores (load ${o.cpu.loadAvg1})`,
+      `Memory: ${o.memory.usedPercent}% used (${gb(o.memory.usedBytes)}/${gb(o.memory.totalBytes)})`,
+      `Active window: ${win}`,
+      o.processes.available ? `Top processes:\n${o.processes.top.map((p) => `  ${p.pid} ${p.name} — cpu ${p.cpu ?? '?'}% mem ${p.memPercent ?? '?'}%`).join('\n')}` : `Processes: ${o.processes.detail}`,
+    ].join('\n');
+  },
+};
+
+export const computerSkills: Skill[] = [computerCapabilities, computerTelemetry];

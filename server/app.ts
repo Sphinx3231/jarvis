@@ -16,6 +16,7 @@ import { EmailService, emailSkills } from './integrations/email.ts';
 import { HackerOneService, hackeroneSkills } from './integrations/hackerone.ts';
 import { FishAudioService } from './integrations/fishaudio.ts';
 import { SubAgentManager } from './agents/subagents.ts';
+import { ComputerAccessManager } from './computer/manager.ts';
 import { ObsidianSync, obsidianSkills } from './integrations/obsidian.ts';
 import { ConversationStore } from './intelligence/conversations.ts';
 import { Jarvis } from './intelligence/jarvis.ts';
@@ -77,6 +78,7 @@ export class JarvisApp {
   readonly pipeline: HackerOneService;
   readonly tts: FishAudioService;
   readonly subAgents: SubAgentManager;
+  readonly computer: ComputerAccessManager;
   readonly calendar: CalendarService;
   readonly obsidian: ObsidianSync;
   readonly scheduler: Scheduler;
@@ -103,6 +105,7 @@ export class JarvisApp {
     this.pipeline = new HackerOneService({ settings: this.settings, secrets: this.secrets, db: this.db, activity: this.activity, bus: this.bus });
     this.tts = new FishAudioService({ settings: this.settings, secrets: this.secrets });
     this.subAgents = new SubAgentManager({ pipeline: this.pipeline, memory: this.memory, tasks: this.tasks, settings: this.settings, secrets: this.secrets, activity: this.activity, bus: this.bus });
+    this.computer = new ComputerAccessManager({ settings: this.settings, activity: this.activity, bus: this.bus });
     const services: SkillServices = {
       memory: this.memory,
       settings: this.settings,
@@ -112,6 +115,7 @@ export class JarvisApp {
       listTasks: (status) =>
         this.tasks.list({ status: status as TaskStatus | 'active' | undefined, limit: 50 }).map((t) => ({ id: t.id, title: t.title, status: t.status, priority: t.priority, progress: t.progress })),
       pipeline: this.pipeline,
+      computer: this.computer,
       statusSnapshot: () => this.statusSnapshot(),
     };
     this.registry = new SkillRegistry(services);
@@ -235,6 +239,7 @@ export class JarvisApp {
     this.registry.onChange(() => this.bus.emit('integrations.changed', {}));
     this.bus.on('settings.changed', () => {
       this.ensureWorkspace();
+      this.computer.handleSettingsChanged();
       if (this.running) {
         void this.mcp.sync();
         this.prepareSemanticSearch();
@@ -393,6 +398,10 @@ export class JarvisApp {
       roamies: { installed: this.gate.installed, version: this.gate.detection().version },
       skills: { total: skills.length, available: skills.filter((s) => s.available).length },
       background: { enabled: this.settings.get().background.enabled },
+      computer: (() => {
+        const c = this.settings.get().computerAccess;
+        return { enabled: c.enabled, level: c.level, os: this.computer.status().os, headless: this.computer.display().headless };
+      })(),
       dbSizeBytes,
       agents: Object.values(AGENTS).map((a) => ({ name: a.name, title: a.title })),
     };
@@ -424,6 +433,10 @@ export class JarvisApp {
       if (s.state === 'error') out.push({ id: `mcp-${s.id}`, level: 'error', text: `MCP server "${s.name}" is not connected: ${s.error ?? 'error'}`, page: 'integrations' });
     }
     if (this.settings.get().permissions.fullAccess) out.push({ id: 'full-access', level: 'warning', text: 'Full access is ON — Jarvis acts with no sandbox and no approvals. Turn it off in Settings when you’re done.', page: 'settings' });
+    if (this.settings.get().computerAccess.enabled) {
+      const level = this.settings.get().computerAccess.level;
+      out.push({ id: 'computer-access', level: 'warning', text: `Computer Access is ON (${level}) — Jarvis can ${level === 'observe' ? 'see what this computer is doing' : 'see and use this computer'}. Press STOP or turn it off in Settings.`, page: 'settings' });
+    }
     if (!this.settings.get().background.enabled) out.push({ id: 'background-off', level: 'info', text: 'Background monitoring is paused.', page: 'settings' });
     return out;
   }

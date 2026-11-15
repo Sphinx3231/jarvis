@@ -33,6 +33,8 @@ export const SCOPES: ScopeDefinition[] = [
   { id: 'obsidian.write', label: 'Write Obsidian notes', description: 'Create notes in the Jarvis folder of your vault when you ask (automatic documentation sync is controlled on the Integrations page).', external: true, defaultPolicy: 'ask', allowPermitted: true },
   { id: 'hackerone.read', label: 'Read HackerOne pipeline', description: 'Read your HackerOne earnings and reports and discover programs (read-only).', external: true, defaultPolicy: 'allow', allowPermitted: true },
   { id: 'shell.exec', label: 'Run shell commands', description: 'Execute commands on this computer (inside the workspace folder).', external: true, defaultPolicy: 'ask', allowPermitted: false },
+  { id: 'computer.observe', label: 'Observe this computer', description: 'See what the computer is doing: running apps, the active window and (at the observe level) the screen. Read-only — no input.', external: true, defaultPolicy: 'ask', allowPermitted: true },
+  { id: 'computer.control', label: 'Control this computer', description: 'Move the mouse, type, scroll and manage windows and apps on this computer (Computer Access Mode).', external: true, defaultPolicy: 'ask', allowPermitted: false },
 ];
 
 export const mcpScope = (serverId: string): string => `mcp.${serverId}`;

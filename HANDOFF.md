@@ -20,7 +20,7 @@ for the server — plus `node:sqlite`). Zod v4.
 ```bash
 npm install
 npm run app          # launches server + opens the UI (scripts/launch.ts)
-npm test             # 98 unit tests (node --test, concurrency 1)
+npm test             # 105 unit tests (node --test, concurrency 1)
 npm run build        # builds the web UI (vite → web/dist)
 npm run typecheck    # tsc for server + web
 npm run test:e2e     # Playwright e2e (ui.e2e.ts + voice.e2e.ts); Chromium is pre-installed
@@ -29,7 +29,7 @@ npm run test:e2e     # Playwright e2e (ui.e2e.ts + voice.e2e.ts); Chromium is pr
 E2E screenshots: set `E2E_SCREENSHOTS=<dir>` (and `E2E_SCALE=2` for retina shots). The e2e boots a
 real Jarvis on a temp dir, drives the built UI in Chromium, and asserts real behavior.
 
-**Current status:** typecheck clean · 98/98 unit tests pass · both e2e flows pass.
+**Current status:** typecheck clean · 105/105 unit tests pass · both e2e flows pass.
 
 ---
 
@@ -57,6 +57,8 @@ server/
     knowledge/            Trinity's knowledge base (see §5)
   integrations/           email, calendar, hackerone (bug-bounty pipeline), fishaudio (TTS),
                           mcp, obsidian (vault sync)
+  computer/               Computer Access Mode (see §12): types.ts, adapters.ts (Linux/Win/macOS),
+                          manager.ts (ComputerAccessManager: gating, telemetry, STOP), skills.ts
   llm/engine.ts           RoamiesEngine: generate()/stream(), model discovery, health
   api/routes.ts           all HTTP routes
 web/src/
@@ -201,15 +203,22 @@ From the user's requests, still open:
    Integrations UI.
 2. **PayPal connector** — read-only balance/transactions via PayPal REST (client-credentials). Would
    feed **Friday**'s real profit numbers. New integration + `.env` keys (`PAYPAL_CLIENT_ID/SECRET`).
-3. **PC system monitor ("know what the PC is doing")** — BUILDABLE as real telemetry on Kali: process
-   list, CPU/RAM/network, foreground/active window (cross-platform via `ps`/`tasklist` + `os`, per-OS
-   active-window best-effort). Feed it to Neo + a dashboard.
-   - **NOT buildable in this app:** screen vision, controlling other apps, "watching" videos/courses/
-     games, or observing external tools' windows — that needs computer-use + vision, which Jarvis
-     doesn't have. This has been flagged to the user repeatedly; don't promise it.
+3. **PC system monitor / Computer Access Mode — Observe foundation** — ✅ **BUILT (Phase 1).** See
+   §12 for the full module. Real cross-platform telemetry (processes, CPU/RAM, active window, network)
+   behind a `ComputerAccessManager`, gated by a new `settings.computerAccess` block (`enabled` off by
+   default, `level: observe|interact|extended`), two new permission scopes (`computer.observe`,
+   `computer.control`), two skills (`computer.capabilities`, `computer.telemetry`), an emergency STOP
+   that flips the setting + aborts in-flight work, an honest capability report, API (`GET /api/computer`,
+   `POST /api/computer/stop`) and 7 unit tests.
+   - **Still open (next slices):** feed telemetry to **Neo** + a Computer Access **dashboard/UI**
+     (Phase 3); wire the native **interact/extended** pieces — screen capture, OCR, accessibility,
+     mouse/keyboard (nut.js), window/app/browser control (Phases 1b/4), each flipping its capability
+     from `unavailable` to real; the **learning pipeline** ("watch this and learn") on the memory store
+     (Phase 5). All native OS interaction must be **tested on the user's Kali/Windows machines**, never
+     asserted from the cloud — the capability report is designed to stay honest about this.
 4. **MCP presets** for the above services (optional; MCP client already verified — `tests/mcp.test.ts`).
 
-Suggested order: Gmail + PayPal, then the PC system monitor.
+Suggested order: finish Computer Access (Neo + dashboard, then native interact), or Gmail + PayPal.
 
 ---
 
@@ -1516,3 +1525,47 @@ However, never claim that something works unless you have actually tested it.
 The ultimate objective is:
 
 **Jarvis should be able to sit in front of the computer, see what is happening, understand it, interact with it, learn from what it sees, remember useful knowledge, and use that knowledge later — with the user retaining control over the computer at all times.**
+
+---
+
+## 12. Computer Access Mode — implementation status (Phase 1: Observe foundation)
+
+**Built in this slice** (the platform-independent, headlessly-testable spine + real telemetry):
+
+- `server/computer/types.ts` — `AccessLevel` (observe<interact<extended), `Capability` + honest
+  `CapabilityStatus` (available / limited / needs-permission / unverified / unavailable), `Telemetry`,
+  and the `OsAdapter` interface.
+- `server/computer/adapters.ts` — `LinuxAdapter` / `WindowsAdapter` / `MacAdapter` + `currentAdapter()`.
+  Real telemetry: processes (`ps` / `tasklist`), display detection (X11 / Wayland / headless / quartz /
+  windows), active window (xdotool on X11, osascript on macOS, PowerShell+GetForegroundWindow on
+  Windows — all best-effort, honest failure), network counters (Linux `/proc/net/dev`). The native
+  control capabilities (screen/OCR/accessibility/mouse/keyboard/windows/apps/browser) are reported
+  `unavailable` with a `requires` note — **not wired yet, never faked.**
+- `server/computer/manager.ts` — `ComputerAccessManager`: reads `settings.computerAccess`, enforces the
+  on/off toggle + level (`permits(level)`), produces the capability report (`status()`), takes a live
+  telemetry snapshot (`telemetry()`, with CPU% sampled over 120ms; **throws when access is off**), and
+  owns the emergency STOP + abort plumbing (`emergencyStop()` flips the setting off and aborts the
+  shared `AbortSignal`; `handleSettingsChanged()` aborts in-flight work when the user toggles off).
+- `server/computer/skills.ts` — `computer.capabilities` (scope `internal`, always available, pure
+  report) and `computer.telemetry` (scope `computer.observe`, gated behind the toggle, output flagged
+  untrusted). Registered via `skills/builtin/index.ts`.
+- Wiring: `settings.computerAccess { enabled:false, level:'observe', screenshotRetentionMin:0 }`;
+  scopes `computer.observe` (ask) and `computer.control` (ask, never auto-allowed); `app.computer`;
+  `settings.changed → computer.handleSettingsChanged()`; `statusSnapshot().computer`; an insight banner
+  when ON; API `GET /api/computer` and `POST /api/computer/stop`; event `computer.changed`.
+- Tests: `tests/computer.test.ts` (7) — capability honesty, toggle gating, level gating, skill
+  availability, permission-engine path, emergency stop, toggle-off abort. Pinned skill list updated in
+  `tests/skills.test.ts`. **105/105 unit tests pass, typecheck clean.**
+
+**Verified HERE (cloud Linux, headless):** OS/display detection, process telemetry via `ps`, CPU/RAM
+from `node:os`, network counters, gating, STOP/abort, the permission path, the capability report.
+**NOT verified (needs the user's real desktop):** active-window read on X11/Windows/macOS, and every
+native control capability (all currently reported `unavailable`). The capability report is built to
+keep telling the truth about this — nothing flips to `available` until it is wired AND proven on the
+actual OS.
+
+**Next slices (in the brief's order):** 1b native observe (screen capture + OCR + accessibility),
+Phase 3 UI (a Computer Access panel on the stage: ON/OFF, level, active app, live state, STOP) + feed
+telemetry to **Neo**, Phase 4 interact (nut.js mouse/keyboard, the UNDERSTAND→PLAN→…→VERIFY loop),
+Phase 5 the "watch this and learn" pipeline on the existing memory store (learning notes as memories
+tagged `learn:<session>`, FACT/INFERENCE/UNCERTAIN, persistence + retrieval across restart).

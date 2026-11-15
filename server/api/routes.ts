@@ -294,6 +294,18 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
       throw new UserError(errorMessage(err), 404);
     }
   });
+  // ------------------------------------------------------------------ computer access
+  router.get('/api/computer', async () => {
+    const status = app.computer.status();
+    // Only observe the machine when the toggle is on; the report itself is always safe to read.
+    const telemetry = status.enabled ? await app.computer.telemetry().catch(() => null) : null;
+    return { status, telemetry };
+  });
+  router.post('/api/computer/stop', ({ body }) => {
+    const b = parse(z.object({ reason: z.string().max(200).optional() }), body ?? {});
+    return { status: app.computer.emergencyStop(b.reason ?? 'User pressed STOP') };
+  });
+
   router.put('/api/integrations/hackerone', ({ body }) => {
     const b = parse(
       z.object({

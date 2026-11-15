@@ -146,6 +146,8 @@ test('skills: registry only lists real capabilities and reports availability hon
     assert.deepEqual(names, [
       'calendar.create_event',
       'calendar.events',
+      'computer.capabilities',
+      'computer.telemetry',
       'email.read',
       'email.search',
       'email.send',

@@ -71,6 +71,19 @@ export const SettingsSchema = z.object({
      *  with no sandbox and no approval prompts. Off by default; turn on only on a machine you trust it with. */
     fullAccess: z.boolean(),
   }),
+  /**
+   * COMPUTER ACCESS MODE: let Jarvis see — and, at higher levels, use — the computer it runs on
+   * (processes, the active window, the screen, and later the mouse/keyboard). Off by default. When
+   * off, no observation or control happens at all. This is a desktop-app capability; in the cloud it
+   * is inert. Levels mirror the master brief: observe < interact < extended.
+   */
+  computerAccess: z.object({
+    enabled: z.boolean(),
+    /** observe = see only (telemetry/screen, no input); interact = mouse/keyboard/scroll; extended = open/manage apps, files and multi-step workflows. */
+    level: z.enum(['observe', 'interact', 'extended']),
+    /** Minutes to keep temporary screenshots before deletion (0 = delete as soon as they are used). */
+    screenshotRetentionMin: z.number().int().min(0).max(1440),
+  }),
   voice: z.object({
     enabled: z.boolean(),
     autoSpeak: z.boolean(),
@@ -197,6 +210,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   tasks: { stepTimeoutSec: 120, maxAttempts: 2 },
   permissions: { policies: {}, followRequests: true, fullAccess: false },
+  computerAccess: { enabled: false, level: 'observe', screenshotRetentionMin: 0 },
   voice: {
     enabled: true,
     autoSpeak: false,

@@ -15,6 +15,7 @@ export type JarvisEventType =
   | 'integrations.changed'
   | 'pipeline.updated'
   | 'agents.changed'
+  | 'computer.changed'
   | 'job.ran';
 
 export interface JarvisEvent {

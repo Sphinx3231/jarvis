@@ -21,6 +21,7 @@ export interface SkillServices {
   workspaceDir: () => string;
   listTasks: (status?: string) => Array<{ id: string; title: string; status: string; priority: number; progress: number }>;
   pipeline: import('../integrations/hackerone.ts').HackerOneService;
+  computer: import('../computer/manager.ts').ComputerAccessManager;
   statusSnapshot: () => Record<string, unknown>;
 }
 
