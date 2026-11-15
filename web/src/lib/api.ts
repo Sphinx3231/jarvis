@@ -437,6 +437,35 @@ export interface Scope {
   policy: 'allow' | 'ask' | 'deny';
 }
 
+// ---------------------------------------------------------------- Computer Access Mode
+export type CapabilityStatus = 'available' | 'limited' | 'needs-permission' | 'unverified' | 'unavailable';
+export interface ComputerCapability {
+  id: string;
+  label: string;
+  level: 'observe' | 'interact' | 'extended';
+  status: CapabilityStatus;
+  detail: string;
+  requires?: string;
+}
+export interface ComputerStatus {
+  platform: string;
+  os: string;
+  enabled: boolean;
+  level: 'observe' | 'interact' | 'extended';
+  display: { server: string; headless: boolean; detail: string };
+  stoppedAt: number | null;
+  capabilities: ComputerCapability[];
+}
+export interface ComputerResponse {
+  status: ComputerStatus;
+  telemetry: { activeWindow?: { available: boolean; title: string | null; app: string | null; detail: string }; processes?: { total: number }; memory?: { usedPercent: number }; cpu?: { usagePercent: number | null } } | null;
+}
+export interface ComputerProbe {
+  id: string;
+  ok: boolean;
+  detail: string;
+}
+
 export interface Grant {
   id: string;
   skill: string;
@@ -484,6 +513,7 @@ export interface Settings {
   };
   tasks: { stepTimeoutSec: number; maxAttempts: number };
   permissions: { policies: Record<string, 'allow' | 'ask' | 'deny'>; followRequests: boolean; fullAccess: boolean };
+  computerAccess: { enabled: boolean; level: 'observe' | 'interact' | 'extended'; screenshotRetentionMin: number };
   voice: {
     enabled: boolean;
     autoSpeak: boolean;

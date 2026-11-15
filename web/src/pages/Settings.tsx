@@ -1,7 +1,7 @@
-import { Bell, Brain, Info, KeyRound, Mic, Palette, Shield, Sparkles, Timer, Trash2, User } from 'lucide-react';
+import { Bell, Brain, Info, KeyRound, Mic, Monitor, Palette, Shield, Sparkles, Square, Timer, Trash2, User } from 'lucide-react';
 import { useState } from 'react';
 import { Badge, Button, Card, Field, Loading, PageHeader, Toggle } from '../components/ui';
-import { api, type Grant, type Integrations, type Scope, type Settings } from '../lib/api';
+import { api, type ComputerResponse, type Grant, type Integrations, type Scope, type Settings } from '../lib/api';
 import { dateTime } from '../lib/format';
 import { useAction, useLive, useResource } from '../lib/live';
 import { useVoice, voiceSupport } from '../lib/voice';
@@ -41,6 +41,7 @@ export function SettingsPage() {
   const perms = useResource<{ scopes: Scope[]; grants: Grant[] }>('/api/permissions', ['settings.changed', 'approval.updated', 'integrations.changed']);
   const integrations = useResource<Integrations>('/api/integrations', ['integrations.changed', 'settings.changed']);
   const about = useResource<About>('/api/about', []);
+  const computer = useResource<ComputerResponse>('/api/computer', ['settings.changed', 'computer.changed']);
   const [transcriptionKey, setTranscriptionKey] = useState('');
   const [fishKey, setFishKey] = useState('');
   if (!settings) return <Loading />;
@@ -334,6 +335,72 @@ export function SettingsPage() {
             </li>
           ))}
         </ul>
+      </Card>
+
+      <Card title="Computer Access" icon={<Monitor size={18} />}>
+        <p className="muted small">
+          Let Jarvis see — and, at higher levels, use — this computer: what’s on screen (read as text with OCR), the active window, and the mouse and keyboard. Off by default. When off, nothing is observed or controlled. Every mouse/keyboard action still needs your approval.{' '}
+          {computer.data && (
+            <>
+              This machine: <strong>{computer.data.status.os}</strong>, display <strong>{computer.data.status.display.server}</strong>
+              {computer.data.status.display.headless ? ' (no screen detected)' : ''}.
+            </>
+          )}
+        </p>
+        <div className={`fullaccess ${s.computerAccess.enabled ? 'is-on' : ''}`}>
+          <div className="fullaccess__row">
+            <div>
+              <div className="fullaccess__title">Computer Access</div>
+              <div className="muted small">When on, Jarvis can observe this computer (and, at the Interact level, control the mouse and keyboard). You can stop it instantly below.</div>
+            </div>
+            <Toggle
+              checked={s.computerAccess.enabled}
+              onChange={(v) => {
+                if (v && !window.confirm('Turn on Computer Access? Jarvis will be able to see this computer’s screen and windows. At the Interact level it can also move the mouse and type — each action still needs your approval.')) return;
+                save({ computerAccess: { enabled: v } });
+              }}
+              ariaLabel="Computer Access"
+            />
+          </div>
+          {s.computerAccess.enabled && (
+            <div className="fullaccess__banner">
+              ● Computer Access is ON ({s.computerAccess.level}) — Jarvis can see this computer{s.computerAccess.level !== 'observe' ? ' and use the mouse/keyboard' : ''}.
+            </div>
+          )}
+        </div>
+        <Field label="Level" hint="Observe = see only (screen, windows; no input). Interact = also move the mouse, type, scroll and switch windows. Extended = open/manage apps and files (not wired yet).">
+          <select value={s.computerAccess.level} onChange={(e) => save({ computerAccess: { level: e.target.value as Settings['computerAccess']['level'] } })} disabled={!s.computerAccess.enabled} aria-label="Computer Access level">
+            <option value="observe">Observe (see only)</option>
+            <option value="interact">Interact (mouse &amp; keyboard)</option>
+            <option value="extended">Extended (apps &amp; files)</option>
+          </select>
+        </Field>
+        <Field label="Keep screenshots for" hint="How long temporary screenshots are kept on disk. 0 = delete as soon as they are read.">
+          <NumberInput value={s.computerAccess.screenshotRetentionMin} min={0} max={1440} onCommit={(v) => save({ computerAccess: { screenshotRetentionMin: v } })} suffix="minutes" />
+        </Field>
+        <div className="inline">
+          <Button size="sm" variant="danger" icon={<Square size={14} />} disabled={!s.computerAccess.enabled} onClick={() => act(() => api.post('/api/computer/stop', { reason: 'Stopped from Settings' }), 'Computer Access stopped')}>
+            STOP now
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => act(() => api.post('/api/computer/verify'), 'Checked this machine')}>
+            Run capability check
+          </Button>
+        </div>
+        {computer.data && (
+          <div className="stack" style={{ marginTop: 12 }}>
+            {computer.data.status.capabilities.map((c) => (
+              <div key={c.id} className="inline">
+                <Badge tone={c.status === 'available' ? 'success' : c.status === 'unavailable' ? 'danger' : c.status === 'limited' ? 'info' : 'warning'} title={c.requires ?? ''}>
+                  {c.status}
+                </Badge>
+                <span>
+                  <strong>{c.label}</strong> <span className="muted small">— {c.detail}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="muted small">The “Observe this computer” and “Control this computer” permissions above govern how often Jarvis asks before each use. Control is consequential and always asks (or runs under Full access).</p>
       </Card>
 
       <Card title="Notifications" icon={<Bell size={18} />}>
