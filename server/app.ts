@@ -16,6 +16,7 @@ import { EmailService, emailSkills } from './integrations/email.ts';
 import { HackerOneService, hackeroneSkills } from './integrations/hackerone.ts';
 import { FishAudioService } from './integrations/fishaudio.ts';
 import { SubAgentManager } from './agents/subagents.ts';
+import { BountyOrchestrator } from './agents/orchestrator.ts';
 import { ComputerAccessManager } from './computer/manager.ts';
 import { LearningPipeline } from './computer/learning.ts';
 import { ObsidianSync, obsidianSkills } from './integrations/obsidian.ts';
@@ -79,6 +80,7 @@ export class JarvisApp {
   readonly pipeline: HackerOneService;
   readonly tts: FishAudioService;
   readonly subAgents: SubAgentManager;
+  readonly orchestrator: BountyOrchestrator;
   readonly computer: ComputerAccessManager;
   readonly learning: LearningPipeline;
   readonly calendar: CalendarService;
@@ -136,6 +138,7 @@ export class JarvisApp {
       defaultTimeoutMs: () => this.settings.get().tasks.stepTimeoutSec * 1000,
     });
     this.planner = new Planner(this.registry, this.llm, this.permissions, this.activity);
+    this.orchestrator = new BountyOrchestrator({ pipeline: this.pipeline, llm: this.llm, settings: this.settings, activity: this.activity, memory: this.memory, bus: this.bus, runner: this.runner });
     this.memoryAgent = new MemoryAgent({ memory: this.memory, conversations: this.conversations, llm: this.llm, settings: this.settings, activity: this.activity, registry: this.registry });
     this.engine = new TaskEngine({
       store: this.tasks,
@@ -228,6 +231,21 @@ export class JarvisApp {
         const r = await this.pipeline.sync();
         if (!r.ok) throw new Error(r.detail);
         return r.detail;
+      },
+    });
+
+    // The autonomous bug-bounty orchestrator: one cycle per tick, only while the user has turned on
+    // Autonomous hunting (with full access + offensive mode). Submission is separately gated.
+    this.scheduler.register({
+      name: 'bounty-orchestrator',
+      title: 'Autonomous hunting',
+      description: 'When you turn on Autonomous hunting (with full access + offensive mode), Jarvis works one in-scope program per run — tests it, drafts a report from a verified finding, and (with Auto-submit) ships it in scope, then moves on. Off by default.',
+      intervalMs: () => Math.max(5, this.settings.get().background.monitorIntervalSec) * 60_000,
+      run: async () => {
+        const auth = this.orchestrator.authorization();
+        if (!auth.canHunt) return `paused: ${auth.reason}`;
+        const r = await this.orchestrator.runCycle();
+        return r.ran ? `${r.target}: ${r.reason}` : `idle: ${r.reason}`;
       },
     });
 

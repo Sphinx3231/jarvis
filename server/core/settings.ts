@@ -130,6 +130,12 @@ export const SettingsSchema = z.object({
      * switch that turns on "ship it without telling me".
      */
     autoSubmit: z.boolean(),
+    /**
+     * Autonomous hunting: the master "go" switch for the bug-bounty orchestrator. When on — with full
+     * access + offensive mode — Jarvis runs the loop on its own (pick an in-scope program → test →
+     * draft → with auto-submit, ship → next). Off by default.
+     */
+    autoHunt: z.boolean(),
   }),
   appearance: z.object({
     reduceMotion: z.boolean(),
@@ -231,7 +237,7 @@ export const DEFAULT_SETTINGS: Settings = {
     tts: { provider: 'browser', voiceId: '' },
   },
   notifications: { desktop: true, taskCompletion: true },
-  agents: { enabled: true, spendUsd: 0, offensive: false, autoSubmit: false },
+  agents: { enabled: true, spendUsd: 0, offensive: false, autoSubmit: false, autoHunt: false },
   appearance: { reduceMotion: false, accent: 'violet' },
   integrations: {
     workspaceDir: '',

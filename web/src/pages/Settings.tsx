@@ -461,6 +461,30 @@ export function SettingsPage() {
           )}
           {s.agents.autoSubmit && s.permissions.fullAccess && s.agents.offensive && <div className="fullaccess__banner">● Autonomous submission is LIVE — in-scope reports will be sent without asking. Scope is still enforced; see the audit trail on the Pipeline page.</div>}
         </div>
+        <div className={`fullaccess ${s.agents.autoHunt ? 'is-on' : ''}`}>
+          <div className="fullaccess__row">
+            <div>
+              <div className="fullaccess__title">Autonomous hunting (“go”)</div>
+              <div className="muted small">
+                The master switch. When on — with <strong>Full access</strong> and <strong>Offensive mode</strong> — Jarvis runs the bug-bounty loop on its own: it picks an in-scope program, tests it, drafts a report from a verified finding, and (with Auto-submit on) ships it in scope, then moves to the next program. One program per run.
+              </div>
+            </div>
+            <Toggle
+              checked={s.agents.autoHunt}
+              onChange={(v) => {
+                if (v && !window.confirm('Start autonomous bug-bounty hunting? Jarvis will test in-scope programs and run the loop on its own on a schedule. It submits only if Auto-submit is also on, and never out of scope.')) return;
+                save({ agents: { autoHunt: v } });
+              }}
+              ariaLabel="Autonomous hunting"
+            />
+          </div>
+          {s.agents.autoHunt && (!s.permissions.fullAccess || !s.agents.offensive) && (
+            <div className="fullaccess__banner">⚠ Autonomous hunting is on but paused — it also needs {[!s.permissions.fullAccess ? 'Full access' : null, !s.agents.offensive ? 'Offensive mode' : null].filter(Boolean).join(' and ')}.</div>
+          )}
+          {s.agents.autoHunt && s.permissions.fullAccess && s.agents.offensive && (
+            <div className="fullaccess__banner">● Autonomous hunting is LIVE{s.agents.autoSubmit ? ' and will submit in-scope reports' : ' (reports are drafted and held until Auto-submit is on)'}.</div>
+          )}
+        </div>
       </Card>
 
       <Card title="About" icon={<Info size={18} />}>

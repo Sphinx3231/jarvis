@@ -291,6 +291,9 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
     return { program: handle, scopes: query.get('refresh') === 'true' ? (await app.pipeline.syncScopes(handle), app.pipeline.scopes(handle)) : await app.pipeline.ensureScopes(handle) };
   });
   router.get('/api/pipeline/submissions', ({ query }) => ({ submissions: app.pipeline.submissions(Number(query.get('limit') ?? 50)) }));
+  // Autonomous orchestrator.
+  router.get('/api/pipeline/orchestrator', () => ({ orchestrator: app.orchestrator.status() }));
+  router.post('/api/pipeline/hunt', async () => ({ cycle: await app.orchestrator.runCycle() }));
   // ------------------------------------------------------------------ sub-agents
   router.get('/api/subagents', () => ({ agents: app.subAgents.list(), enabled: app.settings.get().agents.enabled, spendUsd: app.settings.get().agents.spendUsd }));
   router.post('/api/subagents/:id/run', async ({ params }) => {
