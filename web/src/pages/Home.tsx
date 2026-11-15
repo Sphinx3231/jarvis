@@ -372,7 +372,7 @@ export function HomePage({ status }: { status: StatusResponse | null }) {
     <div className="home">
       <div className={`home__main ${hasConversation ? 'has-conversation' : ''}`}>
         <div className="hero">
-          <Core state={coreState} size={hasConversation ? 128 : 340} reduceMotion={settings?.appearance.reduceMotion} />
+          <Core state={coreState} size={hasConversation ? 140 : 400} reduceMotion={settings?.appearance.reduceMotion} />
           <div className="hero__text">
             <h1 className="hero__title">
               Hello{name ? `, ${name}` : ''}. I’m <span className="accent">Jarvis.</span>

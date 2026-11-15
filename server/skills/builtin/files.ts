@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, realpathSync } from 'node:fs';
 import { appendFile, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { sha256 } from '../../core/util.ts';
@@ -10,6 +11,17 @@ import type { Skill, SkillServices } from '../types.ts';
  * Resolve a user/model supplied path inside the workspace. Rejects absolute paths outside it,
  * ".." traversal and symlinks that escape the workspace.
  */
+/**
+ * Resolve a path for a file skill. In full-access mode any absolute path is allowed and relative
+ * paths are rooted at the user's home; otherwise the path is confined to the Jarvis workspace.
+ */
+export function resolvePath(services: SkillServices, requested: string): string {
+  if (services.settings.get().permissions.fullAccess) {
+    return requested && isAbsolute(requested) ? resolve(requested) : resolve(homedir(), requested || '.');
+  }
+  return resolveInWorkspace(services.workspaceDir(), requested);
+}
+
 export function resolveInWorkspace(root: string, requested: string): string {
   const realRoot = realpathSync(root);
   const target = resolve(realRoot, isAbsolute(requested) ? requested : `./${requested}`);
@@ -52,7 +64,7 @@ export const filesList: Skill<z.infer<typeof ListInput>, { root: string; entries
   availability: workspaceAvailable,
   summarize: (i) => `List files in workspace/${i.path ?? ''}`,
   async execute(input, ctx) {
-    const base = resolveInWorkspace(ctx.services.workspaceDir(), input.path ?? '.');
+    const base = resolvePath(ctx.services, input.path ?? '.');
     const entries: Entry[] = [];
     const LIMIT = 500;
     const walk = async (dir: string, depth: number): Promise<void> => {
@@ -95,7 +107,7 @@ export const filesRead: Skill<z.infer<typeof ReadInput>, { path: string; content
   availability: workspaceAvailable,
   summarize: (i) => `Read workspace/${i.path}`,
   async execute(input, ctx) {
-    const full = resolveInWorkspace(ctx.services.workspaceDir(), input.path);
+    const full = resolvePath(ctx.services, input.path);
     const st = await stat(full);
     if (!st.isFile()) throw new Error(`${input.path} is not a file`);
     const max = input.maxBytes ?? 200_000;
@@ -131,7 +143,7 @@ export const filesSearch: Skill<z.infer<typeof SearchInput>, { matches: Match[];
   availability: workspaceAvailable,
   summarize: (i) => `Search workspace files for "${i.query}"`,
   async execute(input, ctx) {
-    const base = resolveInWorkspace(ctx.services.workspaceDir(), input.path ?? '.');
+    const base = resolvePath(ctx.services, input.path ?? '.');
     const q = input.query.toLowerCase();
     const matches: Match[] = [];
     let filesScanned = 0;
@@ -199,14 +211,14 @@ export const filesWrite: Skill<z.infer<typeof WriteInput>, { path: string; bytes
   summarize: (i) => `${i.mode === 'append' ? 'Append to' : i.mode === 'overwrite' ? 'Overwrite' : 'Create'} workspace/${i.path} (${Buffer.byteLength(i.content)} bytes)`,
   lockKey: (i) => `file:${i.path}`,
   async execute(input, ctx) {
-    const full = resolveInWorkspace(ctx.services.workspaceDir(), input.path);
+    const full = resolvePath(ctx.services, input.path);
     await mkdir(dirname(full), { recursive: true });
     if (input.mode === 'append') await appendFile(full, input.content, 'utf8');
     else await writeFile(full, input.content, { encoding: 'utf8', flag: input.mode === 'create' ? 'wx' : 'w' });
     return { path: rel(ctx.services, full), bytesWritten: Buffer.byteLength(input.content), sha256: await hashFile(full), mode: input.mode };
   },
   async verify(input, out, ctx) {
-    const full = resolveInWorkspace(ctx.services.workspaceDir(), input.path);
+    const full = resolvePath(ctx.services, input.path);
     if (!existsSync(full)) return { ok: false, detail: 'File does not exist after writing' };
     const buf = await readFile(full);
     if (input.mode === 'append') {

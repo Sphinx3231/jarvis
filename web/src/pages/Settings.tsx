@@ -268,6 +268,25 @@ export function SettingsPage() {
       </Card>
 
       <Card title="Permissions" icon={<Shield size={18} />}>
+        <div className={`fullaccess ${s.permissions.fullAccess ? 'is-on' : ''}`}>
+          <div className="fullaccess__row">
+            <div>
+              <div className="fullaccess__title">Full access to this computer</div>
+              <div className="muted small">
+                When on, Jarvis may use <strong>every</strong> capability — read and write files anywhere on the disk, reach any website (including your local network), and run shell commands — with <strong>no sandbox and no approval prompts</strong>. Turn this on only on a machine you trust Jarvis with. (It does not let Jarvis control other apps, your screen, or input — that is a separate capability.)
+              </div>
+            </div>
+            <Toggle
+              checked={s.permissions.fullAccess}
+              onChange={(v) => {
+                if (v && !window.confirm('Give Jarvis FULL access to this computer? It will read/write any file, reach any site, and run shell commands with no approval prompts. Only do this on a machine you trust it with.')) return;
+                save({ permissions: { fullAccess: v } });
+              }}
+              ariaLabel="Full access to this computer"
+            />
+          </div>
+          {s.permissions.fullAccess && <div className="fullaccess__banner">⚠ Full access is ON — Jarvis acts without asking. Turn it off when you're done.</div>}
+        </div>
         <Field
           label="Do what I ask without asking again"
           hint="Your request is your approval: steps that are clearly part of what you asked — the command you typed, the email you asked for — just run. Anything beyond what you asked, anything Jarvis starts on its own, and anything containing instructions from a web page or file still waits for your explicit approval. A permission set to Deny stays denied."

@@ -67,6 +67,9 @@ export const SettingsSchema = z.object({
     policies: z.record(z.string(), PolicySchema),
     /** Do what the user asked without asking again; anything not part of their request still needs approval. */
     followRequests: z.boolean(),
+    /** FULL ACCESS: when on, Jarvis may use every capability — whole-disk files, any website, shell —
+     *  with no sandbox and no approval prompts. Off by default; turn on only on a machine you trust it with. */
+    fullAccess: z.boolean(),
   }),
   voice: z.object({
     enabled: z.boolean(),
@@ -180,7 +183,7 @@ export const DEFAULT_SETTINGS: Settings = {
     approvalReminderMin: 60,
   },
   tasks: { stepTimeoutSec: 120, maxAttempts: 2 },
-  permissions: { policies: {}, followRequests: true },
+  permissions: { policies: {}, followRequests: true, fullAccess: false },
   voice: {
     enabled: true,
     autoSpeak: false,

@@ -2197,6 +2197,32 @@ button.chip:hover {
   color: var(--text-dim);
 }
 
+.fullaccess {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.fullaccess.is-on {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+.fullaccess__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.fullaccess__title {
+  font-weight: 650;
+}
+.fullaccess__banner {
+  margin-top: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--danger);
+}
+
 /* ---------------------------------------------------------------- toasts & fatal */
 
 .toasts {
@@ -2552,6 +2578,82 @@ button.chip:hover {
   .pl-stats {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+
+.immersive-toggle {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 70;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.immersive-toggle:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.immersive-hint {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  font-size: 12px;
+  color: var(--text-faint);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  padding: 4px 12px;
+  border-radius: 999px;
+  pointer-events: none;
+}
+:root[data-immersive='true'] .sidebar,
+:root[data-immersive='true'] .topbar,
+:root[data-immersive='true'] .home__side {
+  display: none !important;
+}
+:root[data-immersive='true'] .app {
+  grid-template-columns: 1fr;
+}
+:root[data-immersive='true'] .main {
+  grid-template-rows: 1fr;
+}
+:root[data-immersive='true'] .content {
+  padding: 0;
+  overflow: hidden;
+}
+:root[data-immersive='true'] .home {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+:root[data-immersive='true'] .home__main {
+  min-height: auto;
+  height: auto;
+  width: min(760px, 92vw);
+  align-items: center;
+  justify-content: center;
+}
+:root[data-immersive='true'] .core {
+  width: min(62vmin, 600px) !important;
+  height: min(62vmin, 600px) !important;
+}
+:root[data-immersive='true'] .hero {
+  gap: 30px;
+  margin-bottom: 30px;
+}
+:root[data-immersive='true'] .hero__title {
+  font-size: clamp(30px, 5.5vmin, 60px);
+}
+:root[data-immersive='true'] .command {
+  max-width: 680px;
 }
 
 /* ---------------------------------------------------------------- responsive */

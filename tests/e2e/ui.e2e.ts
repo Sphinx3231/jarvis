@@ -69,6 +69,16 @@ try {
   await shot('01-home-idle');
   step('home renders with the core as a live animating vector, service online');
 
+  // Immersive mode: the backslash key makes Jarvis fill the screen.
+  await page.keyboard.press('Backslash');
+  await page.waitForFunction(() => document.documentElement.dataset.immersive === 'true', undefined, { timeout: 3000 });
+  assert.equal(await page.locator('.sidebar').isVisible(), false, 'sidebar is hidden in immersive mode');
+  await shot('01b-immersive');
+  await page.keyboard.press('Backslash');
+  await page.waitForFunction(() => document.documentElement.dataset.immersive === 'false', undefined, { timeout: 3000 });
+  assert.ok(await page.locator('.sidebar').isVisible(), 'sidebar returns when immersive is off');
+  step('backslash toggles immersive full-screen Jarvis');
+
   // Voice is the primary input now; open the type-instead fallback for the scripted text steps.
   await page.getByRole('button', { name: 'Type instead' }).click();
   const input = page.getByLabel('Message Jarvis');

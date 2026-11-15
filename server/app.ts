@@ -418,6 +418,7 @@ export class JarvisApp {
     for (const s of this.mcp.status()) {
       if (s.state === 'error') out.push({ id: `mcp-${s.id}`, level: 'error', text: `MCP server "${s.name}" is not connected: ${s.error ?? 'error'}`, page: 'integrations' });
     }
+    if (this.settings.get().permissions.fullAccess) out.push({ id: 'full-access', level: 'warning', text: 'Full access is ON — Jarvis acts with no sandbox and no approvals. Turn it off in Settings when you’re done.', page: 'settings' });
     if (!this.settings.get().background.enabled) out.push({ id: 'background-off', level: 'info', text: 'Background monitoring is paused.', page: 'settings' });
     return out;
   }

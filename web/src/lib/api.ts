@@ -466,7 +466,7 @@ export interface Settings {
     approvalReminderMin: number;
   };
   tasks: { stepTimeoutSec: number; maxAttempts: number };
-  permissions: { policies: Record<string, 'allow' | 'ask' | 'deny'>; followRequests: boolean };
+  permissions: { policies: Record<string, 'allow' | 'ask' | 'deny'>; followRequests: boolean; fullAccess: boolean };
   voice: {
     enabled: boolean;
     autoSpeak: boolean;

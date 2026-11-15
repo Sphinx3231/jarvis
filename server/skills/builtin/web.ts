@@ -155,13 +155,15 @@ export const webFetch: Skill<z.infer<typeof Input>, Out> = {
   availability: () => ({ available: true }),
   summarize: (i) => `Fetch ${i.url}`,
   async execute(input, ctx) {
-    const web = ctx.services.settings.get().integrations.web;
+    const s = ctx.services.settings.get();
+    const web = s.integrations.web;
+    const allowPrivate = web.allowPrivateNetwork || s.permissions.fullAccess;
     let url = new URL(input.url);
     let page: FetchedPage | undefined;
     // Redirects are followed manually so every hop goes through the same address checks.
     for (let hop = 0; hop < 6; hop++) {
       page = await guardedGet(url, {
-        allowPrivate: web.allowPrivateNetwork,
+        allowPrivate,
         maxBytes: web.maxBytes,
         signal: ctx.signal,
         headers: { 'user-agent': 'Jarvis/1.0 (personal assistant)', accept: 'text/html,text/plain,application/json;q=0.9,*/*;q=0.5' },

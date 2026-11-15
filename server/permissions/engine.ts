@@ -124,6 +124,8 @@ export class PermissionEngine {
 
   /** The single authorization check every skill execution goes through. */
   decide(skill: Skill, input: unknown, ctx: { taskId?: string; stepIndex?: number; approvalId?: string }): Decision {
+    // Full access: the user has granted Jarvis every capability with no approvals. Overrides all policies.
+    if (this.settings.get().permissions.fullAccess) return { kind: 'allow', via: 'policy' };
     const policy = this.policyFor(skill.scope);
     if (policy === 'deny') return { kind: 'deny', reason: `Permission "${skill.scope}" is set to deny` };
     if (policy === 'allow') return { kind: 'allow', via: 'policy' };
