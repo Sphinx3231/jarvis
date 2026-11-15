@@ -357,6 +357,16 @@ export function SettingsPage() {
           <Toggle checked={s.appearance.reduceMotion} onChange={(v) => save({ appearance: { reduceMotion: v } })} />
         </Field>
       </Card>
+      <Card title="Sub-agents" icon={<Sparkles size={18} />}>
+        <p className="muted small">Named specialists that run in the background with their own memory, shown as colored orbs around Jarvis: Friday (profit), Tom (new small programs), Neo (pipeline watch & keys), Sentinel (scope), Echo (digest).</p>
+        <Field label="Run the sub-agents" hint="When on, they work on a schedule (and only while background monitoring is on).">
+          <Toggle checked={s.agents.enabled} onChange={(v) => save({ agents: { enabled: v } })} ariaLabel="Run the sub-agents" />
+        </Field>
+        <Field label="Running cost so far (USD)" hint="What you've spent on models/tools, so Friday can tell whether the pipeline is in profit.">
+          <NumberInput value={s.agents.spendUsd} min={0} max={1000000} step={10} onCommit={(v) => save({ agents: { spendUsd: v } })} suffix="USD" />
+        </Field>
+      </Card>
+
       <Card title="About" icon={<Info size={18} />}>
         <div className="credits">
           <p>

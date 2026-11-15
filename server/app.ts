@@ -15,6 +15,7 @@ import { CalendarService, calendarSkills } from './integrations/calendar.ts';
 import { EmailService, emailSkills } from './integrations/email.ts';
 import { HackerOneService, hackeroneSkills } from './integrations/hackerone.ts';
 import { FishAudioService } from './integrations/fishaudio.ts';
+import { SubAgentManager } from './agents/subagents.ts';
 import { ObsidianSync, obsidianSkills } from './integrations/obsidian.ts';
 import { ConversationStore } from './intelligence/conversations.ts';
 import { Jarvis } from './intelligence/jarvis.ts';
@@ -75,6 +76,7 @@ export class JarvisApp {
   readonly email: EmailService;
   readonly pipeline: HackerOneService;
   readonly tts: FishAudioService;
+  readonly subAgents: SubAgentManager;
   readonly calendar: CalendarService;
   readonly obsidian: ObsidianSync;
   readonly scheduler: Scheduler;
@@ -100,6 +102,7 @@ export class JarvisApp {
 
     this.pipeline = new HackerOneService({ settings: this.settings, secrets: this.secrets, db: this.db, activity: this.activity, bus: this.bus });
     this.tts = new FishAudioService({ settings: this.settings, secrets: this.secrets });
+    this.subAgents = new SubAgentManager({ pipeline: this.pipeline, memory: this.memory, tasks: this.tasks, settings: this.settings, secrets: this.secrets, activity: this.activity, bus: this.bus });
     const services: SkillServices = {
       memory: this.memory,
       settings: this.settings,
@@ -333,8 +336,9 @@ export class JarvisApp {
     this.scheduler.start();
     const model = this.llm.status();
     this.activity.log('info', 'system', `Jarvis ${VERSION} started on Roamies${model.model ? ` — thinking with ${model.model.name}` : ''}`);
+    this.subAgents.start();
     // Create or update Jarvis's vault shortly after start.
-    this.obsidian.schedule(1500);
+    this.obsidian.schedule(1500)
     void this.mcp.sync();
     void this.llm.checkHealth();
     this.prepareSemanticSearch();
@@ -350,6 +354,7 @@ export class JarvisApp {
     }
     this.running = false;
     this.scheduler.stop();
+    this.subAgents.stop();
     this.obsidian.cancelScheduled();
     await this.engine.stop();
     this.mcp.stopAll();

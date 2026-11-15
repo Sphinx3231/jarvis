@@ -308,6 +308,23 @@ export interface McpStatus {
   connectedAt: number | null;
 }
 
+export interface AgentInfo {
+  id: string;
+  name: string;
+  color: string;
+  role: string;
+  state: 'idle' | 'working';
+  lastRunAt: number | null;
+  lastSummary: string;
+  runs: number;
+  error: string | null;
+}
+export interface AgentsResponse {
+  agents: AgentInfo[];
+  enabled: boolean;
+  spendUsd: number;
+}
+
 export interface PipelineProgram {
   handle: string;
   name: string;
@@ -480,6 +497,7 @@ export interface Settings {
     tts: { provider: 'browser' | 'fish'; voiceId: string };
   };
   notifications: { desktop: boolean; taskCompletion: boolean };
+  agents: { enabled: boolean; spendUsd: number };
   appearance: { reduceMotion: boolean; accent: 'violet' | 'indigo' | 'fuchsia' };
   integrations: { workspaceDir: string; web: { allowPrivateNetwork: boolean; maxBytes: number }; shell: { enabled: boolean }; hackerone: { enabled: boolean; username: string; autoRun: boolean; intervalMin: number; bountyOnly: boolean } };
 }

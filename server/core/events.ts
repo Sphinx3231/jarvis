@@ -14,6 +14,7 @@ export type JarvisEventType =
   | 'roamies.changed'
   | 'integrations.changed'
   | 'pipeline.updated'
+  | 'agents.changed'
   | 'job.ran';
 
 export interface JarvisEvent {

@@ -285,6 +285,15 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
     if (!r.ok && app.pipeline.missing()) throw new UserError(r.detail, 400);
     return { ...r, pipeline: app.pipeline.summary() };
   });
+  // ------------------------------------------------------------------ sub-agents
+  router.get('/api/subagents', () => ({ agents: app.subAgents.list(), enabled: app.settings.get().agents.enabled, spendUsd: app.settings.get().agents.spendUsd }));
+  router.post('/api/subagents/:id/run', async ({ params }) => {
+    try {
+      return { agent: await app.subAgents.runAgent(params.id) };
+    } catch (err) {
+      throw new UserError(errorMessage(err), 404);
+    }
+  });
   router.put('/api/integrations/hackerone', ({ body }) => {
     const b = parse(
       z.object({

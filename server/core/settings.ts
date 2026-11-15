@@ -98,6 +98,12 @@ export const SettingsSchema = z.object({
     desktop: z.boolean(),
     taskCompletion: z.boolean(),
   }),
+  /** Jarvis's background sub-agents (Friday, Tom, Neo, Sentinel, Echo). */
+  agents: z.object({
+    enabled: z.boolean(),
+    /** Your running cost so far (model/tools), so Friday can tell whether you're in profit. */
+    spendUsd: z.number().min(0).max(1_000_000_000),
+  }),
   appearance: z.object({
     reduceMotion: z.boolean(),
     accent: z.enum(['violet', 'indigo', 'fuchsia']),
@@ -197,6 +203,7 @@ export const DEFAULT_SETTINGS: Settings = {
     tts: { provider: 'browser', voiceId: '' },
   },
   notifications: { desktop: true, taskCompletion: true },
+  agents: { enabled: true, spendUsd: 0 },
   appearance: { reduceMotion: false, accent: 'violet' },
   integrations: {
     workspaceDir: '',

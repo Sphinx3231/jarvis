@@ -73,7 +73,9 @@ function targetsFor(s: State): Params {
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const NUM_KEYS = ['spinRate', 'arcRate', 'arcLen', 'coreBase', 'pulseAmp', 'pulseRate', 'glowAmp', 'ringOp', 'spokesOp', 'ripple', 'spark', 'bang'] as const;
 
-export function Core({ state, size = 220, reduceMotion = false }: { state: CoreState; size?: number; reduceMotion?: boolean }) {
+export interface OrbAgent { id: string; name: string; color: string; summary: string; working: boolean; }
+
+export function Core({ state, size = 220, reduceMotion = false, agents }: { state: CoreState; size?: number; reduceMotion?: boolean; agents?: OrbAgent[] }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const stateRef = useRef<State>(state);
   const osReduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -181,6 +183,15 @@ export function Core({ state, size = 220, reduceMotion = false }: { state: CoreS
         const bp = animate && now < shakeUntil ? 1 + 0.15 * Math.sin(now * 0.05) : 1;
         set(parts.bang, `translate(110 110) scale(${bp.toFixed(3)}) translate(-110 -110)`);
       }
+      // Satellite agent orbs: a slow orbit around Jarvis, each twinkling (brighter while working).
+      const orbsG = svg.querySelector('#c-orbs');
+      if (orbsG) set(orbsG as SVGElement, `rotate(${animate ? (t * 5) % 360 : 0} 110 110)`);
+      svg.querySelectorAll('.c-orb').forEach((o, i) => {
+        const el = o as SVGElement;
+        const working = el.getAttribute('data-working') === '1';
+        const tw = 0.55 + 0.35 * (animate ? Math.sin(t * (working ? 6 : 2) + i) * 0.5 + 0.5 : 1);
+        el.setAttribute('opacity', (working ? Math.min(1, tw + 0.2) : tw).toFixed(3));
+      });
       void ringEls;
     };
 
@@ -268,6 +279,26 @@ export function Core({ state, size = 220, reduceMotion = false }: { state: CoreS
           <path d="M162 66 l1.6 5 5 1.6 -5 1.6 -1.6 5 -1.6 -5 -5 -1.6 5 -1.6 Z" opacity="0.9" />
           <path d="M150 150 l1.4 4 4 1.4 -4 1.4 -1.4 4 -1.4 -4 -4 -1.4 4 -1.4 Z" opacity="0.8" />
         </g>
+
+        {/* satellite sub-agent orbs, each in its own colour */}
+        {agents && agents.length > 0 && (
+          <g id="c-orbs">
+            {agents.map((a, i) => {
+              const ang = (i / agents.length) * Math.PI * 2 - Math.PI / 2;
+              const r = 104;
+              const cx = 110 + Math.cos(ang) * r;
+              const cy = 110 + Math.sin(ang) * r;
+              return (
+                <g className="c-orb" data-working={a.working ? '1' : '0'} key={a.id} style={{ cursor: 'default' }}>
+                  <title>{`${a.name}: ${a.summary}`}</title>
+                  <circle cx={cx} cy={cy} r="16" fill={a.color} opacity="0.26" />
+                  <circle cx={cx} cy={cy} r="10.5" fill="none" stroke={a.color} strokeWidth="1.4" strokeDasharray="3 4" />
+                  <circle cx={cx} cy={cy} r="4.6" fill={a.color} />
+                </g>
+              );
+            })}
+          </g>
+        )}
 
         {/* error exclamation */}
         <g id="c-bang" opacity="0">

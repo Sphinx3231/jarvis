@@ -102,6 +102,7 @@ Jarvis's own integration keys (Fish Audio, HackerOne, a transcription-server key
 ## What Jarvis does
 
 - **Any model.** Whatever Roamies is signed in to, or a local model on your own computer.
+- **Runs a team of sub-agents.** Named specialists work in the background, each with its own memory and shown as a colored mini-core orbiting Jarvis: **Friday** (profit — earnings vs. spend), **Tom** (finds newly launched small programs most likely to still hold bugs), **Neo** (watches the pipeline and tasks, keeps the keys, documents runs), **Sentinel** (keeps the authorized in-scope program list), and **Echo** (compiles the team's digest). They reason over what Jarvis can see — its pipeline, tasks, memory and keys — not other apps or your screen.
 - **Runs an ethical-hacking pipeline.** Tracks your HackerOne bounty earnings and report status and discovers new programs, refreshing on its own while you leave it on — read-only, it never tests or attacks anything.
 - **Talks and understands.** Natural-language requests go to the central intelligence: fast rule-based intents for explicit commands, otherwise a model with tools. Read-only tools (memory, tasks, status, workspace files) run inline; anything that does work becomes a task.
 - **Runs tasks in the background.** A persistent task engine with priorities, scheduling, recurrence, pause/resume/cancel/retry, per-step verification, retries for steps that are safe to repeat, and crash recovery that **never repeats an action whose outcome is uncertain**.

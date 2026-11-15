@@ -67,6 +67,10 @@ try {
   const a2 = await coreXform();
   assert.notEqual(a1, a2, 'the idle core animates frame to frame');
   await shot('01-home-idle');
+  // Five colored sub-agent orbs (Friday, Tom, Neo, Sentinel, Echo) ring the core.
+  await page.locator('.c-orb').first().waitFor({ timeout: 5000 });
+  assert.equal(await page.locator('.c-orb').count(), 5, 'five sub-agent orbs surround Jarvis');
+  assert.ok(await page.locator('.agents__row', { hasText: 'Friday' }).count(), 'the Agents card lists Friday');
   step('home renders with the core as a live animating vector, service online');
 
   // Immersive mode: the backslash key makes Jarvis fill the screen.

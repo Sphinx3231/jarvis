@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowRight, Brain, CircleCheck, Clock, Cpu, Keyboard, ListChecks, MessageSquarePlus, Mic, SendHorizontal, Sparkles, Square, TriangleAlert, Volume2, Wrench, Zap } from 'lucide-react';
 import { ApprovalsCard } from '../components/Approvals';
-import { Core, CORE_LABEL } from '../components/Core';
+import { Core, CORE_LABEL, type OrbAgent } from '../components/Core';
 import { Card, Progress } from '../components/ui';
-import { api, type ActivityEntry, type ChatMessage, type ChatResult, type CoreState, type StatusResponse, type Task } from '../lib/api';
+import { api, type ActivityEntry, type AgentsResponse, type ChatMessage, type ChatResult, type CoreState, type StatusResponse, type Task } from '../lib/api';
 import { bytes, clock, timeAgo, uptime } from '../lib/format';
-import { useLive, useResource } from '../lib/live';
+import { useAction, useLive, useResource } from '../lib/live';
 import { navigate } from '../lib/router';
 import { useVoice } from '../lib/voice';
 
@@ -33,6 +33,34 @@ function useCoreState(): CoreState {
   if (voice.transcribing) return 'thinking';
   if (voice.speaking) return 'speaking';
   return state.state;
+}
+
+function AgentsCard() {
+  const act = useAction();
+  const { data } = useResource<AgentsResponse>('/api/subagents', ['agents.changed', 'settings.changed']);
+  if (!data) return null;
+  return (
+    <Card title="Agents" icon={<Sparkles size={18} />}>
+      <ul className="agents">
+        {data.agents.map((a) => (
+          <li key={a.id} className="agents__row">
+            <span className="agents__dot" style={{ background: a.color, boxShadow: `0 0 8px ${a.color}` }} />
+            <div className="agents__text">
+              <div className="agents__name">
+                {a.name}
+                {a.state === 'working' && <span className="agents__busy"> · working…</span>}
+              </div>
+              <div className="muted small agents__summary" title={a.role}>{a.lastSummary}</div>
+            </div>
+            <button className="agents__run" onClick={() => act(() => api.post(`/api/subagents/${a.id}/run`), `${a.name} ran`)} aria-label={`Run ${a.name} now`} title={`Run ${a.name} now`}>
+              <ArrowRight size={14} />
+            </button>
+          </li>
+        ))}
+      </ul>
+      {!data.enabled && <p className="muted small">Agents are paused (Settings → turn them on).</p>}
+    </Card>
+  );
 }
 
 function Actions({ message }: { message: ChatMessage }) {
@@ -311,6 +339,8 @@ export function HomePage({ status }: { status: StatusResponse | null }) {
   const { state, settings } = useLive();
   const voice = useVoice();
   const coreState = useCoreState();
+  const agentsRes = useResource<AgentsResponse>('/api/subagents', ['agents.changed', 'settings.changed']);
+  const orbAgents: OrbAgent[] = (agentsRes.data?.agents ?? []).map((a) => ({ id: a.id, name: a.name, color: a.color, summary: a.lastSummary, working: a.state === 'working' }));
   const [conversationId, setConversationId] = useState<string | null>(readConv);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -372,7 +402,7 @@ export function HomePage({ status }: { status: StatusResponse | null }) {
     <div className="home">
       <div className={`home__main ${hasConversation ? 'has-conversation' : ''}`}>
         <div className="hero">
-          <Core state={coreState} size={hasConversation ? 140 : 400} reduceMotion={settings?.appearance.reduceMotion} />
+          <Core state={coreState} size={hasConversation ? 140 : 400} reduceMotion={settings?.appearance.reduceMotion} agents={orbAgents} />
           <div className="hero__text">
             <h1 className="hero__title">
               Hello{name ? `, ${name}` : ''}. I’m <span className="accent">Jarvis.</span>
@@ -399,6 +429,7 @@ export function HomePage({ status }: { status: StatusResponse | null }) {
         <CommandBar onSend={send} sending={sending} />
       </div>
       <aside className="home__side">
+        <AgentsCard />
         <ApprovalsCard compact hideWhenEmpty />
         <ActiveTasksCard />
         <StatusCard status={status} />
