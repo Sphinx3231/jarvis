@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, ArrowRight, Brain, CircleCheck, Clock, Cpu, Crosshair, Keyboard, ListChecks, MessageSquarePlus, Mic, Radio, SendHorizontal, ShieldCheck, Sparkles, Square, TrendingUp, TriangleAlert, Volume2, Wrench, Zap } from 'lucide-react';
+import { Activity, ArrowRight, Brain, Bug, CircleCheck, Clock, Cpu, Crosshair, Keyboard, ListChecks, MessageSquarePlus, Mic, Radio, SendHorizontal, ShieldCheck, Sparkles, Square, TrendingUp, TriangleAlert, Volume2, Wrench, Zap } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { ApprovalsCard } from '../components/Approvals';
 import { Core, CORE_LABEL, type OrbAgent } from '../components/Core';
@@ -70,16 +70,18 @@ const AGENT_ICON: Record<string, ReactNode> = {
   neo: <Activity size={20} />,
   sentinel: <ShieldCheck size={20} />,
   echo: <Radio size={20} />,
+  trinity: <Bug size={20} />,
 };
 // Fixed slots around the core so the ring reads like the reference. `tx` anchors the pill
 // (left edge / right edge / centered) so side nodes never clip in the narrower windowed layout.
 const ANCHOR = { l: 'translate(0, -50%)', r: 'translate(-100%, -50%)', c: 'translate(-50%, -50%)' };
 const AGENT_SLOTS = [
-  { left: '6%', top: '20%', a: 'l' as const },
-  { left: '94%', top: '20%', a: 'r' as const },
-  { left: '2%', top: '50%', a: 'l' as const },
-  { left: '98%', top: '50%', a: 'r' as const },
-  { left: '50%', top: '74%', a: 'c' as const },
+  { left: '8%', top: '19%', a: 'l' as const }, // Friday — top-left
+  { left: '92%', top: '19%', a: 'r' as const }, // Tom — top-right
+  { left: '2%', top: '49%', a: 'l' as const }, // Neo — mid-left
+  { left: '98%', top: '49%', a: 'r' as const }, // Sentinel — mid-right
+  { left: '16%', top: '79%', a: 'l' as const }, // Echo — bottom-left
+  { left: '84%', top: '79%', a: 'r' as const }, // Trinity — bottom-right
 ];
 
 /** The agents as labeled satellite nodes ringing Jarvis — click one to run it now. */

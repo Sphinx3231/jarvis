@@ -497,7 +497,7 @@ export interface Settings {
     tts: { provider: 'browser' | 'fish'; voiceId: string };
   };
   notifications: { desktop: boolean; taskCompletion: boolean };
-  agents: { enabled: boolean; spendUsd: number };
+  agents: { enabled: boolean; spendUsd: number; offensive: boolean };
   appearance: { reduceMotion: boolean; accent: 'violet' | 'indigo' | 'fuchsia' };
   integrations: { workspaceDir: string; web: { allowPrivateNetwork: boolean; maxBytes: number }; shell: { enabled: boolean }; hackerone: { enabled: boolean; username: string; autoRun: boolean; intervalMin: number; bountyOnly: boolean } };
 }

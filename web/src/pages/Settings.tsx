@@ -358,13 +358,20 @@ export function SettingsPage() {
         </Field>
       </Card>
       <Card title="Sub-agents" icon={<Sparkles size={18} />}>
-        <p className="muted small">Named specialists that run in the background with their own memory, shown as colored orbs around Jarvis: Friday (profit), Tom (new small programs), Neo (pipeline watch & keys), Sentinel (scope), Echo (digest).</p>
+        <p className="muted small">Named specialists that run in the background with their own memory, shown as colored satellites around Jarvis: Friday (profit), Tom (new small programs), Neo (pipeline watch &amp; keys), Sentinel (scope), Echo (digest), Trinity (security operator — knows the Kali arsenal &amp; the ethical-hacking methodology).</p>
         <Field label="Run the sub-agents" hint="When on, they work on a schedule (and only while background monitoring is on).">
           <Toggle checked={s.agents.enabled} onChange={(v) => save({ agents: { enabled: v } })} ariaLabel="Run the sub-agents" />
         </Field>
         <Field label="Running cost so far (USD)" hint="What you've spent on models/tools, so Friday can tell whether the pipeline is in profit.">
           <NumberInput value={s.agents.spendUsd} min={0} max={1000000} step={10} onCommit={(v) => save({ agents: { spendUsd: v } })} suffix="USD" />
         </Field>
+        <Field
+          label="Live offensive testing (Trinity)"
+          hint="When on — and only with full PC access on, against HackerOne programs in your pipeline — Trinity may send live traffic with the Kali tools. Guardrails come from your connected model; this is the authorization switch. Leave off to plan/passive only."
+        >
+          <Toggle checked={s.agents.offensive} onChange={(v) => save({ agents: { offensive: v } })} ariaLabel="Allow live offensive testing" />
+        </Field>
+        {s.agents.offensive && !s.permissions.fullAccess && <p className="muted small fullaccess-hint">Offensive mode is on, but live testing also needs <strong>full PC access</strong> (Permissions, above). Until then Trinity plans only.</p>}
       </Card>
 
       <Card title="About" icon={<Info size={18} />}>

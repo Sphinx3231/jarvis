@@ -6,6 +6,7 @@ import { errorMessage, now } from '../core/util.ts';
 import { HACKERONE_SECRET } from '../integrations/hackerone.ts';
 import type { HackerOneService } from '../integrations/hackerone.ts';
 import { FISH_SECRET } from '../integrations/fishaudio.ts';
+import { findCapabilities, knowledgeSummary } from './knowledge/index.ts';
 import type { MemoryStore } from '../memory/store.ts';
 import type { TaskStore } from '../tasks/store.ts';
 
@@ -131,6 +132,36 @@ export const SUB_AGENTS: SubAgentDef[] = [
       if (!lines.length) return 'Nothing to report yet';
       remember(ctx, 'echo', `Team digest — ${lines.join(' · ')}`, ['digest']);
       return `Digest of ${lines.length} agent(s) updated`;
+    },
+  },
+  {
+    id: 'trinity',
+    name: 'Trinity',
+    color: '#f43f5e',
+    role: 'Operator — the security specialist. Knows all 90 Kali tools and the ethical-hacking methodology; plans and (when authorized) runs live testing against in-scope bug-bounty programs.',
+    intervalMs: 30 * 60_000,
+    async run(ctx) {
+      const ks = knowledgeSummary();
+      // Every program Jarvis discovered from HackerOne is a bug-bounty program that authorizes testing
+      // within its scope; this is the authorized target set (the methodology's authorization layer).
+      const authorized = ctx.pipeline.programs({ bountyOnly: false, limit: 200 });
+      const fullAccess = ctx.settings.get().permissions.fullAccess;
+      const active = fullAccess && ctx.settings.get().agents.offensive;
+      if (!authorized.length) {
+        remember(ctx, 'trinity', `Operator armed: ${ks.tools} Kali tools across ${ks.families} capability families and the ethical-hacking methodology are loaded. No authorized in-scope programs yet — waiting for Tom to surface targets.`, ['operator']);
+        return `Armed: ${ks.tools} tools / ${ks.families} families; no authorized targets yet`;
+      }
+      // Prioritise a target Tom newly surfaced, else the first known program. Start lowest-impact.
+      const target = authorized.find((p) => p.isNew) ?? authorized[0];
+      const caps = findCapabilities('OSINT');
+      const first = caps.tools[0];
+      remember(
+        ctx,
+        'trinity',
+        `Testing plan for ${target.name} (${target.handle}) — ${target.url}. Start at the lowest impact: ${caps.families[0]?.name ?? 'Asset discovery & OSINT'} using ${first?.name ?? 'passive recon'} (${first?.impact ?? 'low'} impact), then follow Observe → Model → Hypothesize → Test → Validate → Assess → Report → Learn, staying inside the program's scope. Live active testing is ${active ? 'ENABLED' : 'OFF — planning/passive only until full access + offensive mode are on'}.`,
+        ['plan', target.handle, active ? 'active' : 'passive'],
+      );
+      return `${authorized.length} authorized target(s); next: ${first?.name ?? 'passive recon'} on ${target.handle}${active ? ' — live testing ON' : ' — planning only'}`;
     },
   },
 ];

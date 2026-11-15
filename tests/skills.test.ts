@@ -164,6 +164,8 @@ test('skills: registry only lists real capabilities and reports availability hon
       'obsidian.read',
       'obsidian.search',
       'obsidian.write_note',
+      'security.operate',
+      'security.toolkit',
       'shell.run',
       'system.status',
       'tasks.list',

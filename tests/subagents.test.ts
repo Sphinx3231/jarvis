@@ -17,11 +17,11 @@ test('sub-agents: the roster has colored specialists, each with its own memory',
   const { app, cleanup } = await makeApp();
   try {
     const roster = app.subAgents.list();
-    assert.deepEqual(roster.map((a) => a.id), ['friday', 'tom', 'neo', 'sentinel', 'echo']);
+    assert.deepEqual(roster.map((a) => a.id), ['friday', 'tom', 'neo', 'sentinel', 'echo', 'trinity']);
     assert.deepEqual(
       roster.map((a) => a.color),
-      ['#ef4444', '#22d3ee', '#15803d', '#f59e0b', '#a855f7'],
-      'Friday red, Tom cyan, Neo dark green, Sentinel amber, Echo violet',
+      ['#ef4444', '#22d3ee', '#15803d', '#f59e0b', '#a855f7', '#f43f5e'],
+      'Friday red, Tom cyan, Neo dark green, Sentinel amber, Echo violet, Trinity rose',
     );
     assert.ok(roster.every((a) => a.state === 'idle' && a.runs === 0));
   } finally {

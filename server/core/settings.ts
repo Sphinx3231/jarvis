@@ -103,6 +103,13 @@ export const SettingsSchema = z.object({
     enabled: z.boolean(),
     /** Your running cost so far (model/tools), so Friday can tell whether you're in profit. */
     spendUsd: z.number().min(0).max(1_000_000_000),
+    /**
+     * Offensive testing (Trinity): when on, Jarvis's security operator may send LIVE traffic with
+     * its Kali tools against bug-bounty programs it has verified are in scope. Off by default — this
+     * is the human authorization boundary the methodology requires, not a filter on the model. Also
+     * needs full PC access (permissions.fullAccess) before any active step runs.
+     */
+    offensive: z.boolean(),
   }),
   appearance: z.object({
     reduceMotion: z.boolean(),
@@ -203,7 +210,7 @@ export const DEFAULT_SETTINGS: Settings = {
     tts: { provider: 'browser', voiceId: '' },
   },
   notifications: { desktop: true, taskCompletion: true },
-  agents: { enabled: true, spendUsd: 0 },
+  agents: { enabled: true, spendUsd: 0, offensive: false },
   appearance: { reduceMotion: false, accent: 'violet' },
   integrations: {
     workspaceDir: '',

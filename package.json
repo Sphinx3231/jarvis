@@ -16,7 +16,7 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p web/tsconfig.json",
     "test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 \"tests/**/*.test.ts\"",
     "test:e2e": "node --disable-warning=ExperimentalWarning tests/e2e/ui.e2e.ts && node --disable-warning=ExperimentalWarning tests/e2e/voice.e2e.ts",
-    "build:server": "tsc -p tsconfig.build.json && node -e \"require('fs').copyFileSync('server/llm/claudecode.mjs','dist-server/llm/claudecode.mjs')\"",
+    "build:server": "tsc -p tsconfig.build.json && node -e \"const fs=require('fs');fs.copyFileSync('server/llm/claudecode.mjs','dist-server/llm/claudecode.mjs');fs.mkdirSync('dist-server/agents/knowledge',{recursive:true});for(const f of ['ethical-hacking-kb.md','kali-arsenal.md'])fs.copyFileSync('server/agents/knowledge/'+f,'dist-server/agents/knowledge/'+f)\"",
     "desktop": "npm run build && npm run build:server && electron .",
     "dist": "npm run build && npm run build:server && electron-builder --publish never"
   },
@@ -77,6 +77,7 @@
       "node_modules/onnxruntime-web/dist/ort.node.min.{js,mjs}",
       "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.{mjs,wasm}",
       "docs/*.md",
+      "dist-server/**/*.md",
       "README.md",
       "!node_modules/@anthropic-ai/claude-agent-sdk-*/**",
       "LICENSE",

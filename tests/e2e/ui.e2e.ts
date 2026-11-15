@@ -67,11 +67,13 @@ try {
   const a2 = await coreXform();
   assert.notEqual(a1, a2, 'the idle core animates frame to frame');
   await shot('01-home-idle');
-  // Five sub-agents (Friday, Tom, Neo, Sentinel, Echo) ring the core as labeled satellite nodes.
+  // Six sub-agents (Friday, Tom, Neo, Sentinel, Echo, Trinity) ring the core as labeled satellite nodes.
   await page.locator('.anode').first().waitFor({ timeout: 5000 });
-  assert.equal(await page.locator('.anode').count(), 5, 'five sub-agent nodes surround Jarvis');
+  assert.equal(await page.locator('.anode').count(), 6, 'six sub-agent nodes surround Jarvis');
   await page.locator('.anode', { hasText: 'Friday' }).waitFor();
+  await page.locator('.anode', { hasText: 'Trinity' }).waitFor();
   assert.ok(await page.locator('.agents__row', { hasText: 'Friday' }).count(), 'the Agents card lists Friday');
+  assert.ok(await page.locator('.agents__row', { hasText: 'Trinity' }).count(), 'the Agents card lists Trinity (security operator)');
   step('home renders with the core as a live animating vector, service online');
 
   // Immersive mode: the backslash key makes Jarvis fill the screen.
@@ -138,7 +140,8 @@ try {
   await page.locator('.memory', { hasText: 'I prefer dark roast coffee' }).waitFor();
   await page.getByLabel('Search memories').fill('coffee');
   await page.waitForTimeout(400);
-  assert.equal(await page.locator('.memory').count(), 1);
+  // Search surfaces the relevant memory (hybrid keyword+semantic search may also return related ones).
+  assert.ok(await page.locator('.memory', { hasText: 'I prefer dark roast coffee' }).count(), 'searching finds the coffee memory');
   await page.getByLabel('Search memories').fill('');
   await page.waitForTimeout(400);
   await shot('06-memory');
