@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Skill } from '../skills/types.ts';
 import type { InputResult } from './input.ts';
+import type { IngestResult } from './learning.ts';
 import type { Capability, Observation, Telemetry } from './types.ts';
 import type { ComputerStatus } from './manager.ts';
 
@@ -204,4 +205,50 @@ export const computerControl: Skill<z.infer<typeof ControlInput>, InputResult> =
   describe: (o) => `${o.action}: ${o.detail}${o.verified ? ` — verified ${o.verified.ok ? 'OK' : 'FAILED'} (${o.verified.detail})` : ''}`,
 };
 
-export const computerSkills: Skill[] = [computerCapabilities, computerTelemetry, computerObserve, computerControl];
+// ---------------------------------------------------------------- computer.learn
+
+const LearnInput = z.object({
+  course: z.string().min(1).max(200).describe('The course or source name.'),
+  lesson: z.string().min(1).max(200).describe('The current lesson title.'),
+  lessonNumber: z.number().int().min(1).max(10000).optional(),
+  text: z.string().max(40000).optional().describe('Lesson text. If omitted, Jarvis reads the screen (OCR) to get it.'),
+  captions: z.string().max(40000).optional().describe('Captions/transcript, attributed as captions.'),
+  sourceUrl: z.string().max(1000).optional(),
+});
+
+export const computerLearn: Skill<z.infer<typeof LearnInput>, IngestResult & { observed: boolean }> = {
+  name: 'computer.learn',
+  title: 'Watch and learn from a lesson',
+  description:
+    'Learn from a lesson: take the lesson text (supplied, or read from the screen with OCR), extract definitions, concepts, examples and captions, and store them as persistent, attributed knowledge (FACT / INFERENCE / UNCERTAIN) you can recall later. Requires Computer Access Mode when reading the screen.',
+  category: 'system',
+  scope: 'computer.observe',
+  risk: 'read',
+  idempotent: true,
+  inlineSafe: true,
+  untrustedOutput: true,
+  input: LearnInput,
+  outputDescription: 'What was extracted and stored for this lesson (counts + the notes), with source attribution.',
+  dependsOn: 'Computer Access',
+  timeoutMs: 60_000,
+  availability: (s) => (s.settings.get().computerAccess.enabled ? { available: true } : { available: false, reason: 'Turn on Computer Access (Settings) to let Jarvis watch and learn' }),
+  summarize: (i) => `Learn from "${i.course} — ${i.lesson}"${i.text ? '' : ' (reading the screen)'}`,
+  async execute(input, ctx) {
+    let text = input.text ?? '';
+    let observed = false;
+    if (!text) {
+      const obs = await ctx.services.computer.observe({ ocr: true }, ctx.signal);
+      text = obs.ocr?.text ?? '';
+      observed = true;
+      if (!text) throw new Error(`Could not read the screen to learn from: ${obs.notes.join('; ') || 'no OCR text'}`);
+    }
+    const result = ctx.services.learning.ingestLesson({ course: input.course, lesson: input.lesson, lessonNumber: input.lessonNumber, text, captions: input.captions, sourceUrl: input.sourceUrl });
+    return { ...result, observed };
+  },
+  async verify(_i, out) {
+    return { ok: out.stored > 0, detail: `${out.stored} note(s) stored for ${out.lesson}${out.observed ? ' (from the screen)' : ''}` };
+  },
+  describe: (o) => [`Learned from ${o.course} — ${o.lesson}: ${o.stored} note(s) stored${o.observed ? ' by reading the screen' : ''}.`, ...o.notes.map((n) => `  • [${n.status}] ${n.kind}${n.term ? ` (${n.term})` : ''}: ${n.content}`)].join('\n'),
+};
+
+export const computerSkills: Skill[] = [computerCapabilities, computerTelemetry, computerObserve, computerControl, computerLearn];

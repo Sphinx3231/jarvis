@@ -344,6 +344,25 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
       throw new UserError(errorMessage(err), 400);
     }
   });
+  // Learning pipeline: ingest a lesson's text into persistent, attributed knowledge, and recall it.
+  router.post('/api/computer/learn', ({ body }) => {
+    const b = parse(
+      z.object({
+        course: z.string().min(1).max(200),
+        lesson: z.string().min(1).max(200),
+        lessonNumber: z.number().int().min(1).max(10000).optional(),
+        text: z.string().min(1).max(40000),
+        captions: z.string().max(40000).optional(),
+        sourceUrl: z.string().max(1000).optional(),
+      }),
+      body,
+    );
+    return { result: app.learning.ingestLesson(b) };
+  });
+  router.get('/api/computer/learning', ({ query }) => {
+    const q = query.get('q')?.trim();
+    return q ? { recalled: app.learning.recall(q, { courseSlug: query.get('course') ?? undefined }) } : { courses: app.learning.courses() };
+  });
 
   router.put('/api/integrations/hackerone', ({ body }) => {
     const b = parse(

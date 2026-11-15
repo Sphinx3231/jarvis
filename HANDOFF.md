@@ -20,7 +20,7 @@ for the server — plus `node:sqlite`). Zod v4.
 ```bash
 npm install
 npm run app          # launches server + opens the UI (scripts/launch.ts)
-npm test             # 119 unit + integration tests (node --test, concurrency 1)
+npm test             # 121 unit + integration tests (node --test, concurrency 1)
 npm run build        # builds the web UI (vite → web/dist)
 npm run typecheck    # tsc for server + web
 npm run test:e2e     # Playwright e2e (ui.e2e.ts + voice.e2e.ts); Chromium is pre-installed
@@ -29,7 +29,7 @@ npm run test:e2e     # Playwright e2e (ui.e2e.ts + voice.e2e.ts); Chromium is pr
 E2E screenshots: set `E2E_SCREENSHOTS=<dir>` (and `E2E_SCALE=2` for retina shots). The e2e boots a
 real Jarvis on a temp dir, drives the built UI in Chromium, and asserts real behavior.
 
-**Current status:** typecheck clean · 119/119 tests pass (incl. real X11 integration) · both e2e flows pass.
+**Current status:** typecheck clean · 121/121 tests pass (incl. real X11 integration) · both e2e flows pass.
 
 ---
 
@@ -59,8 +59,10 @@ server/
                           mcp, obsidian (vault sync)
   computer/               Computer Access Mode (see §12): types.ts, exec.ts (run/hasBinary/pngSize),
                           adapters.ts (Linux/Win/macOS telemetry+windows), capture.ts (screenshots),
-                          ocr.ts (tesseract), probe-image.ts (OCR self-test), manager.ts
-                          (ComputerAccessManager: gating, telemetry, observe, verify, STOP), skills.ts
+                          ocr.ts (tesseract), input.ts (xdotool/osascript/PowerShell),
+                          probe-image.ts (OCR self-test), learning.ts (watch-and-learn pipeline),
+                          manager.ts (ComputerAccessManager: gating, telemetry, observe, verify,
+                          control, STOP), skills.ts
   llm/engine.ts           RoamiesEngine: generate()/stream(), model discovery, health
   api/routes.ts           all HTTP routes
 web/src/
@@ -216,14 +218,19 @@ From the user's requests, still open:
      screenshot capture, OCR, active-window + window enumeration, a unified `observe()` API, and
      runtime self-verification probes. Windows/macOS adapters are implemented but **not yet verified on
      real hardware** (reported `unverified`, never `available`, until a probe passes there).
-   - **Still open (next slices):** native **interact/extended** — mouse/keyboard (nut.js),
-     scrolling, window switching, browser control (Phase 4); the **learning pipeline** ("watch this
-     and learn") on the memory store (Phase 5); feed observation to **Neo** + a Computer Access
-     **dashboard/UI** (Phase 3). All native OS interaction must be **tested on the user's Kali/Windows
-     machines** — the capability report stays honest about what is and isn't verified.
+   - **Phase 4 — Native Interaction: ✅ BUILT & integration-tested on Linux/X11** (see §12). Mouse
+     move/click/scroll, type/keys, window switching via xdotool, behind the consequential
+     `computer.control` scope (never auto-allowed). Windows/macOS drivers implemented but `unverified`.
+   - **Phase 5 — Learning pipeline ("watch this and learn"): ✅ BUILT** (see §12). Deterministic
+     extraction of attributed FACT/INFERENCE/UNCERTAIN knowledge into persistent memory; the mandatory
+     course acceptance test passes (persist → **restart** → recall → compare → refuse to invent).
+   - **Still open:** **browser control** (Phase 4b — Playwright/CDP against the logged-in browser via
+     the accessibility tree, never copying cookies/tokens); the Phase 3 **UI** (a Computer Access
+     panel: ON/OFF, level, active app, live state, STOP) + feed observation to **Neo**; verifying the
+     Windows/macOS capture + input paths on **real hardware** (they report `unverified` until then).
 4. **MCP presets** for the above services (optional; MCP client already verified — `tests/mcp.test.ts`).
 
-Suggested order: finish Computer Access (Neo + dashboard, then native interact), or Gmail + PayPal.
+Suggested order: browser control (Phase 4b) + the Computer Access UI/Neo surfacing, or Gmail + PayPal.
 
 ---
 
@@ -1560,7 +1567,7 @@ The ultimate objective is:
   when ON; API `GET /api/computer` and `POST /api/computer/stop`; event `computer.changed`.
 - Tests: `tests/computer.test.ts` (7) — capability honesty, toggle gating, level gating, skill
   availability, permission-engine path, emergency stop, toggle-off abort. Pinned skill list updated in
-  `tests/skills.test.ts`. **119/119 tests pass (incl. real X11 integration), typecheck clean.**
+  `tests/skills.test.ts`. **121/121 tests pass (incl. real X11 integration), typecheck clean.**
 
 **Verified HERE (cloud Linux, headless):** OS/display detection, process telemetry via `ps`, CPU/RAM
 from `node:os`, network counters, gating, STOP/abort, the permission path, the capability report.
@@ -1656,3 +1663,41 @@ observation loop that turns OCR'd lesson text into structured notes (FACT/INFERE
 as memories with source attribution, plus the **mandatory multi-lesson course acceptance test**:
 observe lessons → extract definitions/concepts → persist → restart → recall → compare across lessons →
 refuse to invent absent facts. Then browser control (Phase 4b) and the Phase 3 UI/Neo surfacing.
+
+### Phase 5 — Learning pipeline ("watch this and learn")
+
+`server/computer/learning.ts` — `LearningPipeline`. Turns accessible lesson content (OCR'd screen
+text, captions or supplied text) into discrete, **attributed** knowledge items and stores each as a
+persistent memory. Two honesty guarantees: every item carries its source (course, lesson, time) and a
+status — **FACT** (directly in the source), **INFERENCE** (derived), **UNCERTAIN**; and `recall()`
+only ever returns stored items, so "I didn't find that in the material" is structural — the pipeline
+cannot invent. Extraction is **deterministic** (it parses the lesson's own "Definition:/Key term —
+/Example:/Caption:/Q:" structure), so stored knowledge is genuinely from the source, not a paraphrase.
+New skill `computer.learn` (reads the screen via `observe()` when no text is supplied, then ingests);
+API `POST /api/computer/learn`, `GET /api/computer/learning`.
+
+| Requirement (from the brief) | Status | Evidence |
+|---|---|---|
+| Open/identify the course | ✅ | `courses()` lists learned courses; acceptance test asserts it |
+| Observe multiple lessons | ✅ | 3-lesson course ingested |
+| Extract definitions/concepts/examples | ✅ | deterministic extractor; asserted kinds + FACT/INFERENCE |
+| Structured notes w/ source attribution | ✅ | each note stored with course/lesson/time + status tag |
+| Store in **existing** persistent memory | ✅ | notes are ordinary `memory` rows (tag `learn`), searchable by `memory.search` |
+| **Restart** the app, knowledge survives | ✅ | acceptance test closes the DB and reopens the same dataDir |
+| Answer questions about lessons | ✅ | `recall('photosynthesis')` etc. after restart |
+| Compare concepts across lessons | ✅ | `recall('nucleus')` returns notes from lessons 1 **and** 3 |
+| Identify absent info, do NOT invent | ✅ | `recall('quantum entanglement')` / `'blockchain'` → `[]` |
+
+The mandatory acceptance test is `tests/learning.test.ts` — it is **not** a generated-summary check:
+it persists real rows, restarts the app, and reads them back. Run: `node --test tests/learning.test.ts`.
+
+**Honest limitation:** end-to-end OCR of a *full lesson paragraph* off the screen depends on how the
+course renders text; the observe→OCR step is proven on real screen text and the learn→persist→recall
+pipeline is proven in full, but fidelity on a given real course (fonts, scrolling, video frames)
+should be checked against that course. Supplying accessible text/transcripts (what the brief
+recommends) is exact.
+
+**Next concrete milestone:** Phase 4b browser control (Playwright/CDP against the user's logged-in
+browser — read page text via the accessibility tree, not screen-scraping; never copy cookies/tokens),
+and the Phase 3 UI (a Computer Access panel: ON/OFF, level, active app, live state, STOP) feeding
+observation to the Neo sub-agent.

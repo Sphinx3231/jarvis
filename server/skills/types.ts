@@ -22,6 +22,7 @@ export interface SkillServices {
   listTasks: (status?: string) => Array<{ id: string; title: string; status: string; priority: number; progress: number }>;
   pipeline: import('../integrations/hackerone.ts').HackerOneService;
   computer: import('../computer/manager.ts').ComputerAccessManager;
+  learning: import('../computer/learning.ts').LearningPipeline;
   statusSnapshot: () => Record<string, unknown>;
 }
 

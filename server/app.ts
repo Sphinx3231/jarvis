@@ -17,6 +17,7 @@ import { HackerOneService, hackeroneSkills } from './integrations/hackerone.ts';
 import { FishAudioService } from './integrations/fishaudio.ts';
 import { SubAgentManager } from './agents/subagents.ts';
 import { ComputerAccessManager } from './computer/manager.ts';
+import { LearningPipeline } from './computer/learning.ts';
 import { ObsidianSync, obsidianSkills } from './integrations/obsidian.ts';
 import { ConversationStore } from './intelligence/conversations.ts';
 import { Jarvis } from './intelligence/jarvis.ts';
@@ -79,6 +80,7 @@ export class JarvisApp {
   readonly tts: FishAudioService;
   readonly subAgents: SubAgentManager;
   readonly computer: ComputerAccessManager;
+  readonly learning: LearningPipeline;
   readonly calendar: CalendarService;
   readonly obsidian: ObsidianSync;
   readonly scheduler: Scheduler;
@@ -106,6 +108,7 @@ export class JarvisApp {
     this.tts = new FishAudioService({ settings: this.settings, secrets: this.secrets });
     this.subAgents = new SubAgentManager({ pipeline: this.pipeline, memory: this.memory, tasks: this.tasks, settings: this.settings, secrets: this.secrets, activity: this.activity, bus: this.bus });
     this.computer = new ComputerAccessManager({ settings: this.settings, activity: this.activity, bus: this.bus, shotsDir: () => join(this.dataDir, 'computer', 'shots') });
+    this.learning = new LearningPipeline(this.memory);
     const services: SkillServices = {
       memory: this.memory,
       settings: this.settings,
@@ -116,6 +119,7 @@ export class JarvisApp {
         this.tasks.list({ status: status as TaskStatus | 'active' | undefined, limit: 50 }).map((t) => ({ id: t.id, title: t.title, status: t.status, priority: t.priority, progress: t.progress })),
       pipeline: this.pipeline,
       computer: this.computer,
+      learning: this.learning,
       statusSnapshot: () => this.statusSnapshot(),
     };
     this.registry = new SkillRegistry(services);
