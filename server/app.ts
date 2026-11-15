@@ -105,7 +105,7 @@ export class JarvisApp {
     this.pipeline = new HackerOneService({ settings: this.settings, secrets: this.secrets, db: this.db, activity: this.activity, bus: this.bus });
     this.tts = new FishAudioService({ settings: this.settings, secrets: this.secrets });
     this.subAgents = new SubAgentManager({ pipeline: this.pipeline, memory: this.memory, tasks: this.tasks, settings: this.settings, secrets: this.secrets, activity: this.activity, bus: this.bus });
-    this.computer = new ComputerAccessManager({ settings: this.settings, activity: this.activity, bus: this.bus });
+    this.computer = new ComputerAccessManager({ settings: this.settings, activity: this.activity, bus: this.bus, shotsDir: () => join(this.dataDir, 'computer', 'shots') });
     const services: SkillServices = {
       memory: this.memory,
       settings: this.settings,

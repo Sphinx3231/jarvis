@@ -305,6 +305,28 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
     const b = parse(z.object({ reason: z.string().max(200).optional() }), body ?? {});
     return { status: app.computer.emergencyStop(b.reason ?? 'User pressed STOP') };
   });
+  // Run real capability probes on this machine (capture/OCR/windows) and return the evidence.
+  router.post('/api/computer/verify', async () => ({ probes: await app.computer.verify(), status: app.computer.status() }));
+  // A one-shot observation (gated behind the toggle); text-first, never raw pixels.
+  router.post('/api/computer/observe', async ({ body }) => {
+    const b = parse(
+      z.object({
+        screenshot: z.boolean().optional(),
+        ocr: z.boolean().optional(),
+        ocrWords: z.boolean().optional(),
+        activeWindow: z.boolean().optional(),
+        windows: z.boolean().optional(),
+        region: z.enum(['screen', 'active']).optional(),
+        lang: z.string().max(40).optional(),
+      }),
+      body ?? {},
+    );
+    try {
+      return { observation: await app.computer.observe(b) };
+    } catch (err) {
+      throw new UserError(errorMessage(err), 400);
+    }
+  });
 
   router.put('/api/integrations/hackerone', ({ body }) => {
     const b = parse(

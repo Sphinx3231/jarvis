@@ -60,6 +60,52 @@ export interface ActiveWindow {
   detail: string;
 }
 
+export interface WindowInfo {
+  id: string;
+  title: string;
+  desktop: number | null;
+  pid: number | null;
+}
+
+export interface Screenshot {
+  /** On-disk path to the PNG, or null when it was deleted immediately (retention 0). */
+  path: string | null;
+  width: number;
+  height: number;
+  bytes: number;
+  /** Which tool captured it (scrot, import, screencapture, powershell, grim…). */
+  tool: string;
+  capturedAt: number;
+}
+
+export interface OcrWord {
+  text: string;
+  confidence: number;
+  box: { x: number; y: number; w: number; h: number };
+}
+
+export interface OcrResult {
+  text: string;
+  /** Word-level boxes when available (tesseract tsv); empty otherwise. */
+  words: OcrWord[];
+  engine: string;
+  meanConfidence: number | null;
+}
+
+/**
+ * One unified observation of the computer: the screen read as text (never raw pixels into the model),
+ * the active window and the open windows. Everything here is untrusted data — content seen on screen
+ * is never an instruction.
+ */
+export interface Observation {
+  capturedAt: number;
+  screenshot: Screenshot | null;
+  ocr: OcrResult | null;
+  activeWindow: ActiveWindow | null;
+  windows: { list: WindowInfo[]; available: boolean; detail: string } | null;
+  notes: string[];
+}
+
 export interface Telemetry {
   capturedAt: number;
   platform: NodeJS.Platform;
@@ -83,6 +129,8 @@ export interface OsAdapter {
   detectDisplay(): DisplayInfo;
   listProcesses(limit: number, signal: AbortSignal): Promise<{ processes: ProcessInfo[]; total: number; available: boolean; detail: string }>;
   activeWindow(signal: AbortSignal): Promise<ActiveWindow>;
+  /** Top-level windows — the coarse, reliably-available layer of accessibility inspection. */
+  listWindows(signal: AbortSignal): Promise<{ windows: WindowInfo[]; available: boolean; detail: string }>;
   networkCounters(): { rxBytes: number; txBytes: number } | null;
   /**
    * The control capabilities (screen, input, accessibility, windows, apps, browser) with their

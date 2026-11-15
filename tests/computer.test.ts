@@ -104,6 +104,61 @@ test('computer: telemetry runs through the permission engine (observe scope)', a
   }
 });
 
+test('computer: observe is gated and honest about what this host can do', async () => {
+  const { app, cleanup } = await makeApp();
+  try {
+    await assert.rejects(() => app.computer.observe({ ocr: true }), /Computer Access is off/);
+
+    enable(app);
+    const obs = await app.computer.observe({ ocr: true, activeWindow: true, windows: true });
+    // In a headless container there is no screen to capture — reported as a note, not faked.
+    if (app.computer.display().headless) {
+      assert.equal(obs.screenshot, null);
+      assert.equal(obs.ocr, null);
+      assert.ok(obs.notes.some((n) => /capture unavailable/i.test(n)), obs.notes.join('; '));
+      assert.equal(obs.activeWindow?.available, false);
+      assert.equal(obs.windows?.available, false);
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
+test('computer: verify runs real probes — OCR genuinely works headless here', async () => {
+  const { app, cleanup } = await makeApp();
+  try {
+    const probes = await app.computer.verify();
+    const byId = new Map(probes.map((p) => [p.id, p]));
+    // Real OCR of a known embedded image — this actually runs tesseract and reads "JARVIS".
+    assert.equal(byId.get('screen.ocr')!.ok, true, byId.get('screen.ocr')!.detail);
+    // Headless: capture and window inspection genuinely cannot work, and say so.
+    if (app.computer.display().headless) {
+      assert.equal(byId.get('screen.capture')!.ok, false);
+      assert.equal(byId.get('accessibility')!.ok, false);
+    }
+    // A passed probe upgrades the capability report to "available"; a failed one keeps it honest.
+    const caps = new Map(app.computer.status().capabilities.map((c) => [c.id, c]));
+    assert.equal(caps.get('screen.ocr')!.status, 'available');
+    if (app.computer.display().headless) assert.equal(caps.get('screen.capture')!.status, 'unavailable');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('computer: the observe skill is gated behind the toggle', async () => {
+  const { app, cleanup } = await makeApp();
+  try {
+    const find = () => app.registry.info().find((s) => s.name === 'computer.observe')!;
+    assert.equal(find().available, false);
+    assert.match(find().unavailableReason!, /Turn on Computer Access/);
+    assert.equal(find().untrustedOutput, true);
+    enable(app);
+    assert.equal(find().available, true);
+  } finally {
+    await cleanup();
+  }
+});
+
 test('computer: emergency stop turns access off and aborts in-flight actions', async () => {
   const { app, cleanup } = await makeApp();
   try {

@@ -20,7 +20,7 @@ for the server — plus `node:sqlite`). Zod v4.
 ```bash
 npm install
 npm run app          # launches server + opens the UI (scripts/launch.ts)
-npm test             # 105 unit tests (node --test, concurrency 1)
+npm test             # 113 unit + integration tests (node --test, concurrency 1)
 npm run build        # builds the web UI (vite → web/dist)
 npm run typecheck    # tsc for server + web
 npm run test:e2e     # Playwright e2e (ui.e2e.ts + voice.e2e.ts); Chromium is pre-installed
@@ -29,7 +29,7 @@ npm run test:e2e     # Playwright e2e (ui.e2e.ts + voice.e2e.ts); Chromium is pr
 E2E screenshots: set `E2E_SCREENSHOTS=<dir>` (and `E2E_SCALE=2` for retina shots). The e2e boots a
 real Jarvis on a temp dir, drives the built UI in Chromium, and asserts real behavior.
 
-**Current status:** typecheck clean · 105/105 unit tests pass · both e2e flows pass.
+**Current status:** typecheck clean · 113/113 tests pass (incl. real X11 integration) · both e2e flows pass.
 
 ---
 
@@ -57,8 +57,10 @@ server/
     knowledge/            Trinity's knowledge base (see §5)
   integrations/           email, calendar, hackerone (bug-bounty pipeline), fishaudio (TTS),
                           mcp, obsidian (vault sync)
-  computer/               Computer Access Mode (see §12): types.ts, adapters.ts (Linux/Win/macOS),
-                          manager.ts (ComputerAccessManager: gating, telemetry, STOP), skills.ts
+  computer/               Computer Access Mode (see §12): types.ts, exec.ts (run/hasBinary/pngSize),
+                          adapters.ts (Linux/Win/macOS telemetry+windows), capture.ts (screenshots),
+                          ocr.ts (tesseract), probe-image.ts (OCR self-test), manager.ts
+                          (ComputerAccessManager: gating, telemetry, observe, verify, STOP), skills.ts
   llm/engine.ts           RoamiesEngine: generate()/stream(), model discovery, health
   api/routes.ts           all HTTP routes
 web/src/
@@ -210,12 +212,15 @@ From the user's requests, still open:
    `computer.control`), two skills (`computer.capabilities`, `computer.telemetry`), an emergency STOP
    that flips the setting + aborts in-flight work, an honest capability report, API (`GET /api/computer`,
    `POST /api/computer/stop`) and 7 unit tests.
-   - **Still open (next slices):** feed telemetry to **Neo** + a Computer Access **dashboard/UI**
-     (Phase 3); wire the native **interact/extended** pieces — screen capture, OCR, accessibility,
-     mouse/keyboard (nut.js), window/app/browser control (Phases 1b/4), each flipping its capability
-     from `unavailable` to real; the **learning pipeline** ("watch this and learn") on the memory store
-     (Phase 5). All native OS interaction must be **tested on the user's Kali/Windows machines**, never
-     asserted from the cloud — the capability report is designed to stay honest about this.
+   - **Phase 1b — Native Observation: ✅ BUILT & integration-tested on Linux/X11** (see §12). Real
+     screenshot capture, OCR, active-window + window enumeration, a unified `observe()` API, and
+     runtime self-verification probes. Windows/macOS adapters are implemented but **not yet verified on
+     real hardware** (reported `unverified`, never `available`, until a probe passes there).
+   - **Still open (next slices):** native **interact/extended** — mouse/keyboard (nut.js),
+     scrolling, window switching, browser control (Phase 4); the **learning pipeline** ("watch this
+     and learn") on the memory store (Phase 5); feed observation to **Neo** + a Computer Access
+     **dashboard/UI** (Phase 3). All native OS interaction must be **tested on the user's Kali/Windows
+     machines** — the capability report stays honest about what is and isn't verified.
 4. **MCP presets** for the above services (optional; MCP client already verified — `tests/mcp.test.ts`).
 
 Suggested order: finish Computer Access (Neo + dashboard, then native interact), or Gmail + PayPal.
@@ -1555,7 +1560,7 @@ The ultimate objective is:
   when ON; API `GET /api/computer` and `POST /api/computer/stop`; event `computer.changed`.
 - Tests: `tests/computer.test.ts` (7) — capability honesty, toggle gating, level gating, skill
   availability, permission-engine path, emergency stop, toggle-off abort. Pinned skill list updated in
-  `tests/skills.test.ts`. **105/105 unit tests pass, typecheck clean.**
+  `tests/skills.test.ts`. **113/113 tests pass (incl. real X11 integration), typecheck clean.**
 
 **Verified HERE (cloud Linux, headless):** OS/display detection, process telemetry via `ps`, CPU/RAM
 from `node:os`, network counters, gating, STOP/abort, the permission path, the capability report.
@@ -1569,3 +1574,51 @@ Phase 3 UI (a Computer Access panel on the stage: ON/OFF, level, active app, liv
 telemetry to **Neo**, Phase 4 interact (nut.js mouse/keyboard, the UNDERSTAND→PLAN→…→VERIFY loop),
 Phase 5 the "watch this and learn" pipeline on the existing memory store (learning notes as memories
 tagged `learn:<session>`, FACT/INFERENCE/UNCERTAIN, persistence + retrieval across restart).
+
+### Phase 1b — Native Observation (committed next)
+
+Screenshot capture, OCR, active-window and window enumeration, all by **spawning platform-standard
+tools** (no native node-addons → nothing to ABI-rebuild for Electron; works in the forked server
+process). New files: `server/computer/exec.ts` (run/hasBinary/firstBinary/pngSize),
+`server/computer/capture.ts` (scrot/maim/import/grim · macOS `screencapture` · Windows PowerShell),
+`server/computer/ocr.ts` (system `tesseract`, incl. a self-verification probe),
+`server/computer/probe-image.ts` (embedded "JARVIS" PNG for the OCR probe). `adapters.ts` gained
+`listWindows()` (wmctrl/xdotool · osascript · PowerShell) and a **detection-driven** capability
+report; `manager.ts` gained `observe()` (unified, gated, STOP-abortable, screenshot-retention aware,
+text-first — raw pixels never enter the model) and `verify()` (real probes that upgrade a capability
+to `available` only on a passing probe). New skill `computer.observe`; API `POST /api/computer/verify`
+and `POST /api/computer/observe`.
+
+**Status by capability (be precise when reporting):**
+
+| Capability | Implemented | Unit-tested | Integration-tested (real) | Real hardware | Notes |
+|---|---|---|---|---|---|
+| Screenshot capture (Linux/X11) | ✅ | ✅ | ✅ Xvfb 1024×768 | ⏳ Kali | `scrot`/`maim`/`import` |
+| OCR (tesseract) | ✅ | ✅ (reads embedded probe headless) | ✅ reads real screen text | ⏳ Kali | `apt install tesseract-ocr` |
+| Active window (X11) | ✅ | — | ✅ xterm title via xdotool | ⏳ Kali | `apt install xdotool` |
+| Window list (X11) | ✅ | — | ✅ wmctrl | ⏳ Kali | `apt install wmctrl` |
+| `observe()` gating + STOP | ✅ | ✅ | ✅ (STOP kills in-flight capture) | ⏳ | |
+| Capture/OCR/windows (Windows) | ✅ | — | — | ❌ not verified | PowerShell/tasklist; reported `unverified` |
+| Capture/active-win (macOS) | ✅ | — | — | ❌ not verified | `screencapture`/`osascript`; Screen-Recording perm needed; `unverified` |
+| Wayland capture | ⚠️ grim/gnome-screenshot path only | — | — | ❌ | window list/active-win not exposed under Wayland (honest `unavailable`) |
+| Accessibility *widget tree* (AT-SPI/UIA/AX) | ❌ (top-level windows only = `limited`) | — | — | ❌ | needs native bindings — deferred |
+
+**How it was verified here:** this cloud container is headless Ubuntu 24.04; I `apt install`ed
+tesseract-ocr/xdotool/wmctrl/scrot/openbox, ran the suite, and the integration tests
+(`tests/computer.integration.test.ts`) stand up a real **Xvfb + openbox** session, put known text on
+screen, launch a titled window, and assert real capture (1024×768 PNG), real OCR of the screen
+(reads "PHOTOSYNTHESIS"), the active window, the window list, and that STOP aborts an in-flight
+capture. Reproduce: `node --test tests/computer.integration.test.ts` on a Linux box with those tools
+(self-skips otherwise). **Windows and macOS are implemented but NOT verified** — their capabilities
+report `unverified` until a `verify()` probe passes on that OS.
+
+**Kali install note for real use:** `sudo apt install tesseract-ocr scrot xdotool wmctrl` (X11). The
+capability report's `requires` field names the exact package when something is missing; `POST
+/api/computer/verify` returns per-capability pass/fail evidence from the actual machine.
+
+**Next concrete milestone:** native **interaction** (Phase 4) — a `computer.control`-scoped skill
+family for mouse move/click, keyboard typing, scroll and window switching, behind the `interact`
+level, with the UNDERSTAND→PLAN→CHECK-PERMISSIONS→OBSERVE→ACT→VERIFY loop and real integration tests
+(xdotool-driven click/type against a test X11 app). Then the **learning pipeline** (Phase 5) with the
+mandatory multi-lesson course acceptance test (persist to memory, restart, recall, compare, refuse to
+invent).

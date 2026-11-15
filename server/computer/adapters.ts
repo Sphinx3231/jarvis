@@ -1,44 +1,9 @@
-import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { platform as osPlatform } from 'node:os';
-import type { ActiveWindow, Capability, DisplayInfo, OsAdapter, ProcessInfo } from './types.ts';
-
-/** Run a command (no shell) with a timeout; rejects on spawn error (e.g. the tool isn't installed). */
-function run(cmd: string, args: string[], signal: AbortSignal, timeoutMs = 4000): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    let child: ReturnType<typeof spawn>;
-    try {
-      child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    } catch (err) {
-      reject(err);
-      return;
-    }
-    let stdout = '';
-    let stderr = '';
-    const done = (fn: () => void) => {
-      clearTimeout(timer);
-      signal.removeEventListener('abort', onAbort);
-      fn();
-    };
-    const kill = () => child.kill('SIGTERM');
-    const onAbort = () => done(() => reject(new Error('aborted')));
-    const timer = setTimeout(() => {
-      kill();
-      done(() => reject(new Error(`${cmd} timed out`)));
-    }, timeoutMs);
-    if (signal.aborted) return onAbort();
-    signal.addEventListener('abort', onAbort, { once: true });
-    child.stdout?.on('data', (c: Buffer) => {
-      stdout += c.toString('utf8');
-      if (stdout.length > 500_000) kill();
-    });
-    child.stderr?.on('data', (c: Buffer) => {
-      stderr += c.toString('utf8');
-    });
-    child.on('error', (err) => done(() => reject(err)));
-    child.on('close', (code) => done(() => resolve({ code, stdout, stderr })));
-  });
-}
+import { detectCaptureTool } from './capture.ts';
+import { firstBinary, hasBinary, run } from './exec.ts';
+import { ocrAvailable } from './ocr.ts';
+import type { ActiveWindow, Capability, DisplayInfo, OsAdapter, ProcessInfo, WindowInfo } from './types.ts';
 
 /** Parse `ps -eo pid=,pcpu=,pmem=,comm=` output (Linux & macOS). */
 function parsePs(stdout: string, limit: number): { processes: ProcessInfo[]; total: number } {
@@ -53,34 +18,41 @@ function parsePs(stdout: string, limit: number): { processes: ProcessInfo[]; tot
   return { processes: top, total };
 }
 
-/** The native control capabilities Jarvis does NOT yet have wired, reported honestly per platform. */
-function nativeControlCapabilities(platform: NodeJS.Platform, display: DisplayInfo): Capability[] {
-  const headlessNote = display.headless ? ' No usable display on this host, so this is impossible here regardless.' : '';
-  const accessibilityReq =
-    platform === 'win32'
-      ? 'Windows UI Automation bindings (native module)'
-      : platform === 'darwin'
-        ? 'macOS Accessibility API + granted Accessibility permission'
-        : display.server === 'wayland'
-          ? 'AT-SPI; limited under Wayland'
-          : 'AT-SPI (X11) bindings (native module)';
-  const screenReq = platform === 'darwin' ? 'screen-capture module + granted Screen Recording permission' : 'a screen-capture module (e.g. screenshot-desktop / desktopCapturer)';
+/** Is a window-listing tool present for this platform? (Coarse accessibility.) */
+function windowToolPresent(platform: NodeJS.Platform, display: DisplayInfo): boolean {
+  if (platform === 'win32') return firstBinary(['powershell', 'pwsh']) !== null;
+  if (platform === 'darwin') return hasBinary('osascript');
+  return !display.headless && (hasBinary('wmctrl') || hasBinary('xdotool'));
+}
+
+/**
+ * Report the observe/interact capability surface with its HONEST status on this host, from real
+ * detection (which tools exist, whether there's a display). Things that are merely detected are
+ * reported "unverified" — the ComputerAccessManager upgrades them to "available" only after a live
+ * probe actually succeeds. Interaction capabilities stay "unavailable" until Phase 4 wires them.
+ */
+function observeCapabilities(platform: NodeJS.Platform, display: DisplayInfo): Capability[] {
+  const cap = detectCaptureTool(platform, display);
+  const ocr = ocrAvailable();
+  const winTool = windowToolPresent(platform, display);
   const inputReq = 'a native input module (e.g. nut.js) built for this OS';
-  const base: Array<Omit<Capability, 'status' | 'detail'>> = [
-    { id: 'screen.capture', label: 'Capture the screen', level: 'observe', requires: screenReq },
-    { id: 'screen.ocr', label: 'Read text on screen (OCR)', level: 'observe', requires: 'an OCR engine (tesseract.js or system tesseract)' },
-    { id: 'accessibility', label: 'Read the accessibility tree', level: 'observe', requires: accessibilityReq },
-    { id: 'input.mouse', label: 'Move and click the mouse', level: 'interact', requires: inputReq },
-    { id: 'input.keyboard', label: 'Type on the keyboard', level: 'interact', requires: inputReq },
-    { id: 'window.manage', label: 'Manage windows', level: 'interact', requires: platform === 'win32' ? 'Win32 window APIs' : platform === 'darwin' ? 'AppleScript / AX API' : 'wmctrl/xdotool or a window-manager API' },
-    { id: 'app.manage', label: 'Open and manage apps', level: 'extended', requires: 'OS process/launch control' },
-    { id: 'browser.control', label: 'Drive a browser session', level: 'extended', requires: 'Playwright/CDP against the user’s browser' },
+  const out: Capability[] = [
+    cap
+      ? { id: 'screen.capture', label: 'Capture the screen', level: 'observe', status: 'unverified', detail: `Capture tool detected (${cap.id}). Run a verification or an observation to confirm it works here.`, requires: cap.install }
+      : { id: 'screen.capture', label: 'Capture the screen', level: 'observe', status: 'unavailable', detail: display.headless ? 'No display to capture on this host.' : 'No screenshot tool found.', requires: platform === 'linux' ? 'scrot / maim / imagemagick (X11) or grim (Wayland)' : 'a screen-capture tool' },
+    ocr
+      ? { id: 'screen.ocr', label: 'Read text on screen (OCR)', level: 'observe', status: 'unverified', detail: 'tesseract detected. Run a verification to confirm it reads text here.', requires: 'tesseract-ocr' }
+      : { id: 'screen.ocr', label: 'Read text on screen (OCR)', level: 'observe', status: 'unavailable', detail: 'tesseract is not installed.', requires: 'tesseract-ocr (apt install tesseract-ocr / brew install tesseract)' },
+    winTool
+      ? { id: 'accessibility', label: 'Inspect windows / accessibility', level: 'observe', status: 'limited', detail: 'Top-level window listing is available. The widget-level accessibility tree (AT-SPI / UI Automation / AX) needs native bindings and is not wired yet.', requires: platform === 'win32' ? 'UI Automation bindings for the full tree' : platform === 'darwin' ? 'AX API for the full tree' : 'AT-SPI bindings for the full tree' }
+      : { id: 'accessibility', label: 'Inspect windows / accessibility', level: 'observe', status: 'unavailable', detail: display.headless ? 'No display, so no windows to inspect.' : 'No window tool (wmctrl/xdotool).', requires: 'wmctrl / xdotool (X11)' },
+    { id: 'input.mouse', label: 'Move and click the mouse', level: 'interact', status: 'unavailable', detail: 'Not wired yet (Phase 4).', requires: inputReq },
+    { id: 'input.keyboard', label: 'Type on the keyboard', level: 'interact', status: 'unavailable', detail: 'Not wired yet (Phase 4).', requires: inputReq },
+    { id: 'window.manage', label: 'Manage windows', level: 'interact', status: 'unavailable', detail: 'Not wired yet (Phase 4).', requires: platform === 'win32' ? 'Win32 window APIs' : platform === 'darwin' ? 'AppleScript / AX API' : 'wmctrl/xdotool control' },
+    { id: 'app.manage', label: 'Open and manage apps', level: 'extended', status: 'unavailable', detail: 'Not wired yet (Phase 4).', requires: 'OS process/launch control' },
+    { id: 'browser.control', label: 'Drive a browser session', level: 'extended', status: 'unavailable', detail: 'Not wired yet (Phase 4).', requires: 'Playwright/CDP against the user’s browser' },
   ];
-  return base.map((c) => ({
-    ...c,
-    status: 'unavailable',
-    detail: `Not wired yet — needs ${c.requires}.${headlessNote} Will be enabled and verified on the user’s machine, never asserted from the cloud.`,
-  }));
+  return out;
 }
 
 abstract class BaseAdapter implements OsAdapter {
@@ -89,11 +61,12 @@ abstract class BaseAdapter implements OsAdapter {
   abstract detectDisplay(): DisplayInfo;
   abstract listProcesses(limit: number, signal: AbortSignal): Promise<{ processes: ProcessInfo[]; total: number; available: boolean; detail: string }>;
   abstract activeWindow(signal: AbortSignal): Promise<ActiveWindow>;
+  abstract listWindows(signal: AbortSignal): Promise<{ windows: WindowInfo[]; available: boolean; detail: string }>;
   networkCounters(): { rxBytes: number; txBytes: number } | null {
     return null;
   }
   controlCapabilities(display: DisplayInfo): Capability[] {
-    return nativeControlCapabilities(this.platform, display);
+    return observeCapabilities(this.platform, display);
   }
 }
 
@@ -128,6 +101,24 @@ class LinuxAdapter extends BaseAdapter {
       return { title, app: null, pid: Number.isFinite(pid) ? pid : null, available: true, detail: 'Read via xdotool.' };
     } catch (err) {
       return { title: null, app: null, pid: null, available: false, detail: `Needs xdotool on X11: ${(err as Error).message}` };
+    }
+  }
+  async listWindows(signal: AbortSignal) {
+    const display = this.detectDisplay();
+    if (display.headless) return { windows: [], available: false, detail: 'No display server.' };
+    if (display.server === 'wayland') return { windows: [], available: false, detail: 'Wayland does not expose the window list to other processes.' };
+    try {
+      // `wmctrl -lp` → id, desktop, pid, host, title…
+      const { stdout } = await run('wmctrl', ['-lp'], signal);
+      const windows: WindowInfo[] = [];
+      for (const line of stdout.split('\n')) {
+        const m = line.match(/^(0x[0-9a-fA-F]+)\s+(-?\d+)\s+(\d+)\s+\S+\s+(.*)$/);
+        if (!m) continue;
+        windows.push({ id: m[1], desktop: Number(m[2]), pid: Number(m[3]) || null, title: m[4].trim() });
+      }
+      return { windows, available: true, detail: `${windows.length} window(s) via wmctrl` };
+    } catch (err) {
+      return { windows: [], available: false, detail: `Needs wmctrl on X11: ${(err as Error).message}` };
     }
   }
   networkCounters(): { rxBytes: number; txBytes: number } | null {
@@ -173,6 +164,20 @@ class MacAdapter extends BaseAdapter {
       return { title: null, app: null, pid: null, available: false, detail: `Needs osascript + Automation permission: ${(err as Error).message}` };
     }
   }
+  async listWindows(signal: AbortSignal) {
+    try {
+      const script = 'tell application "System Events" to get name of every application process whose visible is true';
+      const { stdout } = await run('osascript', ['-e', script], signal);
+      const windows: WindowInfo[] = stdout
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((name, i) => ({ id: `app:${i}`, title: name, desktop: null, pid: null }));
+      return { windows, available: windows.length > 0, detail: windows.length > 0 ? `${windows.length} visible app(s) via osascript (app-level only)` : 'osascript returned nothing (grant Automation permission).' };
+    } catch (err) {
+      return { windows: [], available: false, detail: `Needs osascript + Automation permission: ${(err as Error).message}` };
+    }
+  }
 }
 
 class WindowsAdapter extends BaseAdapter {
@@ -189,31 +194,46 @@ class WindowsAdapter extends BaseAdapter {
         const cols = line.match(/"([^"]*)"/g)?.map((c) => c.slice(1, -1));
         if (!cols || cols.length < 5) continue;
         const pid = Number(cols[1]);
-        const memKb = Number(cols[4].replace(/[^\d]/g, ''));
         if (!Number.isFinite(pid)) continue;
-        // tasklist gives no CPU%; memPercent is left null (we only have absolute KB, not total here).
-        rows.push({ pid, name: cols[0], cpu: null, memPercent: null, });
-        void memKb;
+        rows.push({ pid, name: cols[0], cpu: null, memPercent: null });
       }
       return { processes: rows.slice(0, limit), total: rows.length, available: rows.length > 0, detail: rows.length > 0 ? `${rows.length} processes (CPU% needs WMI/PerfCounters)` : 'tasklist returned no rows' };
     } catch (err) {
       return { processes: [], total: 0, available: false, detail: `tasklist unavailable: ${(err as Error).message}` };
     }
   }
+  private shell(): string {
+    return firstBinary(['powershell', 'pwsh']) ?? 'powershell';
+  }
   async activeWindow(signal: AbortSignal): Promise<ActiveWindow> {
-    // Best-effort via PowerShell + Win32 GetForegroundWindow. Honest failure if PowerShell is absent.
     const ps = [
       'Add-Type \'using System;using System.Runtime.InteropServices;using System.Text;public class W{[DllImport("user32.dll")]public static extern IntPtr GetForegroundWindow();[DllImport("user32.dll")]public static extern int GetWindowText(IntPtr h,StringBuilder s,int n);[DllImport("user32.dll")]public static extern int GetWindowThreadProcessId(IntPtr h,out int p);}\';',
       '$h=[W]::GetForegroundWindow();$sb=New-Object System.Text.StringBuilder 512;[void][W]::GetWindowText($h,$sb,512);$p=0;[void][W]::GetWindowThreadProcessId($h,[ref]$p);Write-Output $sb.ToString();Write-Output $p',
     ].join('');
     try {
-      const { stdout } = await run('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], signal, 6000);
+      const { stdout } = await run(this.shell(), ['-NoProfile', '-NonInteractive', '-Command', ps], signal, 8000);
       const lines = stdout.trim().split('\n');
       const pid = Number(lines.at(-1));
       const title = lines.slice(0, -1).join(' ').trim() || null;
       return { title, app: null, pid: Number.isFinite(pid) ? pid : null, available: title !== null, detail: 'Read via PowerShell + GetForegroundWindow (unverified from cloud).' };
     } catch (err) {
       return { title: null, app: null, pid: null, available: false, detail: `Needs PowerShell: ${(err as Error).message}` };
+    }
+  }
+  async listWindows(signal: AbortSignal) {
+    const ps = "Get-Process | Where-Object {$_.MainWindowTitle} | ForEach-Object { \"$($_.Id)`t$($_.MainWindowTitle)\" }";
+    try {
+      const { stdout } = await run(this.shell(), ['-NoProfile', '-NonInteractive', '-Command', ps], signal, 8000);
+      const windows: WindowInfo[] = [];
+      for (const line of stdout.split('\n')) {
+        const [pid, ...rest] = line.trim().split('\t');
+        const title = rest.join(' ').trim();
+        if (!title || !Number.isFinite(Number(pid))) continue;
+        windows.push({ id: `pid:${pid}`, title, desktop: null, pid: Number(pid) });
+      }
+      return { windows, available: windows.length > 0, detail: windows.length > 0 ? `${windows.length} window(s) via PowerShell` : 'no titled windows (unverified from cloud)' };
+    } catch (err) {
+      return { windows: [], available: false, detail: `Needs PowerShell: ${(err as Error).message}` };
     }
   }
 }
