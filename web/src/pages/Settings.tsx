@@ -42,6 +42,7 @@ export function SettingsPage() {
   const integrations = useResource<Integrations>('/api/integrations', ['integrations.changed', 'settings.changed']);
   const about = useResource<About>('/api/about', []);
   const [transcriptionKey, setTranscriptionKey] = useState('');
+  const [fishKey, setFishKey] = useState('');
   if (!settings) return <Loading />;
   const save = (patch: DeepPartial<Settings>) => act(() => api.patch('/api/settings', patch), 'Saved');
   const s = settings;
@@ -155,6 +156,37 @@ export function SettingsPage() {
             </div>
           </Field>
         )}
+        <Field label="Jarvis's voice" hint="Browser uses the computer's built-in speech. Fish Audio gives Jarvis a natural cloud voice (needs a key — put FISH_AUDIO_KEY in your .env, or paste it below).">
+          <select value={s.voice.tts.provider} onChange={(e) => save({ voice: { tts: { provider: e.target.value as 'browser' | 'fish' } } })} aria-label="Voice output">
+            <option value="browser">Browser (built-in)</option>
+            <option value="fish">Fish Audio</option>
+          </select>
+        </Field>
+        {s.voice.tts.provider === 'fish' && (
+          <Field label="Fish Audio voice" hint={`Voice/reference id from fish.audio (empty = account default).${integrations.data?.tts.keyFromEnv ? ' Key loaded from .env.' : ''}`}>
+            <div className="stack">
+              <input
+                defaultValue={s.voice.tts.voiceId}
+                placeholder="e.g. a reference id from fish.audio"
+                aria-label="Fish Audio voice id"
+                onBlur={(e) => e.target.value.trim() !== s.voice.tts.voiceId && save({ voice: { tts: { voiceId: e.target.value.trim() } } })}
+              />
+              {!integrations.data?.tts.keyFromEnv && (
+                <div className="inline">
+                  <input type="password" autoComplete="off" value={fishKey} onChange={(e) => setFishKey(e.target.value)} placeholder={integrations.data?.tts.keySet ? 'Key saved — enter a new one to replace it' : 'Fish Audio API key'} aria-label="Fish Audio API key" />
+                  <Button size="sm" disabled={fishKey.trim().length < 8} onClick={async () => (await act(() => api.put('/api/integrations/voice/tts/key', { key: fishKey.trim() }), 'Key saved securely')) && setFishKey('')}>
+                    Save key
+                  </Button>
+                  {integrations.data?.tts.keySet && (
+                    <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} onClick={() => act(() => api.del('/api/integrations/voice/tts/key'), 'Key removed')}>
+                      Remove
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+          </Field>
+        )}
         <Field label="Speak every reply" hint="Replies to voice commands are always spoken.">
           <Toggle checked={s.voice.autoSpeak} onChange={(v) => save({ voice: { autoSpeak: v } })} disabled={!s.voice.enabled} />
         </Field>
@@ -177,7 +209,7 @@ export function SettingsPage() {
         <Field label="Recognition language">
           <input defaultValue={s.voice.lang} maxLength={20} onBlur={(e) => e.target.value !== s.voice.lang && save({ voice: { lang: e.target.value.trim() || 'en-US' } })} />
         </Field>
-        <Field label="Wake word (“Jarvis, …”)" hint="Keeps the microphone listening while Jarvis is open. Needs browser speech recognition — it never streams audio to a transcription service. Voice can never approve actions.">
+        <Field label="Wake word (“Hey Jarvis…”)" hint="Keeps the microphone listening while Jarvis is open; say “Hey Jarvis”. Needs browser speech recognition (available in the browser app window; the packaged desktop app needs a local recognition service) — it never streams audio to a transcription service. Voice can never approve actions.">
           <Toggle checked={s.voice.wakeWord} onChange={(v) => save({ voice: { wakeWord: v } })} disabled={!s.voice.enabled || voice.inputMethod !== 'browser'} />
         </Field>
         {voiceSupport.synthesis && (

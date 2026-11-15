@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowRight, Brain, CircleCheck, Clock, Cpu, ListChecks, MessageSquarePlus, Mic, SendHorizontal, Sparkles, Square, TriangleAlert, Volume2, Wrench, Zap } from 'lucide-react';
+import { ArrowRight, Brain, CircleCheck, Clock, Cpu, Keyboard, ListChecks, MessageSquarePlus, Mic, SendHorizontal, Sparkles, Square, TriangleAlert, Volume2, Wrench, Zap } from 'lucide-react';
 import { ApprovalsCard } from '../components/Approvals';
 import { Core, CORE_LABEL } from '../components/Core';
 import { Card, Progress } from '../components/ui';
@@ -106,6 +106,7 @@ function Conversation({ messages, sending }: { messages: ChatMessage[]; sending:
 
 function CommandBar({ onSend, sending }: { onSend: (text: string, via: 'text' | 'voice') => void; sending: boolean }) {
   const [text, setText] = useState('');
+  const [typing, setTyping] = useState(false);
   const voice = useVoice();
   const { settings } = useLive();
   const voiceOn = Boolean(settings?.voice.enabled);
@@ -124,41 +125,63 @@ function CommandBar({ onSend, sending }: { onSend: (text: string, via: 'text' | 
     if (heard) onSend(heard, 'voice');
   };
 
+  // Voice-first: the microphone is the primary way in; typing is a fallback a tap away.
+  const voicePrimary = voiceOn && voice.inputMethod !== 'none' && !typing;
+
   return (
     <div className="command">
       {voice.error && <div className="command__note">{voice.error}</div>}
-      <div className={`command__bar ${voice.listening ? 'is-listening' : ''}`}>
-        {voiceOn && voice.inputMethod !== 'none' && (
-          <button className={`command__mic ${voice.listening ? 'is-on' : ''}`} onClick={mic} aria-label={voice.listening ? 'Stop listening' : 'Speak to Jarvis'} title={voice.listening ? 'Stop listening' : 'Speak to Jarvis'}>
-            <Mic size={20} />
+      {voicePrimary ? (
+        <div className={`command__voice ${voice.listening ? 'is-listening' : ''}`}>
+          <button className={`command__talk ${voice.listening ? 'is-on' : ''}`} onClick={mic} aria-label={voice.listening ? 'Stop listening' : 'Talk to Jarvis'}>
+            <Mic size={26} />
           </button>
-        )}
-        <textarea
-          ref={inputRef}
-          className="command__input"
-          rows={1}
-          placeholder={voice.listening ? voice.interim || 'Listening… (pause to finish)' : voice.transcribing ? 'Transcribing…' : 'Tell Jarvis what to do…'}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          aria-label="Message Jarvis"
-          maxLength={20000}
-          autoFocus
-        />
-        {voice.speaking && (
-          <button className="command__stop" onClick={voice.stopSpeaking} aria-label="Stop speaking" title="Stop speaking">
-            <Square size={15} />
+          <div className="command__voicehint">
+            {voice.listening ? voice.interim || 'Listening… (pause to finish)' : voice.transcribing ? 'Transcribing…' : voice.wakeActive ? 'Say “Hey Jarvis”, or tap to talk' : 'Tap to talk'}
+          </div>
+          {voice.speaking && (
+            <button className="command__stop" onClick={voice.stopSpeaking} aria-label="Stop speaking" title="Stop speaking">
+              <Square size={15} />
+            </button>
+          )}
+          <button className="command__type" onClick={() => setTyping(true)} aria-label="Type instead" title="Type instead">
+            <Keyboard size={17} />
           </button>
-        )}
-        <button className="command__send" onClick={submit} disabled={!text.trim() || sending} aria-label="Send">
-          <SendHorizontal size={19} />
-        </button>
-      </div>
+        </div>
+      ) : (
+        <div className={`command__bar ${voice.listening ? 'is-listening' : ''}`}>
+          {voiceOn && voice.inputMethod !== 'none' && (
+            <button className={`command__mic ${voice.listening ? 'is-on' : ''}`} onClick={() => { setTyping(false); void mic(); }} aria-label={voice.listening ? 'Stop listening' : 'Speak to Jarvis'} title={voice.listening ? 'Stop listening' : 'Speak to Jarvis'}>
+              <Mic size={20} />
+            </button>
+          )}
+          <textarea
+            ref={inputRef}
+            className="command__input"
+            rows={1}
+            placeholder={voice.listening ? voice.interim || 'Listening… (pause to finish)' : voice.transcribing ? 'Transcribing…' : 'Tell Jarvis what to do…'}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            aria-label="Message Jarvis"
+            maxLength={20000}
+            autoFocus
+          />
+          {voice.speaking && (
+            <button className="command__stop" onClick={voice.stopSpeaking} aria-label="Stop speaking" title="Stop speaking">
+              <Square size={15} />
+            </button>
+          )}
+          <button className="command__send" onClick={submit} disabled={!text.trim() || sending} aria-label="Send">
+            <SendHorizontal size={19} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -349,7 +372,7 @@ export function HomePage({ status }: { status: StatusResponse | null }) {
     <div className="home">
       <div className={`home__main ${hasConversation ? 'has-conversation' : ''}`}>
         <div className="hero">
-          <Core state={coreState} size={hasConversation ? 92 : 248} reduceMotion={settings?.appearance.reduceMotion} />
+          <Core state={coreState} size={hasConversation ? 128 : 340} reduceMotion={settings?.appearance.reduceMotion} />
           <div className="hero__text">
             <h1 className="hero__title">
               Hello{name ? `, ${name}` : ''}. I’m <span className="accent">Jarvis.</span>
@@ -360,7 +383,7 @@ export function HomePage({ status }: { status: StatusResponse | null }) {
               {CORE_LABEL[coreState]}
               <span className="state-pill__detail">· {statusLine}</span>
               {voice.wakeActive && (
-                <span className="state-pill__detail" title="Wake word is on: say “Jarvis, …”">
+                <span className="state-pill__detail" title="Wake word is on: say “Hey Jarvis…”">
                   · <Volume2 size={12} /> wake word on
                 </span>
               )}

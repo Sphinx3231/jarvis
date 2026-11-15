@@ -100,6 +100,12 @@ Agent roles add a second boundary: the *jarvis* role in chat may only use inline
 - Retrieval = BM25 keyword search (stop words dropped, word forms matched by stem prefix) + cosine similarity over embeddings, weighted by confidence and verification.
 - Embeddings come from the built-in all-MiniLM-L6-v2 model (WebAssembly ONNX runtime, downloaded once from a pinned revision and SHA-256-checked, runs locally) or an OpenAI-compatible endpoint. New memories are embedded within seconds.
 
+## Voice and API keys
+
+Voice is first-class: a **“Hey Jarvis”** wake word (browser `SpeechRecognition` where available), Whisper transcription for input, and spoken replies through the computer's built-in speech **or Fish Audio** (`integrations/fishaudio.ts`, key from the secret store or `.env`, served as MP3 by `/api/voice/speak`). The Home screen is voice-first — a large animated core and a microphone — with a collapsible type-instead fallback.
+
+API keys for Jarvis's own integrations load from a **`.env` file** (`core/env.ts`): `$JARVIS_ENV`, then `<data dir>/.env`, then `./.env`, merged into the environment without overwriting it. The secret store falls back to `.env` for known names (Fish Audio, HackerOne, transcription, email/CalDAV), so a key in `.env` is used everywhere; a key set inside the app (AES-256-GCM encrypted) takes precedence. Model sign-ins stay in Roamies (`~/.gg`), never in Jarvis's `.env`.
+
 ## Security
 
 - Service binds to `127.0.0.1`; requests must carry a loopback `Host` (DNS-rebinding defence), a matching `Origin` if present (CSRF defence) and a per-start random token (embedded in the served page, required for every API call).

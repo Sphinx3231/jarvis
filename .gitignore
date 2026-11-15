@@ -6,3 +6,6 @@ web/dist/
 test-results/
 release/
 dist-server/
+
+# Local API keys — never commit the real .env
+.env

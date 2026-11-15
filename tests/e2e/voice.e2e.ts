@@ -71,7 +71,7 @@ page.on('pageerror', (e) => errors.push(e.message));
 try {
   await page.goto(running.url);
   await page.getByText('Online').waitFor();
-  const mic = page.getByRole('button', { name: 'Speak to Jarvis' });
+  const mic = page.getByRole('button', { name: 'Talk to Jarvis' });
   await mic.click();
   await page.locator('.core--listening').waitFor({ timeout: 5000 });
   console.log('  ✓ microphone recording; core is listening');

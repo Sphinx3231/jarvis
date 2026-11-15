@@ -76,6 +76,12 @@ export const SettingsSchema = z.object({
     pitch: z.number().min(0).max(2),
     lang: z.string().max(20),
     wakeWord: z.boolean(),
+    /** How Jarvis speaks: browser = the computer's built-in voice; fish = Fish Audio (needs a key). */
+    tts: z.object({
+      provider: z.enum(['browser', 'fish']),
+      /** Fish Audio voice/reference id; empty = the account default. */
+      voiceId: z.string().max(120),
+    }),
     /** auto: browser speech recognition where it works, otherwise recorded audio + transcription. */
     inputMode: z.enum(['auto', 'browser', 'transcription']),
     /** openai = the OpenAI API key saved in Roamies; custom = a Whisper-compatible server (e.g. local). */
@@ -182,9 +188,10 @@ export const DEFAULT_SETTINGS: Settings = {
     rate: 1,
     pitch: 1,
     lang: 'en-US',
-    wakeWord: false,
+    wakeWord: true,
     inputMode: 'auto',
     transcription: { service: 'openai', baseUrl: '', model: 'whisper-1' },
+    tts: { provider: 'browser', voiceId: '' },
   },
   notifications: { desktop: true, taskCompletion: true },
   appearance: { reduceMotion: false, accent: 'violet' },

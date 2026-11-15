@@ -36,6 +36,11 @@ export const api = {
     if (!res.ok) throw new ApiError(json?.error ?? `Request failed (${res.status})`, res.status);
     return json as T;
   },
+  postBlob: async (path: string, body: unknown): Promise<Blob> => {
+    const res = await fetch(path, { method: 'POST', headers: { 'x-jarvis-token': token, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) throw new ApiError((await res.json().catch(() => null))?.error ?? `Request failed (${res.status})`, res.status);
+    return res.blob();
+  },
   eventsUrl: () => `/api/events?token=${encodeURIComponent(token)}`,
   hasToken: () => token.length > 0,
 };
@@ -357,6 +362,7 @@ export interface Integrations {
   web: { policy: string; allowPrivateNetwork: boolean };
   shell: { enabled: boolean; policy: string };
   transcription: { service: 'none' | 'openai' | 'custom'; baseUrl: string; model: string; keySet: boolean; available: boolean };
+  tts: { provider: 'browser' | 'fish'; voiceId: string; keySet: boolean; keyFromEnv: boolean; available: boolean };
   email: {
     enabled: boolean;
     address: string;
@@ -471,6 +477,7 @@ export interface Settings {
     wakeWord: boolean;
     inputMode: 'auto' | 'browser' | 'transcription';
     transcription: { service: 'none' | 'openai' | 'custom'; baseUrl: string; model: string };
+    tts: { provider: 'browser' | 'fish'; voiceId: string };
   };
   notifications: { desktop: boolean; taskCompletion: boolean };
   appearance: { reduceMotion: boolean; accent: 'violet' | 'indigo' | 'fuchsia' };

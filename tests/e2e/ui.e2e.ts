@@ -69,6 +69,8 @@ try {
   await shot('01-home-idle');
   step('home renders with the core as a live animating vector, service online');
 
+  // Voice is the primary input now; open the type-instead fallback for the scripted text steps.
+  await page.getByRole('button', { name: 'Type instead' }).click();
   const input = page.getByLabel('Message Jarvis');
   await input.fill('remember that I prefer dark roast coffee');
   await input.press('Enter');

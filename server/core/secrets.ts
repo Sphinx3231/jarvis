@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { Database } from '../db/database.ts';
 import { now } from './util.ts';
+import { resolveEnvSecret } from './env.ts';
 
 /**
  * Encrypted credential storage (AES-256-GCM). The master key comes from JARVIS_MASTER_KEY
@@ -53,14 +54,20 @@ export class SecretStore {
 
   get(name: string): string | undefined {
     const row = this.db.get<{ iv: string; tag: string; data: string }>('SELECT iv, tag, data FROM secrets WHERE name = ?', name);
-    if (!row) return undefined;
+    // A key set inside the app wins; otherwise fall back to one from .env / the environment.
+    if (!row) return resolveEnvSecret(name);
     const decipher = createDecipheriv('aes-256-gcm', this.key, Buffer.from(row.iv, 'base64'));
     decipher.setAuthTag(Buffer.from(row.tag, 'base64'));
     return Buffer.concat([decipher.update(Buffer.from(row.data, 'base64')), decipher.final()]).toString('utf8');
   }
 
   has(name: string): boolean {
-    return Boolean(this.db.get('SELECT 1 FROM secrets WHERE name = ?', name));
+    return Boolean(this.db.get('SELECT 1 FROM secrets WHERE name = ?', name)) || Boolean(resolveEnvSecret(name));
+  }
+
+  /** Whether the value, if any, comes from .env / the environment rather than the encrypted store. */
+  fromEnv(name: string): boolean {
+    return !this.db.get('SELECT 1 FROM secrets WHERE name = ?', name) && Boolean(resolveEnvSecret(name));
   }
 
   delete(name: string): void {

@@ -8,6 +8,7 @@ import { McpServerSchema } from '../core/settings.ts';
 import { errorMessage, UserError } from '../core/util.ts';
 import { TRANSCRIPTION_SECRET } from '../llm/engine.ts';
 import { HACKERONE_SECRET } from '../integrations/hackerone.ts';
+import { FISH_SECRET } from '../integrations/fishaudio.ts';
 import { ROAMIES_REPO_URL } from '../roamies/detect.ts';
 import { EMAIL_SECRET } from '../integrations/email.ts';
 import { CALDAV_SECRET } from '../integrations/calendar.ts';
@@ -104,6 +105,29 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
     } catch (err) {
       throw new UserError(errorMessage(err), 502);
     }
+  });
+  // Fish Audio text-to-speech: returns MP3 bytes for the browser to play.
+  router.post('/api/voice/speak', async ({ res, body }) => {
+    const b = parse(z.object({ text: z.string().min(1).max(4000) }), body);
+    try {
+      const out = await app.tts.synthesize(b.text);
+      res.writeHead(200, { 'content-type': out.mime, 'cache-control': 'no-store', 'content-length': String(out.audio.length) });
+      res.end(out.audio);
+    } catch (err) {
+      throw new UserError(errorMessage(err), 502);
+    }
+  });
+  router.put('/api/integrations/voice/tts/key', ({ body }) => {
+    const b = parse(z.object({ key: z.string().min(8).max(500) }), body);
+    app.secrets.set(FISH_SECRET, b.key.trim());
+    app.activity.log('info', 'integrations', 'Fish Audio API key updated');
+    app.bus.emit('integrations.changed', {});
+    return { ok: true };
+  });
+  router.delete('/api/integrations/voice/tts/key', () => {
+    app.secrets.delete(FISH_SECRET);
+    app.bus.emit('integrations.changed', {});
+    return { ok: true };
   });
   router.get('/api/conversations', () => ({ conversations: app.conversations.list(50) }));
   router.get('/api/conversations/:id/messages', ({ params }) => {
@@ -242,6 +266,7 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
       },
       transcription: { ...s.voice.transcription, keySet: app.secrets.has(TRANSCRIPTION_SECRET), available: Boolean(await app.llm.transcriptionTarget()) },
       hackerone: { ...s.integrations.hackerone, tokenSet: app.pipeline.hasToken(), missing: app.pipeline.missing(), lastCheck: app.pipeline.lastCheck },
+      tts: app.tts.status(),
     };
   });
 

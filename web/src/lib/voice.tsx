@@ -88,6 +88,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const recRef = useRef<Recognition | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const wakeRef = useRef<Recognition | null>(null);
   const wakeHandler = useRef<((command: string) => void) | null>(null);
   const listeningRef = useRef(false);
@@ -102,12 +103,37 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
 
   const stopSpeaking = useCallback(() => {
     if (voiceSupport.synthesis) window.speechSynthesis.cancel();
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
     setSpeaking(false);
   }, []);
 
   const speak = useCallback(
-    (text: string) => {
-      if (!voiceSupport.synthesis || !voiceSettings?.enabled) return;
+    async (text: string) => {
+      if (!voiceSettings?.enabled) return;
+      // Fish Audio: Jarvis replies in his own voice; fall back to the browser voice if it fails.
+      if (voiceSettings.tts?.provider === 'fish') {
+        stopSpeaking();
+        try {
+          const blob = await api.postBlob('/api/voice/speak', { text: cleanForSpeech(text) });
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio(url);
+          audioRef.current = audio;
+          audio.onplay = () => setSpeaking(true);
+          audio.onended = () => {
+            setSpeaking(false);
+            URL.revokeObjectURL(url);
+          };
+          audio.onerror = () => setSpeaking(false);
+          await audio.play();
+          return;
+        } catch (err) {
+          setError(`Fish Audio voice failed: ${(err as Error).message}. Using the browser voice.`);
+        }
+      }
+      if (!voiceSupport.synthesis) return;
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(cleanForSpeech(text));
       const voice = voices.find((v) => v.name === voiceSettings.voiceName);
@@ -120,7 +146,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
       u.onerror = () => setSpeaking(false);
       window.speechSynthesis.speak(u);
     },
-    [voiceSettings, voices],
+    [voiceSettings, voices, stopSpeaking],
   );
 
   const stopListening = useCallback(() => {

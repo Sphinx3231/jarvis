@@ -1166,6 +1166,69 @@ button.chip:hover {
   color: var(--warning);
   margin: 0 0 8px 8px;
 }
+.command__voice {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px 10px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+}
+.command__voice.is-listening {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+.command__talk {
+  flex: none;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  border: 0;
+  cursor: pointer;
+  background: radial-gradient(circle at 50% 35%, var(--accent), var(--accent-deep));
+  box-shadow: 0 6px 20px rgba(124, 58, 237, 0.4);
+  transition: transform 0.15s;
+}
+.command__talk:hover {
+  transform: scale(1.05);
+}
+.command__talk.is-on {
+  animation: talk-pulse 1.3s ease-in-out infinite;
+}
+@keyframes talk-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-soft), 0 6px 20px rgba(124, 58, 237, 0.4); }
+  50% { box-shadow: 0 0 0 10px transparent, 0 6px 20px rgba(124, 58, 237, 0.4); }
+}
+.command__voicehint {
+  flex: 1;
+  color: var(--text-dim);
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.command__type {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.command__type:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+@media (prefers-reduced-motion: reduce) {
+  .command__talk.is-on { animation: none; }
+}
+
 .command__bar {
   display: flex;
   align-items: center;

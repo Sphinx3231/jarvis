@@ -14,6 +14,7 @@ import { McpManager } from './integrations/mcp.ts';
 import { CalendarService, calendarSkills } from './integrations/calendar.ts';
 import { EmailService, emailSkills } from './integrations/email.ts';
 import { HackerOneService, hackeroneSkills } from './integrations/hackerone.ts';
+import { FishAudioService } from './integrations/fishaudio.ts';
 import { ObsidianSync, obsidianSkills } from './integrations/obsidian.ts';
 import { ConversationStore } from './intelligence/conversations.ts';
 import { Jarvis } from './intelligence/jarvis.ts';
@@ -73,6 +74,7 @@ export class JarvisApp {
   readonly mcp: McpManager;
   readonly email: EmailService;
   readonly pipeline: HackerOneService;
+  readonly tts: FishAudioService;
   readonly calendar: CalendarService;
   readonly obsidian: ObsidianSync;
   readonly scheduler: Scheduler;
@@ -97,6 +99,7 @@ export class JarvisApp {
     this.permissions = new PermissionEngine(this.db, this.settings, this.bus, this.activity);
 
     this.pipeline = new HackerOneService({ settings: this.settings, secrets: this.secrets, db: this.db, activity: this.activity, bus: this.bus });
+    this.tts = new FishAudioService({ settings: this.settings, secrets: this.secrets });
     const services: SkillServices = {
       memory: this.memory,
       settings: this.settings,

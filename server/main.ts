@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { JarvisApp, VERSION } from './app.ts';
 import { createJarvisServer } from './api/server.ts';
 import { acquireInstanceLock } from './core/instance-lock.ts';
+import { loadEnvFiles } from './core/env.ts';
 import { mkdirSync } from 'node:fs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -29,6 +30,9 @@ export interface RunningJarvis {
 
 export async function startJarvis(opts: StartOptions = {}): Promise<RunningJarvis> {
   const dataDir = resolve(opts.dataDir ?? process.env.JARVIS_DATA_DIR ?? join(homedir(), '.jarvis'));
+  // API keys live in a .env file (Fish Audio, HackerOne, transcription, email/calendar). Load it first.
+  const env = loadEnvFiles(dataDir);
+  if (env.keys.length && !opts.quiet) console.log(`  Loaded ${env.keys.length} key(s) from ${env.files.join(', ')}`);
   const port = opts.port ?? Number(process.env.JARVIS_PORT ?? 7777);
   const dev = opts.dev ?? process.env.JARVIS_DEV === '1';
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
