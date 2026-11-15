@@ -161,6 +161,8 @@ test('skills: registry only lists real capabilities and reports availability hon
       'hackerone.earnings',
       'hackerone.programs',
       'hackerone.reports',
+      'hackerone.scopes',
+      'hackerone.submit_report',
       'llm.generate',
       'memory.forget',
       'memory.remember',

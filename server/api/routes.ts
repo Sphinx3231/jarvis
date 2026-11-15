@@ -285,6 +285,12 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
     if (!r.ok && app.pipeline.missing()) throw new UserError(r.detail, 400);
     return { ...r, pipeline: app.pipeline.summary() };
   });
+  router.get('/api/pipeline/scopes', async ({ query }) => {
+    const handle = query.get('program');
+    if (!handle) throw new UserError('program is required');
+    return { program: handle, scopes: query.get('refresh') === 'true' ? (await app.pipeline.syncScopes(handle), app.pipeline.scopes(handle)) : await app.pipeline.ensureScopes(handle) };
+  });
+  router.get('/api/pipeline/submissions', ({ query }) => ({ submissions: app.pipeline.submissions(Number(query.get('limit') ?? 50)) }));
   // ------------------------------------------------------------------ sub-agents
   router.get('/api/subagents', () => ({ agents: app.subAgents.list(), enabled: app.settings.get().agents.enabled, spendUsd: app.settings.get().agents.spendUsd }));
   router.post('/api/subagents/:id/run', async ({ params }) => {

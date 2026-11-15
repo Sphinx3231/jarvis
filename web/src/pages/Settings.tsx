@@ -439,6 +439,28 @@ export function SettingsPage() {
           <Toggle checked={s.agents.offensive} onChange={(v) => save({ agents: { offensive: v } })} ariaLabel="Allow live offensive testing" />
         </Field>
         {s.agents.offensive && !s.permissions.fullAccess && <p className="muted small fullaccess-hint">Offensive mode is on, but live testing also needs <strong>full PC access</strong> (Permissions, above). Until then Trinity plans only.</p>}
+        <div className={`fullaccess ${s.agents.autoSubmit ? 'is-on' : ''}`}>
+          <div className="fullaccess__row">
+            <div>
+              <div className="fullaccess__title">Autonomous report submission</div>
+              <div className="muted small">
+                When on — and only with <strong>Full access</strong> and <strong>Offensive mode</strong> also on — Jarvis may submit bug-bounty reports to in-scope programs <strong>on its own, without asking each time</strong>. Every submission is still checked against the program’s eligible scope (an out-of-scope report is never sent) and recorded in the audit trail. This is the “ship it without telling me” switch.
+              </div>
+            </div>
+            <Toggle
+              checked={s.agents.autoSubmit}
+              onChange={(v) => {
+                if (v && !window.confirm('Let Jarvis submit bug-bounty reports autonomously, without asking each time? It will still refuse out-of-scope assets and log everything, but reports will be sent to programs without your per-report approval.')) return;
+                save({ agents: { autoSubmit: v } });
+              }}
+              ariaLabel="Autonomous report submission"
+            />
+          </div>
+          {s.agents.autoSubmit && (!s.permissions.fullAccess || !s.agents.offensive) && (
+            <div className="fullaccess__banner">⚠ Auto-submit is on but inactive — it also needs {[!s.permissions.fullAccess ? 'Full access' : null, !s.agents.offensive ? 'Offensive mode' : null].filter(Boolean).join(' and ')}. Until then every autonomous report is held.</div>
+          )}
+          {s.agents.autoSubmit && s.permissions.fullAccess && s.agents.offensive && <div className="fullaccess__banner">● Autonomous submission is LIVE — in-scope reports will be sent without asking. Scope is still enforced; see the audit trail on the Pipeline page.</div>}
+        </div>
       </Card>
 
       <Card title="About" icon={<Info size={18} />}>

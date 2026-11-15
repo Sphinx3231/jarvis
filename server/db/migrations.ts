@@ -277,4 +277,42 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_h1_reports_state ON h1_reports (state);
     `,
   },
+  {
+    version: 6,
+    sql: `
+      -- Structured scopes per program (what is in scope), so a report is only ever submitted
+      -- against an asset the program marks eligible. The in-scope gate fails closed: no stored
+      -- eligible scope means no autonomous submission.
+      CREATE TABLE h1_scopes (
+        program TEXT NOT NULL,
+        identifier TEXT NOT NULL,
+        asset_type TEXT,
+        eligible INTEGER NOT NULL DEFAULT 0,
+        max_severity TEXT,
+        instruction TEXT,
+        raw TEXT,
+        synced_at INTEGER NOT NULL,
+        PRIMARY KEY (program, identifier)
+      );
+      -- Every submission attempt, autonomous or not, with the scope decision and outcome: the audit
+      -- trail the user reviews. A held (out-of-scope / unauthorized) attempt is recorded, never sent.
+      CREATE TABLE h1_submissions (
+        id TEXT PRIMARY KEY,
+        program TEXT NOT NULL,
+        title TEXT NOT NULL,
+        asset TEXT,
+        severity TEXT,
+        scope_ok INTEGER NOT NULL,
+        scope_reason TEXT,
+        autonomous INTEGER NOT NULL DEFAULT 0,
+        submitted INTEGER NOT NULL DEFAULT 0,
+        report_id TEXT,
+        report_url TEXT,
+        error TEXT,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX idx_h1_scopes_program ON h1_scopes (program);
+      CREATE INDEX idx_h1_submissions_created ON h1_submissions (created_at);
+    `,
+  },
 ];

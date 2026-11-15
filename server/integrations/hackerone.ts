@@ -3,7 +3,7 @@ import type { Database } from '../db/database.ts';
 import type { EventBus } from '../core/events.ts';
 import type { SecretStore } from '../core/secrets.ts';
 import type { Settings, SettingsStore } from '../core/settings.ts';
-import { errorMessage, now } from '../core/util.ts';
+import { errorMessage, newId, now } from '../core/util.ts';
 import type { ActivityLog } from '../core/activity.ts';
 import type { Skill } from '../skills/types.ts';
 
@@ -45,6 +45,63 @@ export interface ReportRow {
   bounty: number | null;
   currency: string | null;
   createdAt: number | null;
+}
+
+export type Severity = 'none' | 'low' | 'medium' | 'high' | 'critical';
+export const SEVERITIES: Severity[] = ['none', 'low', 'medium', 'high', 'critical'];
+
+export interface ScopeRow {
+  program: string;
+  identifier: string;
+  assetType: string | null;
+  eligible: boolean;
+  maxSeverity: string | null;
+  instruction: string | null;
+}
+
+export interface SubmissionRow {
+  id: string;
+  program: string;
+  title: string;
+  asset: string | null;
+  severity: string | null;
+  scopeOk: boolean;
+  scopeReason: string | null;
+  autonomous: boolean;
+  submitted: boolean;
+  reportId: string | null;
+  reportUrl: string | null;
+  error: string | null;
+  createdAt: number;
+}
+
+export interface SubmitInput {
+  program: string;
+  title: string;
+  vulnerabilityInformation: string;
+  severity: Severity;
+  /** The asset the finding is on (domain, URL, package id…). Checked against the program's eligible scope. */
+  asset: string;
+  impact?: string;
+  weaknessId?: number;
+  structuredScopeId?: string;
+}
+
+export interface SubmitResult {
+  ok: boolean;
+  /** True when the submission was recorded but deliberately NOT sent (out of scope / not authorized). */
+  held: boolean;
+  reason: string;
+  reportId: string | null;
+  url: string | null;
+  matchedScope: string | null;
+  auditId: string;
+}
+
+export interface ScopeDecision {
+  ok: boolean;
+  matched: string | null;
+  reason: string;
 }
 
 export interface PipelineSummary {
@@ -438,6 +495,226 @@ export class HackerOneService {
       programs: { total: programsTotal, bountyPaying, newCount: discovered.length, discovered },
     };
   }
+
+  // ---------------------------------------------------------------- structured scopes (what is in scope)
+
+  private async post(path: string, body: unknown, signal?: AbortSignal): Promise<JsonApiItem> {
+    const url = `${this.baseUrl()}${path}`;
+    let res: Response;
+    try {
+      res = await this.fetchImpl(url, {
+        method: 'POST',
+        headers: { authorization: this.authHeader(), 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify(body),
+        signal: signal ?? AbortSignal.timeout(30_000),
+      });
+    } catch (err) {
+      throw new Error(`Cannot reach HackerOne: ${errorMessage(err)}`);
+    }
+    const text = await res.text();
+    if (res.status === 401) throw new Error('HackerOne rejected your username or API token (401).');
+    if (res.status === 403) throw new Error('HackerOne denied access (403). Your account may lack permission to submit to this program.');
+    if (res.status === 429) throw new Error('HackerOne rate limit reached (429). Try again shortly.');
+    if (!res.ok) throw new Error(`HackerOne API error (HTTP ${res.status}): ${text.slice(0, 300)}`);
+    let parsed: { data?: JsonApiItem } | JsonApiItem;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      throw new Error('HackerOne returned a response that was not JSON.');
+    }
+    return (parsed as { data?: JsonApiItem }).data ?? (parsed as JsonApiItem);
+  }
+
+  /** Fetch and store a program's structured scopes. */
+  async syncScopes(handle: string, signal?: AbortSignal): Promise<number> {
+    const h = handle.trim().toLowerCase();
+    const items = await this.getAll(`/programs/${encodeURIComponent(h)}/structured_scopes`, { max: 1000, signal });
+    const ts = now();
+    let n = 0;
+    for (const it of items) {
+      const identifier = str(pick(it, 'attributes.asset_identifier', 'attributes.identifier'));
+      if (!identifier) continue;
+      this.db.run(
+        `INSERT INTO h1_scopes (program, identifier, asset_type, eligible, max_severity, instruction, raw, synced_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(program, identifier) DO UPDATE SET asset_type = excluded.asset_type, eligible = excluded.eligible, max_severity = excluded.max_severity, instruction = excluded.instruction, raw = excluded.raw, synced_at = excluded.synced_at`,
+        h,
+        identifier,
+        str(pick(it, 'attributes.asset_type')),
+        pick(it, 'attributes.eligible_for_submission') === true ? 1 : 0,
+        str(pick(it, 'attributes.max_severity')),
+        str(pick(it, 'attributes.instruction'))?.slice(0, 2000) ?? null,
+        JSON.stringify(it.attributes ?? {}),
+        ts,
+      );
+      n++;
+    }
+    this.bus.emit('pipeline.updated', {});
+    return n;
+  }
+
+  /** Scopes known for a program (optionally refreshing when we have none or they are stale). */
+  async ensureScopes(handle: string, signal?: AbortSignal): Promise<ScopeRow[]> {
+    const h = handle.trim().toLowerCase();
+    const fresh = this.db.get<{ n: number; newest: number }>('SELECT COUNT(*) AS n, MAX(synced_at) AS newest FROM h1_scopes WHERE program = ?', h);
+    const stale = !fresh || fresh.n === 0 || now() - Number(fresh.newest ?? 0) > 6 * 3_600_000;
+    if (stale) await this.syncScopes(h, signal).catch(() => {});
+    return this.scopes(h);
+  }
+
+  scopes(handle: string): ScopeRow[] {
+    return this.db
+      .all<Record<string, unknown>>('SELECT * FROM h1_scopes WHERE program = ? ORDER BY eligible DESC, identifier ASC', handle.trim().toLowerCase())
+      .map((r) => ({
+        program: String(r.program),
+        identifier: String(r.identifier),
+        assetType: (r.asset_type as string | null) ?? null,
+        eligible: Number(r.eligible) === 1,
+        maxSeverity: (r.max_severity as string | null) ?? null,
+        instruction: (r.instruction as string | null) ?? null,
+      }));
+  }
+
+  private static hostOf(asset: string): string | null {
+    const a = asset.trim();
+    if (!a) return null;
+    try {
+      return new URL(a.includes('://') ? a : `https://${a}`).hostname.toLowerCase();
+    } catch {
+      return a.toLowerCase();
+    }
+  }
+
+  /** Does `asset` match an in-scope identifier? Exact, host, and wildcard (*.example.com) matching. */
+  private static matchScope(identifier: string, asset: string): boolean {
+    const idL = identifier.trim().toLowerCase();
+    const assetL = asset.trim().toLowerCase();
+    if (!idL || !assetL) return false;
+    if (idL === assetL) return true;
+    const aHost = HackerOneService.hostOf(asset);
+    const iHost = HackerOneService.hostOf(identifier);
+    const wildcard = idL.startsWith('*.') ? idL.slice(2) : iHost && iHost.startsWith('*.') ? iHost.slice(2) : null;
+    if (wildcard) return Boolean(aHost) && (aHost === wildcard || aHost!.endsWith(`.${wildcard}`));
+    if (iHost && aHost) return iHost === aHost;
+    return false;
+  }
+
+  /**
+   * The in-scope gate. Fails CLOSED: if we have no eligible scope for the program, nothing is in
+   * scope. This is the hard boundary that keeps autonomous submission inside a program's rules.
+   */
+  inScope(handle: string, asset: string): ScopeDecision {
+    const h = handle.trim().toLowerCase();
+    const eligible = this.scopes(h).filter((s) => s.eligible);
+    if (!eligible.length) return { ok: false, matched: null, reason: `No eligible in-scope assets are known for "${h}". Sync the program's scopes before submitting.` };
+    for (const s of eligible) {
+      if (HackerOneService.matchScope(s.identifier, asset)) return { ok: true, matched: s.identifier, reason: `"${asset}" matches in-scope asset "${s.identifier}".` };
+    }
+    return { ok: false, matched: null, reason: `"${asset}" is not in "${h}"'s eligible scope (${eligible.length} in-scope asset(s)).` };
+  }
+
+  private recordSubmission(row: Omit<SubmissionRow, 'createdAt'>): void {
+    this.db.run(
+      `INSERT INTO h1_submissions (id, program, title, asset, severity, scope_ok, scope_reason, autonomous, submitted, report_id, report_url, error, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      row.id,
+      row.program,
+      row.title,
+      row.asset,
+      row.severity,
+      row.scopeOk ? 1 : 0,
+      row.scopeReason,
+      row.autonomous ? 1 : 0,
+      row.submitted ? 1 : 0,
+      row.reportId,
+      row.reportUrl,
+      row.error,
+      now(),
+    );
+    this.bus.emit('pipeline.updated', {});
+  }
+
+  submissions(limit = 50): SubmissionRow[] {
+    return this.db.all<Record<string, unknown>>('SELECT * FROM h1_submissions ORDER BY created_at DESC LIMIT ?', Math.min(limit, 200)).map((r) => ({
+      id: String(r.id),
+      program: String(r.program),
+      title: String(r.title),
+      asset: (r.asset as string | null) ?? null,
+      severity: (r.severity as string | null) ?? null,
+      scopeOk: Number(r.scope_ok) === 1,
+      scopeReason: (r.scope_reason as string | null) ?? null,
+      autonomous: Number(r.autonomous) === 1,
+      submitted: Number(r.submitted) === 1,
+      reportId: (r.report_id as string | null) ?? null,
+      reportUrl: (r.report_url as string | null) ?? null,
+      error: (r.error as string | null) ?? null,
+      createdAt: Number(r.created_at),
+    }));
+  }
+
+  /**
+   * Submit a report to a program. Two hard gates, both fail closed:
+   *   1. autonomous submission requires Full access + Offensive mode + Auto-submit all on;
+   *   2. the asset must be in the program's eligible scope.
+   * A blocked attempt is RECORDED (for the audit trail) but never sent. Nothing here is a model
+   * guardrail — this is the authorization layer that keeps the traffic legitimate.
+   */
+  async submitReport(input: SubmitInput, opts: { autonomous?: boolean; signal?: AbortSignal } = {}): Promise<SubmitResult> {
+    const missing = this.missing();
+    if (missing) throw new Error(missing);
+    const handle = input.program.trim().toLowerCase();
+    const auditId = newId('sub');
+    const base = { id: auditId, program: handle, title: input.title.slice(0, 300), asset: input.asset, severity: input.severity, autonomous: Boolean(opts.autonomous), reportId: null, reportUrl: null } as const;
+
+    // Authorized target: must be a program Jarvis discovered in the pipeline.
+    if (!this.db.get<{ handle: string }>('SELECT handle FROM h1_programs WHERE handle = ?', handle)) {
+      this.recordSubmission({ ...base, scopeOk: false, scopeReason: 'unknown program', submitted: false, error: `"${handle}" is not a program in your pipeline.` });
+      return { ok: false, held: true, reason: `"${handle}" is not a program in your pipeline (sync it first).`, reportId: null, url: null, matchedScope: null, auditId };
+    }
+
+    // Gate 1 — autonomous authorization.
+    if (opts.autonomous) {
+      const cfg = this.settings.get();
+      if (!(cfg.permissions.fullAccess && cfg.agents.offensive && cfg.agents.autoSubmit)) {
+        const reason = 'Autonomous submission needs Full access + Offensive mode + Auto-submit all ON.';
+        this.recordSubmission({ ...base, scopeOk: false, scopeReason: reason, submitted: false, error: `held: ${reason}` });
+        this.activity.log('warning', 'pipeline', `Held an autonomous report for ${handle}: ${reason}`);
+        return { ok: false, held: true, reason, reportId: null, url: null, matchedScope: null, auditId };
+      }
+    }
+
+    // Gate 2 — in scope (always, fail closed).
+    await this.ensureScopes(handle, opts.signal).catch(() => {});
+    const scope = this.inScope(handle, input.asset);
+    if (!scope.ok) {
+      this.recordSubmission({ ...base, scopeOk: false, scopeReason: scope.reason, submitted: false, error: `held: out of scope` });
+      this.activity.log('warning', 'pipeline', `Held a report for ${handle} — out of scope: ${scope.reason}`);
+      return { ok: false, held: true, reason: scope.reason, reportId: null, url: null, matchedScope: null, auditId };
+    }
+
+    // Submit.
+    try {
+      const attributes: Record<string, unknown> = {
+        team_handle: handle,
+        title: input.title.slice(0, 300),
+        vulnerability_information: input.vulnerabilityInformation,
+        severity_rating: input.severity,
+      };
+      if (input.impact) attributes.impact = input.impact;
+      if (input.structuredScopeId) attributes.structured_scope_id = input.structuredScopeId;
+      if (typeof input.weaknessId === 'number') attributes.weakness_id = input.weaknessId;
+      const created = await this.post('/reports', { data: { type: 'report', attributes } }, opts.signal);
+      const reportId = str(created.id);
+      const url = reportId ? `https://hackerone.com/reports/${reportId}` : null;
+      this.recordSubmission({ ...base, scopeOk: true, scopeReason: scope.reason, submitted: true, reportId, reportUrl: url, error: null });
+      this.activity.log('success', 'pipeline', `Submitted a report to ${handle}${opts.autonomous ? ' (autonomous)' : ''}: "${input.title.slice(0, 80)}"${reportId ? ` → #${reportId}` : ''}`);
+      return { ok: true, held: false, reason: `Submitted to ${handle} (in scope: ${scope.matched}).`, reportId, url, matchedScope: scope.matched, auditId };
+    } catch (err) {
+      const msg = errorMessage(err);
+      this.recordSubmission({ ...base, scopeOk: true, scopeReason: scope.reason, submitted: false, error: msg });
+      throw new Error(msg);
+    }
+  }
 }
 
 // ---------------------------------------------------------------- skills
@@ -534,5 +811,67 @@ export function hackeroneSkills(h1: HackerOneService): Skill[] {
       ].join('\n'),
   };
 
-  return [programs, earnings, reports];
+  const ScopesInput = z.object({
+    program: z.string().min(1).max(120).describe('Program handle'),
+    refresh: z.boolean().optional().describe('Force a fresh fetch from HackerOne'),
+  });
+  const scopes: Skill<z.infer<typeof ScopesInput>, { program: string; scopes: ScopeRow[] }> = {
+    name: 'hackerone.scopes',
+    title: 'Program scope',
+    description: "List a program's in-scope and out-of-scope assets — what you may test and report against. Used to check a finding is in scope before submitting.",
+    category: 'pipeline',
+    scope: 'hackerone.read',
+    risk: 'read',
+    idempotent: true,
+    inlineSafe: true,
+    untrustedOutput: true,
+    input: ScopesInput,
+    outputDescription: "The program's structured scopes, eligible (in-scope) first.",
+    timeoutMs: 20_000,
+    dependsOn: 'HackerOne',
+    availability: available,
+    summarize: (i) => `Show the scope of ${i.program}`,
+    execute: async (i) => ({ program: i.program, scopes: i.refresh ? (await h1.syncScopes(i.program), h1.scopes(i.program)) : await h1.ensureScopes(i.program) }),
+    async verify(_i, o) {
+      return { ok: Array.isArray(o.scopes), detail: `${o.scopes.filter((s) => s.eligible).length} in scope, ${o.scopes.length} total` };
+    },
+    describe: (o) => (o.scopes.length ? o.scopes.map((s) => `${s.eligible ? '✓ in scope ' : '✗ out of scope'} ${s.identifier}${s.assetType ? ` [${s.assetType}]` : ''}${s.maxSeverity ? ` (max ${s.maxSeverity})` : ''}`).join('\n') : `No scopes known for ${o.program} yet.`),
+  };
+
+  const SubmitInputSchema = z.object({
+    program: z.string().min(1).max(120).describe('Program handle (must be a program in your pipeline)'),
+    title: z.string().min(3).max(300),
+    vulnerabilityInformation: z.string().min(10).max(50_000).describe('Full writeup: summary, steps to reproduce, proof of concept, impact and remediation'),
+    severity: z.enum(['none', 'low', 'medium', 'high', 'critical']),
+    asset: z.string().min(1).max(500).describe('The affected asset (domain, URL or package id). Checked against the program scope before anything is sent.'),
+    impact: z.string().max(5000).optional(),
+    weaknessId: z.number().int().optional(),
+    structuredScopeId: z.string().max(60).optional(),
+  });
+  const submit: Skill<z.infer<typeof SubmitInputSchema>, SubmitResult> = {
+    name: 'hackerone.submit_report',
+    title: 'Submit a bug-bounty report',
+    description:
+      "Submit a vulnerability report to a HackerOne program. The affected asset is checked against the program's eligible scope first, and an out-of-scope report is never sent. Consequential: it always needs your approval (or Full access).",
+    category: 'pipeline',
+    scope: 'hackerone.submit',
+    risk: 'consequential',
+    idempotent: false,
+    inlineSafe: false,
+    untrustedOutput: false,
+    input: SubmitInputSchema,
+    outputDescription: 'Whether the report was submitted (with its id/URL) or held, and why.',
+    timeoutMs: 60_000,
+    dependsOn: 'HackerOne',
+    availability: available,
+    summarize: (i) => `Submit report "${i.title}" to ${i.program} — asset ${i.asset}, ${i.severity}`,
+    lockKey: (i) => `hackerone.submit:${i.program.toLowerCase()}`,
+    execute: async (i, ctx) => h1.submitReport(i, { signal: ctx.signal }),
+    async verify(_i, o) {
+      return { ok: o.ok, detail: o.ok ? `Submitted${o.reportId ? ` #${o.reportId}` : ''} (in scope: ${o.matchedScope})` : `${o.held ? 'Held (not sent)' : 'Failed'}: ${o.reason}` };
+    },
+    describe: (o) => (o.ok ? `Submitted: ${o.reason}${o.url ? ` ${o.url}` : ''}` : `${o.held ? 'HELD — not sent' : 'Failed'}: ${o.reason}`),
+  };
+
+  return [programs, earnings, reports, scopes, submit];
 }

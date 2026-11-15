@@ -123,6 +123,13 @@ export const SettingsSchema = z.object({
      * needs full PC access (permissions.fullAccess) before any active step runs.
      */
     offensive: z.boolean(),
+    /**
+     * Autonomous report submission: when on — AND only with full access + offensive mode — Jarvis may
+     * submit bug-bounty reports to in-scope programs on its own, without a per-report approval. The
+     * in-scope gate still applies to every submission and fails closed. Off by default; this is the
+     * switch that turns on "ship it without telling me".
+     */
+    autoSubmit: z.boolean(),
   }),
   appearance: z.object({
     reduceMotion: z.boolean(),
@@ -224,7 +231,7 @@ export const DEFAULT_SETTINGS: Settings = {
     tts: { provider: 'browser', voiceId: '' },
   },
   notifications: { desktop: true, taskCompletion: true },
-  agents: { enabled: true, spendUsd: 0, offensive: false },
+  agents: { enabled: true, spendUsd: 0, offensive: false, autoSubmit: false },
   appearance: { reduceMotion: false, accent: 'violet' },
   integrations: {
     workspaceDir: '',
