@@ -315,4 +315,46 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_h1_submissions_created ON h1_submissions (created_at);
     `,
   },
+  {
+    version: 7,
+    sql: `
+      -- Computer Access Mode audit trail: every observe/control/browser action Jarvis takes on this
+      -- computer, with the state machine phase, the verification outcome and whether the user had to
+      -- confirm it. Kept separate from the generic skill audit so the Computer Access panel can show
+      -- "what did Jarvis just do on my machine" cheaply and it survives restarts.
+      CREATE TABLE computer_actions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        target TEXT,
+        detail TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        verified INTEGER,
+        critical TEXT,
+        task TEXT,
+        duration_ms INTEGER
+      );
+      CREATE INDEX idx_computer_actions_ts ON computer_actions (ts);
+      -- Learning (observation) sessions: what is being watched, progress (last lesson + URL) so that
+      -- "continue where you left off" works across restarts, and honest coverage counters.
+      CREATE TABLE learning_sessions (
+        id TEXT PRIMARY KEY,
+        course TEXT NOT NULL,
+        course_slug TEXT NOT NULL,
+        source TEXT NOT NULL,
+        status TEXT NOT NULL,
+        last_lesson TEXT,
+        last_lesson_number INTEGER,
+        last_url TEXT,
+        lessons_seen INTEGER NOT NULL DEFAULT 0,
+        notes_stored INTEGER NOT NULL DEFAULT 0,
+        samples INTEGER NOT NULL DEFAULT 0,
+        gaps TEXT NOT NULL DEFAULT '[]',
+        started_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        ended_at INTEGER
+      );
+      CREATE INDEX idx_learning_sessions_course ON learning_sessions (course_slug, updated_at);
+    `,
+  },
 ];

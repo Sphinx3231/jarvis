@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { platform as osPlatform } from 'node:os';
 import { detectCaptureTool } from './capture.ts';
 import { firstBinary, hasBinary, run } from './exec.ts';
+import { detectBrowserBinary } from './browser.ts';
 import { currentInputDriver } from './input.ts';
 import { ocrAvailable } from './ocr.ts';
 import type { ActiveWindow, Capability, DisplayInfo, OsAdapter, ProcessInfo, WindowInfo } from './types.ts';
@@ -37,6 +38,7 @@ function observeCapabilities(platform: NodeJS.Platform, display: DisplayInfo): C
   const ocr = ocrAvailable();
   const winTool = windowToolPresent(platform, display);
   const input = currentInputDriver(platform).available(display);
+  const browserBinary = detectBrowserBinary(platform);
   const inputReq = platform === 'linux' ? 'xdotool (apt install xdotool) on X11' : platform === 'darwin' ? 'cliclick (mouse) / osascript (keyboard) + Accessibility permission' : 'PowerShell / a native input module';
   const inputStatus = (label: string, id: string, level: 'interact'): Capability =>
     input.available
@@ -50,13 +52,17 @@ function observeCapabilities(platform: NodeJS.Platform, display: DisplayInfo): C
       ? { id: 'screen.ocr', label: 'Read text on screen (OCR)', level: 'observe', status: 'unverified', detail: 'tesseract detected. Run a verification to confirm it reads text here.', requires: 'tesseract-ocr' }
       : { id: 'screen.ocr', label: 'Read text on screen (OCR)', level: 'observe', status: 'unavailable', detail: 'tesseract is not installed.', requires: 'tesseract-ocr (apt install tesseract-ocr / brew install tesseract)' },
     winTool
-      ? { id: 'accessibility', label: 'Inspect windows / accessibility', level: 'observe', status: 'limited', detail: 'Top-level window listing is available. The widget-level accessibility tree (AT-SPI / UI Automation / AX) needs native bindings and is not wired yet.', requires: platform === 'win32' ? 'UI Automation bindings for the full tree' : platform === 'darwin' ? 'AX API for the full tree' : 'AT-SPI bindings for the full tree' }
+      ? { id: 'accessibility', label: 'Inspect windows / accessibility', level: 'observe', status: 'limited', detail: 'Top-level windows are listed natively; inside web pages the full element tree (roles, names, states) comes from the browser; in other apps controls are found by their on-screen text (OCR). The native widget tree (AT-SPI / UI Automation / AX) is not wired.', requires: platform === 'win32' ? 'UI Automation bindings for the full tree' : platform === 'darwin' ? 'AX API for the full tree' : 'AT-SPI bindings for the full tree' }
       : { id: 'accessibility', label: 'Inspect windows / accessibility', level: 'observe', status: 'unavailable', detail: display.headless ? 'No display, so no windows to inspect.' : 'No window tool (wmctrl/xdotool).', requires: 'wmctrl / xdotool (X11)' },
     inputStatus('Move and click the mouse', 'input.mouse', 'interact'),
     inputStatus('Type on the keyboard', 'input.keyboard', 'interact'),
     inputStatus('Switch and manage windows', 'window.manage', 'interact'),
-    { id: 'app.manage', label: 'Open and manage apps', level: 'extended', status: 'unavailable', detail: 'Not wired yet (Phase 4).', requires: 'OS process/launch control' },
-    { id: 'browser.control', label: 'Drive a browser session', level: 'extended', status: 'unavailable', detail: 'Not wired yet (Phase 4).', requires: 'Playwright/CDP against the user’s browser' },
+    display.headless
+      ? { id: 'app.manage', label: 'Open and manage apps', level: 'extended', status: 'unavailable', detail: 'No desktop session to open applications in.', requires: 'a desktop session' }
+      : { id: 'app.manage', label: 'Open and manage apps', level: 'extended', status: 'unverified', detail: `Uses the OS launcher (${platform === 'darwin' ? 'open -a' : platform === 'win32' ? 'Start-Process' : 'the app binary / gtk-launch / xdg-open'}). Opening an app confirms it.`, requires: platform === 'linux' ? 'xdg-utils for opening files' : undefined },
+    browserBinary
+      ? { id: 'browser.control', label: 'Use the browser (tabs, pages, forms)', level: 'interact', status: 'unverified', detail: `Found ${browserBinary}. Jarvis drives it over a loopback DevTools port with its own profile (sign in there once). Start it from the Computer Access panel to verify.`, requires: 'a Chromium-family browser started with --remote-debugging-port (Jarvis can start it)' }
+      : { id: 'browser.control', label: 'Use the browser (tabs, pages, forms)', level: 'interact', status: 'unavailable', detail: 'No Chrome/Edge/Brave/Chromium found, and no debuggable browser connected.', requires: 'Chrome, Edge, Brave or Chromium (or any of them started with --remote-debugging-port=9222)' },
   ];
   return out;
 }

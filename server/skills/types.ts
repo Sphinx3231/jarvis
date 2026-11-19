@@ -23,6 +23,8 @@ export interface SkillServices {
   pipeline: import('../integrations/hackerone.ts').HackerOneService;
   computer: import('../computer/manager.ts').ComputerAccessManager;
   learning: import('../computer/learning.ts').LearningPipeline;
+  watcher: import('../computer/watch.ts').LearningWatcher;
+  workflows: import('../computer/executor.ts').WorkflowExecutor;
   statusSnapshot: () => Record<string, unknown>;
 }
 
@@ -33,6 +35,8 @@ export interface SkillContext {
   conversationId?: string;
   signal: AbortSignal;
   services: SkillServices;
+  /** True when this exact input was explicitly approved by the user (not by policy/request/Full Access). */
+  explicitlyApproved?: boolean;
 }
 
 export interface Verification {
@@ -67,6 +71,12 @@ export interface Skill<I = any, O = any> {
   /** Resources that must not be touched concurrently (e.g. a file path). */
   lockKey?(input: I): string | null;
   execute(input: I, ctx: SkillContext): Promise<O>;
+  /**
+   * Critical-action check (send, pay, delete, install, admin…). When it returns a reason, the input
+   * needs the user's explicit approval every time — Full Access, "allow" policies, grants and
+   * "part of what you asked" do not cover it.
+   */
+  critical?(input: I): string | null;
   /** Independent check that the action actually did what it claims. */
   verify(input: I, output: O, ctx: SkillContext): Promise<Verification>;
   /** Short text rendering of the output for task results and model context. */

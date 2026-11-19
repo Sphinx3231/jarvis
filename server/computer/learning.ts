@@ -1,4 +1,5 @@
 import type { MemoryStore, ScoredMemory } from '../memory/store.ts';
+import { quarantineInstructions, redactSecrets } from './guard.ts';
 
 /**
  * The learning pipeline: "watch this and learn from it".
@@ -36,6 +37,12 @@ export interface LessonIngest {
   captions?: string;
   sourceUrl?: string;
   observedAt?: number;
+  /** The observation session this came from (watch mode). */
+  sessionId?: string;
+  /** Where it was seen: site/app name (e.g. "Udemy", "Chrome"). */
+  site?: string;
+  /** Position in the media when known (e.g. "04:12"). */
+  mediaTime?: string;
 }
 
 export interface IngestResult {
@@ -45,7 +52,13 @@ export interface IngestResult {
   lessonSlug: string;
   extracted: number;
   stored: number;
+  /** Notes that were already known (same content) and merged instead of duplicated. */
+  merged: number;
   notes: LearningNote[];
+  /** Lines that tried to instruct Jarvis (prompt injection) — dropped, never stored as knowledge. */
+  quarantined: string[];
+  /** Credential-shaped strings redacted before anything was stored. */
+  redacted: number;
 }
 
 export interface RecalledNote {
@@ -55,6 +68,7 @@ export interface RecalledNote {
   status: KnowledgeStatus | null;
   source: string;
   score: number;
+  lessonNumber?: number | null;
 }
 
 export function slug(s: string): string {
@@ -73,6 +87,21 @@ function statusOf(tags: string[]): KnowledgeStatus | null {
 function tagValue(tags: string[], prefix: string): string | null {
   const t = tags.find((x) => x.startsWith(prefix));
   return t ? t.slice(prefix.length) : null;
+}
+
+const DEFINITION_SENTENCE = /^((?:an?\s+|the\s+)?[A-Z][\w'’\- ]{1,48}?)\s+(?:is|are)\s+(?:defined as|called|known as|an?|the|one of|how|what|when|where|a type of|a kind of|a process|a set)\b.{8,}$|^((?:an?\s+|the\s+)?[A-Z][\w'’\- ]{1,48}?)\s+(?:refers? to|means|describes|stands for)\s+.{6,}$/;
+const EXAMPLE_SENTENCE = /^(?:for example|for instance|e\.g\.|as an example|consider)\b/i;
+
+function splitSentences(line: string): string[] {
+  return (line.match(/[^.!?]+(?:[.!?]+|$)/g) ?? [line]).map((x) => x.trim()).filter((x) => x.length >= 12 && x.length <= 600);
+}
+
+/** A plausible term: 1–5 words, not a pronoun/sentence opener. */
+function isTermLike(t: string | undefined): boolean {
+  if (!t) return false;
+  const words = t.trim().split(/\s+/);
+  if (words.length > 5) return false;
+  return !/^(it|this|that|these|those|there|here|he|she|they|we|you|i|what|which|who|today|now|next|our|my|your)$/i.test(words[0]);
 }
 
 export class LearningPipeline {
@@ -114,6 +143,23 @@ export class LearningPipeline {
         push({ kind: 'question', term: null, content: (m ? m[1] : line).trim(), status: 'uncertain' });
       } else if ((m = line.match(/^(?:caption|transcript)\s*[:\-]\s*(.+)$/i))) {
         push({ kind: 'caption', term: null, content: m[1].trim(), status: 'fact' });
+      } else if ((m = line.match(/^(?:important|note|remember|tip|key point|in summary)\s*[:\-]\s*(.+)$/i))) {
+        push({ kind: 'takeaway', term: null, content: m[1].trim(), status: 'fact' });
+      } else {
+        // Ordinary prose (real courses rarely label things). Only VERBATIM sentences of a recognisable
+        // shape are kept — a definition sentence, an example sentence — nothing is paraphrased.
+        for (const sentence of splitSentences(line)) {
+          const def = sentence.match(DEFINITION_SENTENCE);
+          if (def && isTermLike(def[1] ?? def[2])) {
+            const term = (def[1] ?? def[2]).replace(/^(?:an?|the)\s+/i, '').trim();
+            terms.push(term);
+            push({ kind: 'definition', term, content: sentence, status: 'fact' });
+            continue;
+          }
+          if (EXAMPLE_SENTENCE.test(sentence)) {
+            push({ kind: 'example', term: null, content: sentence.replace(EXAMPLE_SENTENCE, '').replace(/^[,:\s]+/, '').replace(/^\w/, (c) => c.toUpperCase()), status: 'fact' });
+          }
+        }
       }
     }
     for (const raw of (captions ?? '').split(/\r?\n/)) {
@@ -129,23 +175,77 @@ export class LearningPipeline {
   ingestLesson(input: LessonIngest): IngestResult {
     const courseSlug = slug(input.course);
     const lessonSlug = slug(`${input.lessonNumber ? `${input.lessonNumber}-` : ''}${input.lesson}`);
-    const notes = this.extract(input.text, input.captions);
+    // Screen/page content is untrusted: drop instruction-like lines, redact anything credential-shaped.
+    const q1 = quarantineInstructions(input.text);
+    const q2 = quarantineInstructions(input.captions ?? '');
+    const r1 = redactSecrets(q1.clean);
+    const r2 = redactSecrets(q2.clean);
+    const notes = this.extract(r1.text, r2.text || undefined);
     const observedAt = input.observedAt ?? Date.now();
+    const when = new Date(observedAt).toISOString();
     let stored = 0;
+    let merged = 0;
     for (const n of notes) {
-      const label = `[${input.course} / ${input.lesson}] ${n.kind}${n.term ? ` (${n.term})` : ''}: ${n.content}`;
-      this.memory.add({
+      const label = `[${input.course} / ${input.lessonNumber ? `Lesson ${input.lessonNumber}: ` : ''}${input.lesson}] ${n.status.toUpperCase()} ${n.kind}${n.term ? ` (${n.term})` : ''}: ${n.content}`;
+      const res = this.memory.add({
         kind: 'fact',
         content: label.slice(0, 4000),
         source: `learn:${courseSlug}/${lessonSlug}`,
-        sourceRef: input.sourceUrl ?? `${courseSlug}/${lessonSlug}@${observedAt}`,
-        tags: ['learn', `course:${courseSlug}`, `lesson:${lessonSlug}`, n.kind, n.status],
+        sourceRef: `${input.sourceUrl ?? `${courseSlug}/${lessonSlug}`} @ ${when}${input.mediaTime ? ` t=${input.mediaTime}` : ''}${input.site ? ` via ${input.site}` : ''}${input.sessionId ? ` session=${input.sessionId}` : ''}`.slice(0, 1000),
+        tags: ['learn', `course:${courseSlug}`, `lesson:${lessonSlug}`, n.kind, n.status, ...(input.lessonNumber ? [`lessonno:${input.lessonNumber}`] : []), ...(input.sessionId ? [`session:${input.sessionId.slice(0, 40)}`] : [])],
         verified: false,
         confidence: confidenceFor(n.status),
       });
-      stored++;
+      if (res.merged) merged++;
+      else stored++;
     }
-    return { course: input.course, courseSlug, lesson: input.lesson, lessonSlug, extracted: notes.length, stored, notes };
+    return { course: input.course, courseSlug, lesson: input.lesson, lessonSlug, extracted: notes.length, stored, merged, notes, quarantined: [...q1.quarantined, ...q2.quarantined].map((q) => q.line), redacted: r1.redacted + r2.redacted };
+  }
+
+  /** Every stored note of a course (optionally one lesson), in lesson order. Only stored notes. */
+  notesFor(courseSlug: string, opts: { lesson?: string | number } = {}): RecalledNote[] {
+    const want = typeof opts.lesson === 'number' ? `lessonno:${opts.lesson}` : opts.lesson ? `lesson:${slug(opts.lesson)}` : null;
+    const rows = this.memory.list({ kind: 'fact', limit: 5000 }).filter((m) => m.tags.includes('learn') && m.tags.includes(`course:${courseSlug}`));
+    return rows
+      .filter((m) => !want || m.tags.includes(want) || (typeof opts.lesson === 'string' && (tagValue(m.tags, 'lesson:') ?? '').includes(slug(opts.lesson))))
+      .map((m) => ({ content: m.content, course: tagValue(m.tags, 'course:'), lesson: tagValue(m.tags, 'lesson:'), status: statusOf(m.tags), source: m.sourceRef ?? m.source, score: 1, lessonNumber: Number(tagValue(m.tags, 'lessonno:')) || null }))
+      .sort((a, b) => (a.lessonNumber ?? 0) - (b.lessonNumber ?? 0) || a.content.localeCompare(b.content));
+  }
+
+  /** Structured summary of what was learned from a course: lessons, counts by kind/status. */
+  courseSummary(courseSlug: string): { courseSlug: string; lessons: Array<{ lesson: string; lessonNumber: number | null; notes: number; definitions: string[]; takeaways: string[]; questions: string[] }>; totals: Record<string, number> } {
+    const notes = this.notesFor(courseSlug);
+    const byLesson = new Map<string, { lesson: string; lessonNumber: number | null; notes: number; definitions: string[]; takeaways: string[]; questions: string[] }>();
+    const totals: Record<string, number> = {};
+    for (const n of notes) {
+      const key = n.lesson ?? '?';
+      const entry = byLesson.get(key) ?? { lesson: key, lessonNumber: (n as RecalledNote & { lessonNumber?: number | null }).lessonNumber ?? null, notes: 0, definitions: [], takeaways: [], questions: [] };
+      entry.notes++;
+      const body = n.content.replace(/^\[[^\]]*\]\s*/, '');
+      if (/\bdefinition\b/.test(body.slice(0, 40))) entry.definitions.push(body);
+      else if (/\btakeaway\b/.test(body.slice(0, 40))) entry.takeaways.push(body);
+      else if (/\bquestion\b/.test(body.slice(0, 40))) entry.questions.push(body);
+      byLesson.set(key, entry);
+      totals[n.status ?? 'unknown'] = (totals[n.status ?? 'unknown'] ?? 0) + 1;
+    }
+    return { courseSlug, lessons: [...byLesson.values()].sort((a, b) => (a.lessonNumber ?? 0) - (b.lessonNumber ?? 0)), totals };
+  }
+
+  /** Compare what was learned about `query` across two courses/lessons — only stored notes. */
+  compare(query: string, a: { courseSlug: string; lesson?: string | number }, b: { courseSlug: string; lesson?: string | number }): { query: string; a: RecalledNote[]; b: RecalledNote[]; shared: string[] } {
+    const pick = (side: { courseSlug: string; lesson?: string | number }) => {
+      const hits = this.recall(query, { courseSlug: side.courseSlug, limit: 50 });
+      if (side.lesson === undefined) return hits;
+      const want = typeof side.lesson === 'number' ? null : slug(side.lesson);
+      const lessonSet = new Set(this.notesFor(side.courseSlug, { lesson: side.lesson }).map((n) => n.content));
+      return hits.filter((h) => lessonSet.has(h.content) || (want !== null && (h.lesson ?? '').includes(want)));
+    };
+    const A = pick(a);
+    const B = pick(b);
+    const words = (notes: RecalledNote[]) => new Set(notes.flatMap((n) => n.content.toLowerCase().match(/[a-z]{5,}/g) ?? []));
+    const wa = words(A);
+    const shared = [...words(B)].filter((w) => wa.has(w)).slice(0, 30);
+    return { query, a: A, b: B, shared };
   }
 
   /** What was learned, straight from persistent memory. Returns only stored notes — never invented. */

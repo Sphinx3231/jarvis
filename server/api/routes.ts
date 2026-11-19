@@ -308,8 +308,75 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
     const status = app.computer.status();
     // Only observe the machine when the toggle is on; the report itself is always safe to read.
     const telemetry = status.enabled ? await app.computer.telemetry().catch(() => null) : null;
-    return { status, telemetry };
+    const browser = status.enabled ? await app.computer.browser().probe() : null;
+    return { status, telemetry, browser, browserBinary: app.computer.browserBinary(), recent: app.computer.actions.recent(30), learning: app.watcher.sessions(8) };
   });
+  router.get('/api/computer/actions', ({ query }) => ({ actions: app.computer.actions.recent(Number(query.get('limit') ?? 100)) }));
+  // The user's decision on a critical action Jarvis paused for (send / pay / delete / install / admin …).
+  router.post('/api/computer/confirmations/:id', ({ params, body }) => {
+    const b = parse(z.object({ approve: z.boolean() }), body);
+    return { confirmation: app.computer.decideConfirmation(params.id, b.approve), status: app.computer.status() };
+  });
+  const asUserError = async <T>(fn: () => Promise<T>): Promise<T> => {
+    try {
+      return await fn();
+    } catch (err) {
+      const e = err as Error & { status?: number; confirmation?: unknown };
+      const ue = new UserError(errorMessage(err), e.status ?? 400) as UserError & { confirmation?: unknown };
+      throw ue;
+    }
+  };
+  // Browser control (CDP on a loopback port, method-allowlisted; never cookies/storage/passwords).
+  router.post('/api/computer/browser/start', ({ body }) => asUserError(async () => ({ browser: await app.computer.startBrowser(parse(z.object({ url: z.string().url().optional() }), body ?? {}).url) })));
+  router.post('/api/computer/browser', ({ body }) =>
+    asUserError(async () => {
+      const Target = z.object({ name: z.string().max(200).optional(), role: z.string().max(40).optional(), index: z.number().int().min(0).optional(), nth: z.number().int().min(0).optional() });
+      const Op = z.discriminatedUnion('op', [
+        z.object({ op: z.literal('tabs') }),
+        z.object({ op: z.literal('open'), url: z.string().max(2000) }),
+        z.object({ op: z.literal('activate'), tabId: z.string().max(100) }),
+        z.object({ op: z.literal('close_tab'), tabId: z.string().max(100) }),
+        z.object({ op: z.literal('navigate'), url: z.string().max(2000), tabId: z.string().max(100).optional() }),
+        z.object({ op: z.literal('back'), tabId: z.string().max(100).optional() }),
+        z.object({ op: z.literal('read'), tabId: z.string().max(100).optional(), maxChars: z.number().int().min(200).max(200000).optional() }),
+        z.object({ op: z.literal('click'), target: Target, expectText: z.string().max(200).optional(), expectUrl: z.string().max(500).optional(), tabId: z.string().max(100).optional() }),
+        z.object({ op: z.literal('type'), target: Target.optional(), text: z.string().min(1).max(5000), clear: z.boolean().optional(), submit: z.boolean().optional(), tabId: z.string().max(100).optional() }),
+        z.object({ op: z.literal('key'), key: z.string().max(20), tabId: z.string().max(100).optional() }),
+        z.object({ op: z.literal('scroll'), direction: z.enum(['up', 'down']), amount: z.number().int().min(50).max(5000).optional(), tabId: z.string().max(100).optional() }),
+        z.object({ op: z.literal('wait_text'), text: z.string().min(1).max(200), timeoutMs: z.number().int().min(100).max(60000).optional(), tabId: z.string().max(100).optional() }),
+        z.object({ op: z.literal('dismiss_dialog'), tabId: z.string().max(100).optional() }),
+      ]);
+      return { result: await app.computer.browserOp(parse(Op, body), undefined, { task: 'requested from the Jarvis UI' }) };
+    }),
+  );
+  router.post('/api/computer/click-text', ({ body }) =>
+    asUserError(async () => {
+      const b = parse(z.object({ text: z.string().min(1).max(200), expectText: z.string().max(200).optional() }), body);
+      return { result: await app.computer.clickText(b.text, { expectText: b.expectText, task: 'requested from the Jarvis UI' }) };
+    }),
+  );
+  router.post('/api/computer/workflow', ({ body }) =>
+    asUserError(async () => {
+      const b = parse(z.object({ goal: z.string().min(1).max(300), steps: z.array(z.record(z.string(), z.unknown())).min(1).max(60), startAt: z.number().int().min(0).optional() }), body);
+      const skill = app.registry.get('computer.workflow');
+      const parsed = skill!.input.safeParse(b);
+      if (!parsed.success) throw new UserError(`Invalid workflow: ${parsed.error.issues[0].path.join('.')} — ${parsed.error.issues[0].message}`);
+      const w = parsed.data as { goal: string; steps: import('../computer/executor.ts').WorkflowStep[]; startAt?: number };
+      return { result: await app.workflows.run(w.goal, w.steps, { startAt: w.startAt }) };
+    }),
+  );
+  // Watch-and-learn sessions.
+  router.get('/api/computer/watch', () => ({ active: app.watcher.active(), sessions: app.watcher.sessions(20) }));
+  router.post('/api/computer/watch/start', ({ body }) =>
+    asUserError(async () => {
+      const b = parse(
+        z.object({ course: z.string().max(200).optional(), source: z.enum(['browser', 'screen']).optional(), autoScroll: z.boolean().optional(), nextLabel: z.string().max(100).optional(), maxLessons: z.number().int().min(1).max(200).optional(), maxMinutes: z.number().int().min(1).max(600).optional(), intervalSec: z.number().min(0.5).max(120).optional() }),
+        body ?? {},
+      );
+      return { session: await app.watcher.start({ ...b, task: 'Watch and learn (requested from the Jarvis UI)' }) };
+    }),
+  );
+  router.post('/api/computer/watch/stop', ({ body }) => asUserError(async () => ({ sessions: await app.watcher.stop(parse(z.object({ id: z.string().max(100).optional() }), body ?? {}).id) })));
   router.post('/api/computer/stop', ({ body }) => {
     const b = parse(z.object({ reason: z.string().max(200).optional() }), body ?? {});
     return { status: app.computer.emergencyStop(b.reason ?? 'User pressed STOP') };
@@ -340,11 +407,15 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
   router.post('/api/computer/control', async ({ body }) => {
     const Action = z.discriminatedUnion('kind', [
       z.object({ kind: z.literal('move'), x: z.number(), y: z.number() }),
-      z.object({ kind: z.literal('click'), button: z.enum(['left', 'right', 'middle']).optional(), count: z.number().int().min(1).max(5).optional(), x: z.number().optional(), y: z.number().optional() }),
+      z.object({ kind: z.literal('click'), button: z.enum(['left', 'right', 'middle']).optional(), count: z.number().int().min(1).max(5).optional(), x: z.number().optional(), y: z.number().optional(), label: z.string().max(200).optional() }),
       z.object({ kind: z.literal('type'), text: z.string().min(1).max(2000) }),
       z.object({ kind: z.literal('key'), keys: z.string().min(1).max(60) }),
       z.object({ kind: z.literal('scroll'), direction: z.enum(['up', 'down', 'left', 'right']), amount: z.number().int().min(1).max(50).optional() }),
       z.object({ kind: z.literal('activate_window'), title: z.string().min(1).max(200) }),
+      z.object({ kind: z.literal('drag'), from: z.object({ x: z.number(), y: z.number() }), to: z.object({ x: z.number(), y: z.number() }), button: z.enum(['left', 'right']).optional() }),
+      z.object({ kind: z.literal('mouse_down'), button: z.enum(['left', 'right', 'middle']).optional(), x: z.number().optional(), y: z.number().optional() }),
+      z.object({ kind: z.literal('mouse_up'), button: z.enum(['left', 'right', 'middle']).optional(), x: z.number().optional(), y: z.number().optional() }),
+      z.object({ kind: z.literal('window'), op: z.enum(['minimize', 'maximize', 'restore', 'resize', 'move', 'close']), title: z.string().min(1).max(200), width: z.number().int().optional(), height: z.number().int().optional(), x: z.number().int().optional(), y: z.number().int().optional() }),
     ]);
     const action = parse(Action, body);
     try {
@@ -370,7 +441,11 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
   });
   router.get('/api/computer/learning', ({ query }) => {
     const q = query.get('q')?.trim();
-    return q ? { recalled: app.learning.recall(q, { courseSlug: query.get('course') ?? undefined }) } : { courses: app.learning.courses() };
+    const course = query.get('course') ?? undefined;
+    const lesson = query.get('lesson');
+    if (q) return { recalled: app.learning.recall(q, { courseSlug: course }) };
+    if (course) return { summary: app.learning.courseSummary(course), notes: app.learning.notesFor(course, { lesson: lesson ? (/^\d+$/.test(lesson) ? Number(lesson) : lesson) : undefined }), progress: app.watcher.lastProgress(course) };
+    return { courses: app.learning.courses() };
   });
 
   router.put('/api/integrations/hackerone', ({ body }) => {

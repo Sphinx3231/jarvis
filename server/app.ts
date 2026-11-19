@@ -19,6 +19,8 @@ import { SubAgentManager } from './agents/subagents.ts';
 import { BountyOrchestrator } from './agents/orchestrator.ts';
 import { ComputerAccessManager } from './computer/manager.ts';
 import { LearningPipeline } from './computer/learning.ts';
+import { LearningWatcher } from './computer/watch.ts';
+import { WorkflowExecutor } from './computer/executor.ts';
 import { ObsidianSync, obsidianSkills } from './integrations/obsidian.ts';
 import { ConversationStore } from './intelligence/conversations.ts';
 import { Jarvis } from './intelligence/jarvis.ts';
@@ -83,6 +85,8 @@ export class JarvisApp {
   readonly orchestrator: BountyOrchestrator;
   readonly computer: ComputerAccessManager;
   readonly learning: LearningPipeline;
+  readonly watcher: LearningWatcher;
+  readonly workflows: WorkflowExecutor;
   readonly calendar: CalendarService;
   readonly obsidian: ObsidianSync;
   readonly scheduler: Scheduler;
@@ -109,8 +113,10 @@ export class JarvisApp {
     this.pipeline = new HackerOneService({ settings: this.settings, secrets: this.secrets, db: this.db, activity: this.activity, bus: this.bus });
     this.tts = new FishAudioService({ settings: this.settings, secrets: this.secrets });
     this.subAgents = new SubAgentManager({ pipeline: this.pipeline, memory: this.memory, tasks: this.tasks, settings: this.settings, secrets: this.secrets, activity: this.activity, bus: this.bus });
-    this.computer = new ComputerAccessManager({ settings: this.settings, activity: this.activity, bus: this.bus, shotsDir: () => join(this.dataDir, 'computer', 'shots') });
+    this.computer = new ComputerAccessManager({ settings: this.settings, db: this.db, activity: this.activity, bus: this.bus, shotsDir: () => join(this.dataDir, 'computer', 'shots') });
     this.learning = new LearningPipeline(this.memory);
+    this.watcher = new LearningWatcher({ computer: this.computer, learning: this.learning, db: this.db, activity: this.activity });
+    this.workflows = new WorkflowExecutor(this.computer);
     const services: SkillServices = {
       memory: this.memory,
       settings: this.settings,
@@ -122,6 +128,8 @@ export class JarvisApp {
       pipeline: this.pipeline,
       computer: this.computer,
       learning: this.learning,
+      watcher: this.watcher,
+      workflows: this.workflows,
       statusSnapshot: () => this.statusSnapshot(),
     };
     this.registry = new SkillRegistry(services);
@@ -373,6 +381,9 @@ export class JarvisApp {
   }
 
   async stop(): Promise<void> {
+    // Learning sessions persist their progress and end cleanly before the DB closes.
+    await this.watcher.stop().catch(() => []);
+    this.computer.browser().closeAll();
     if (this.gateTimer) clearTimeout(this.gateTimer);
     this.gateTimer = null;
     if (!this.running) {

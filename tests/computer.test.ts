@@ -18,10 +18,13 @@ test('computer: capability report is honest — telemetry works, native control 
     // Telemetry is implemented here, so it is reported available.
     assert.equal(byId.get('telemetry')!.status, 'available');
     // Native input/screen/accessibility are NOT wired yet — they must report unavailable, never faked.
-    for (const id of ['screen.capture', 'input.mouse', 'input.keyboard', 'accessibility', 'window.manage', 'browser.control']) {
+    for (const id of ['screen.capture', 'input.mouse', 'input.keyboard', 'accessibility', 'window.manage']) {
       assert.equal(byId.get(id)!.status, 'unavailable', `${id} must not claim to work`);
       assert.ok(byId.get(id)!.requires, `${id} says what it needs`);
     }
+    // Browser control works without a display (DevTools), but is never claimed before a live probe.
+    assert.notEqual(byId.get('browser.control')!.status, 'available');
+    assert.ok(byId.get('browser.control')!.requires);
   } finally {
     await cleanup();
   }

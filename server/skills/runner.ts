@@ -82,7 +82,7 @@ export class SkillRunner {
     const onAbort = () => controller.abort(req.signal?.reason);
     req.signal?.addEventListener('abort', onAbort, { once: true });
     const started = now();
-    const ctx = { agent: req.agent, taskId: req.taskId, stepIndex: req.stepIndex, conversationId: req.conversationId, signal: controller.signal, services: this.services };
+    const ctx = { agent: req.agent, taskId: req.taskId, stepIndex: req.stepIndex, conversationId: req.conversationId, signal: controller.signal, services: this.services, explicitlyApproved: decision.kind === 'allow' && decision.via === 'approval' && Boolean(decision.approvalId) && this.permissions.getApproval(decision.approvalId!)?.decidedBy === 'user' };
     try {
       if (req.signal?.aborted) throw req.signal.reason ?? new Error('Cancelled');
       const timeout = req.timeoutMs ?? skill.timeoutMs ?? this.defaultTimeoutMs();

@@ -360,7 +360,7 @@ export class TaskEngine {
             // "Do what I ask": a step that is part of the user's own request is authorized by it.
             // Anything else — or any doubt — still waits for the user's explicit approval.
             const scopeLabel = this.permissions.scopeDefinition(skill!.scope).label;
-            const coverage = this.requestScope && !checkedByRequest.has(i) ? await this.requestScope.covers(task.request, skill!, input, scopeLabel, signal) : null;
+            const coverage = this.requestScope && !checkedByRequest.has(i) && !skill!.critical?.(input) ? await this.requestScope.covers(task.request, skill!, input, scopeLabel, signal) : null;
             checkedByRequest.add(i);
             if (signal.aborted) {
               step.status = 'pending';

@@ -127,21 +127,26 @@ export class PermissionEngine {
 
   /** The single authorization check every skill execution goes through. */
   decide(skill: Skill, input: unknown, ctx: { taskId?: string; stepIndex?: number; approvalId?: string }): Decision {
+    // Critical actions (send/pay/delete/install/admin…) always need the user's own approval of this
+    // exact input: Full Access, allow-policies, grants and request coverage never authorize them.
+    const critical = skill.critical?.(input) ?? null;
     // Full access: the user has granted Jarvis every capability with no approvals. Overrides all policies.
-    if (this.settings.get().permissions.fullAccess) return { kind: 'allow', via: 'policy' };
+    if (!critical && this.settings.get().permissions.fullAccess) return { kind: 'allow', via: 'policy' };
     const policy = this.policyFor(skill.scope);
     if (policy === 'deny') return { kind: 'deny', reason: `Permission "${skill.scope}" is set to deny` };
-    if (policy === 'allow') return { kind: 'allow', via: 'policy' };
+    if (!critical && policy === 'allow') return { kind: 'allow', via: 'policy' };
 
     const hash = inputHash(skill.name, input);
     if (ctx.approvalId) {
       const approval = this.getApproval(ctx.approvalId);
       const matches = approval && approval.skill === skill.name && approval.inputHash === hash && approval.taskId === ctx.taskId && approval.stepIndex === ctx.stepIndex;
+      if (critical && approval?.decidedBy !== 'user') return { kind: 'ask', scope: skill.scope };
       if (matches && approval.status === 'approved') return { kind: 'allow', via: 'approval', approvalId: approval.id };
       // An automatic retry of a step that is safe to repeat, with byte-identical input, is still
       // covered by the approval the user gave for that step. Non-repeatable steps are never retried.
       if (matches && approval.status === 'used' && skill.idempotent) return { kind: 'allow', via: 'approval' };
     }
+    if (critical) return { kind: 'ask', scope: skill.scope };
     const grant = this.db.get<{ id: string }>(
       'SELECT id FROM grants WHERE skill = ? AND input_hash = ? AND revoked = 0 AND (expires_at IS NULL OR expires_at > ?) LIMIT 1',
       skill.name,

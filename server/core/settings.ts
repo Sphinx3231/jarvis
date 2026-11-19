@@ -83,6 +83,10 @@ export const SettingsSchema = z.object({
     level: z.enum(['observe', 'interact', 'extended']),
     /** Minutes to keep temporary screenshots before deletion (0 = delete as soon as they are used). */
     screenshotRetentionMin: z.number().int().min(0).max(1440),
+    /** Loopback DevTools endpoint of the browser Jarvis operates (the user's Chromium-family browser). */
+    browserEndpoint: z.string().max(200).refine((u) => /^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):\d{2,5}$/.test(u), 'must be a loopback http://127.0.0.1:<port> endpoint'),
+    /** Seconds between samples while watching/learning (event-driven change detection skips unchanged samples). */
+    watchIntervalSec: z.number().min(1).max(120),
   }),
   voice: z.object({
     enabled: z.boolean(),
@@ -223,7 +227,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   tasks: { stepTimeoutSec: 120, maxAttempts: 2 },
   permissions: { policies: {}, followRequests: true, fullAccess: false },
-  computerAccess: { enabled: false, level: 'observe', screenshotRetentionMin: 0 },
+  computerAccess: { enabled: false, level: 'observe', screenshotRetentionMin: 0, browserEndpoint: 'http://127.0.0.1:9222', watchIntervalSec: 4 },
   voice: {
     enabled: true,
     autoSpeak: false,
