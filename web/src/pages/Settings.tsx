@@ -339,7 +339,7 @@ export function SettingsPage() {
 
       <Card title="Computer Access" icon={<Monitor size={18} />}>
         <p className="muted small">
-          Let Jarvis see — and, at higher levels, use — this computer: what’s on screen (read as text with OCR), the active window, and the mouse and keyboard. Off by default. When off, nothing is observed or controlled. Every mouse/keyboard action still needs your approval.{' '}
+          Let Jarvis see — and, at higher levels, use — this computer like a person would: what’s on screen (read as text with OCR), windows, your browser (tabs, pages, forms — through its own signed-in profile, never your passwords or cookies), the mouse and keyboard, and “watch this and learn” sessions. Off by default; when off, nothing is observed or controlled. Mouse/keyboard actions need your approval, and anything that sends, pays, deletes, installs or changes security always asks you first — even with Full access.{' '}
           {computer.data && (
             <>
               This machine: <strong>{computer.data.status.os}</strong>, display <strong>{computer.data.status.display.server}</strong>
@@ -368,7 +368,7 @@ export function SettingsPage() {
             </div>
           )}
         </div>
-        <Field label="Level" hint="Observe = see only (screen, windows; no input). Interact = also move the mouse, type, scroll and switch windows. Extended = open/manage apps and files (not wired yet).">
+        <Field label="Level" hint="Observe = see only (screen, windows, browser pages; no input). Interact = also click, type, scroll, switch windows and use the browser. Extended = also open/close apps and open files.">
           <select value={s.computerAccess.level} onChange={(e) => save({ computerAccess: { level: e.target.value as Settings['computerAccess']['level'] } })} disabled={!s.computerAccess.enabled} aria-label="Computer Access level">
             <option value="observe">Observe (see only)</option>
             <option value="interact">Interact (mouse &amp; keyboard)</option>
@@ -377,6 +377,17 @@ export function SettingsPage() {
         </Field>
         <Field label="Keep screenshots for" hint="How long temporary screenshots are kept on disk. 0 = delete as soon as they are read.">
           <NumberInput value={s.computerAccess.screenshotRetentionMin} min={0} max={1440} onCommit={(v) => save({ computerAccess: { screenshotRetentionMin: v } })} suffix="minutes" />
+        </Field>
+        <Field label="Browser connection" hint="The loopback DevTools address of the browser Jarvis uses (Jarvis starts it with its own profile from the Computer Access panel). Only this computer (127.0.0.1) is allowed.">
+          <input
+            defaultValue={s.computerAccess.browserEndpoint}
+            onBlur={(e) => e.target.value !== s.computerAccess.browserEndpoint && save({ computerAccess: { browserEndpoint: e.target.value.trim() } })}
+            aria-label="Browser DevTools endpoint"
+            spellCheck={false}
+          />
+        </Field>
+        <Field label="Look again every" hint="While watching and learning, how often Jarvis samples the screen/page. Unchanged content is skipped, so shorter is cheap.">
+          <NumberInput value={s.computerAccess.watchIntervalSec} min={1} max={120} onCommit={(v) => save({ computerAccess: { watchIntervalSec: v } })} suffix="seconds" />
         </Field>
         <div className="inline">
           <Button size="sm" variant="danger" icon={<Square size={14} />} disabled={!s.computerAccess.enabled} onClick={() => act(() => api.post('/api/computer/stop', { reason: 'Stopped from Settings' }), 'Computer Access stopped')}>

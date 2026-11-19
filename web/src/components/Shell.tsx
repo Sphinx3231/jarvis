@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ComputerIndicator } from './ComputerAccess';
 import { Activity, Bell, Brain, Crown, House, ListChecks, Plug, Settings, Target, Wrench, X } from 'lucide-react';
 import { api, type NotificationEntry, type StatusResponse } from '../lib/api';
 import { timeAgo } from '../lib/format';
@@ -82,6 +83,8 @@ export function TopBar() {
   return (
     <header className="topbar">
       <div className="topbar__spacer" />
+      <ComputerIndicator />
+      <span className="topbar__sep" />
       <div className={`conn ${connected ? 'conn--on' : 'conn--off'}`} title={connected ? 'Connected to the Jarvis service' : 'Reconnecting to the Jarvis service…'}>
         <span className="conn__dot" />
         {connected ? 'Online' : 'Offline'}

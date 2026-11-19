@@ -455,10 +455,62 @@ export interface ComputerStatus {
   display: { server: string; headless: boolean; detail: string };
   stoppedAt: number | null;
   capabilities: ComputerCapability[];
+  live: ComputerLive;
+}
+export type ComputerState = 'IDLE' | 'OBSERVING' | 'ANALYZING' | 'PLANNING' | 'INTERACTING' | 'VERIFYING' | 'LEARNING' | 'WAITING_FOR_APPROVAL' | 'PAUSED' | 'COMPLETED' | 'ERROR';
+export interface ComputerConfirmation {
+  id: string;
+  kind: string;
+  summary: string;
+  finding: { category: string; reason: string };
+  createdAt: number;
+  status: string;
+}
+export interface ComputerLive {
+  state: ComputerState;
+  task: string | null;
+  detail: string | null;
+  activeApp: string | null;
+  learningSession: { id: string; course: string; lesson: string | null } | null;
+  since: number;
+  pendingConfirmations: ComputerConfirmation[];
+}
+export interface ComputerAction {
+  id: number;
+  ts: number;
+  kind: string;
+  target: string | null;
+  detail: string;
+  outcome: 'ok' | 'failed' | 'blocked' | 'needs_confirmation' | 'cancelled' | 'unverified';
+  verified: boolean | null;
+  critical: string | null;
+  task: string | null;
+  durationMs: number | null;
+}
+export interface LearningSession {
+  id: string;
+  course: string;
+  courseSlug: string;
+  source: 'browser' | 'screen';
+  status: 'watching' | 'completed' | 'stopped' | 'blocked' | 'interrupted' | 'error';
+  lastLesson: string | null;
+  lastLessonNumber: number | null;
+  lastUrl: string | null;
+  lessonsSeen: number;
+  notesStored: number;
+  samples: number;
+  gaps: string[];
+  startedAt: number;
+  updatedAt: number;
+  endedAt: number | null;
 }
 export interface ComputerResponse {
   status: ComputerStatus;
   telemetry: { activeWindow?: { available: boolean; title: string | null; app: string | null; detail: string }; processes?: { total: number }; memory?: { usedPercent: number }; cpu?: { usagePercent: number | null } } | null;
+  browser: { ok: boolean; detail: string; browser?: string } | null;
+  browserBinary: string | null;
+  recent: ComputerAction[];
+  learning: LearningSession[];
 }
 export interface ComputerProbe {
   id: string;

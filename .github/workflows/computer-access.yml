@@ -1,0 +1,79 @@
+name: Computer Access (cross-platform)
+
+# Real per-OS evidence for Computer Access Mode: the platform-independent suites (safety, learning,
+# real-browser control, the scored course test) plus scripts/computer-platform-test.ts, which drives
+# the runner's actual desktop (screen capture, OCR, mouse, keyboard, scroll, window switching) and
+# records PASS / FAIL / BLOCKED BY ENVIRONMENT per capability as an artifact.
+
+on:
+  push:
+    paths:
+      - 'server/computer/**'
+      - 'server/permissions/**'
+      - 'server/skills/**'
+      - 'tests/computer*'
+      - 'tests/_browser.ts'
+      - 'tests/fixtures/computer-site.ts'
+      - 'tests/learning.test.ts'
+      - 'scripts/computer-*'
+      - '.github/workflows/computer-access.yml'
+  workflow_dispatch:
+
+jobs:
+  platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+      - name: Install OS tools (Linux/X11)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -y -q xvfb openbox tesseract-ocr scrot xdotool wmctrl xterm imagemagick x11-utils
+      - name: Install OS tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install tesseract cliclick || true
+      - name: Install OS tools (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install tesseract -y --no-progress
+          echo "C:\Program Files\Tesseract-OCR" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Typecheck
+        if: runner.os == 'Linux'
+        run: npm run typecheck
+
+      - name: Computer Access tests (platform-independent + real browser)
+        run: node --disable-warning=ExperimentalWarning --test --test-concurrency=1 tests/computer.test.ts tests/computer.safety.test.ts tests/learning.test.ts tests/computer.browser.test.ts tests/computer.course.test.ts
+        env:
+          E2E_SCREENSHOTS: test-results
+
+      - name: Real X11 tests (Linux)
+        if: runner.os == 'Linux'
+        run: node --disable-warning=ExperimentalWarning --test --test-concurrency=1 tests/computer.integration.test.ts tests/computer.os.test.ts
+
+      - name: Platform capability test (Linux, under Xvfb)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a -s "-screen 0 1280x900x24" sh -c 'openbox & sleep 1; node --disable-warning=ExperimentalWarning scripts/computer-platform-test.ts --out test-results'
+      - name: Platform capability test (Windows / macOS desktop session)
+        if: runner.os != 'Linux'
+        run: node --disable-warning=ExperimentalWarning scripts/computer-platform-test.ts --out test-results
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: computer-access-${{ runner.os }}
+          path: test-results
+          if-no-files-found: ignore

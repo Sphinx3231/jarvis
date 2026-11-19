@@ -15,10 +15,12 @@
     "build": "vite build --config web/vite.config.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p web/tsconfig.json",
     "test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 \"tests/**/*.test.ts\"",
-    "test:e2e": "node --disable-warning=ExperimentalWarning tests/e2e/ui.e2e.ts && node --disable-warning=ExperimentalWarning tests/e2e/voice.e2e.ts",
+    "test:e2e": "node --disable-warning=ExperimentalWarning tests/e2e/ui.e2e.ts && node --disable-warning=ExperimentalWarning tests/e2e/voice.e2e.ts && node --disable-warning=ExperimentalWarning tests/e2e/computer.e2e.ts",
     "build:server": "tsc -p tsconfig.build.json && node -e \"const fs=require('fs');fs.copyFileSync('server/llm/claudecode.mjs','dist-server/llm/claudecode.mjs');fs.mkdirSync('dist-server/agents/knowledge',{recursive:true});for(const f of ['ethical-hacking-kb.md','kali-arsenal.md'])fs.copyFileSync('server/agents/knowledge/'+f,'dist-server/agents/knowledge/'+f)\"",
     "desktop": "npm run build && npm run build:server && electron .",
-    "dist": "npm run build && npm run build:server && electron-builder --publish never"
+    "dist": "npm run build && npm run build:server && electron-builder --publish never",
+    "test:computer": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 \"tests/computer*.test.ts\" tests/learning.test.ts",
+    "computer:platform-test": "node --disable-warning=ExperimentalWarning scripts/computer-platform-test.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.321",
@@ -59,7 +61,7 @@
   "build": {
     "appId": "app.jarvis.desktop",
     "productName": "Jarvis",
-    "copyright": "Jarvis contributors \u00b7 AGPL-3.0-only \u00b7 built on Roamies by KenKaiii",
+    "copyright": "Jarvis contributors · AGPL-3.0-only · built on Roamies by KenKaiii",
     "asar": false,
     "directories": {
       "output": "release",
