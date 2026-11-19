@@ -87,7 +87,7 @@ test('browser: connects to the real browser, opens the app, reads controls/dialo
   }
 });
 
-test('browser: click, type, checkbox, select via keyboard, tabs, menu — each verified on the real page', { skip: SKIP }, async () => {
+test('browser: click, type, checkbox, dropdown, tabs, menu — each verified on the real page', { skip: SKIP }, async () => {
   const { app, cleanup } = await appWithBrowser();
   try {
     await app.computer.browserOp({ op: 'navigate', url: `${site.url}/app` });
@@ -108,8 +108,10 @@ test('browser: click, type, checkbox, select via keyboard, tabs, menu — each v
     assert.ok('result' in typed && typed.result.verified?.ok, 'text landed in the field');
     r = await click('Subscribe to updates');
     assert.match(r.verified!.detail, /now on/);
-    await app.computer.browserOp({ op: 'click', target: { name: 'Topic' } });
-    await app.computer.browserOp({ op: 'key', key: 'ArrowDown' });
+    const sel = await app.computer.browserOp({ op: 'select', target: { name: 'Topic' }, option: 'Billing' });
+    assert.ok('result' in sel && sel.result.verified?.ok, JSON.stringify(sel));
+    const badSel = await app.computer.browserOp({ op: 'select', target: { name: 'Topic' }, option: 'Refunds' });
+    assert.ok('result' in badSel && !badSel.result.ok && /Options: General \| Billing/.test(badSel.result.detail));
     r = await click('Submit form', 'submitted Ada Lovelace / Billing / subscribed');
     assert.equal(r.verified?.ok, true, r.verified?.detail);
     // Scrolling reveals content below the fold; the scroll is verified by the page position.

@@ -20,6 +20,8 @@ jobs:
           python-version: '3.12'
       - name: Install CalDAV test server (Radicale)
         run: pip install radicale
+      - name: Install OCR (Computer Access tests)
+        run: sudo apt-get update -q && sudo apt-get install -y -q tesseract-ocr
       - name: Install dependencies
         run: npm ci
         env:

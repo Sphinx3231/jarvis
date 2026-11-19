@@ -303,6 +303,7 @@ const BrowserAction = z.discriminatedUnion('op', [
   z.object({ op: z.literal('click'), target: Target, expectText: z.string().max(200).optional(), expectUrl: z.string().max(500).optional(), tabId: z.string().max(100).optional() }).describe('Click an element by its name/role and verify the result'),
   z.object({ op: z.literal('type'), target: Target.optional(), text: z.string().min(1).max(5000), clear: z.boolean().optional(), submit: z.boolean().optional(), tabId: z.string().max(100).optional() }).describe('Type into a field (never passwords)'),
   z.object({ op: z.literal('key'), key: z.string().max(20), tabId: z.string().max(100).optional() }).describe('Press Enter/Tab/Escape/arrows/PageDown…'),
+  z.object({ op: z.literal('select'), target: Target, option: z.string().min(1).max(200), tabId: z.string().max(100).optional() }).describe('Choose an option in a dropdown by its text'),
   z.object({ op: z.literal('scroll'), direction: z.enum(['up', 'down']), amount: z.number().int().min(50).max(5000).optional(), tabId: z.string().max(100).optional() }).describe('Scroll the page'),
   z.object({ op: z.literal('wait_text'), text: z.string().min(1).max(200), timeoutMs: z.number().int().min(100).max(60000).optional(), tabId: z.string().max(100).optional() }).describe('Wait until text appears'),
   z.object({ op: z.literal('dismiss_dialog'), tabId: z.string().max(100).optional() }).describe('Dismiss a native page dialog (never accepts)'),
@@ -336,7 +337,7 @@ function describeBrowser(o: BrowserOpResult): string {
 
 // ---------------------------------------------------------------- computer.browser_read
 
-const BrowserReadInput = z.object({ action: z.discriminatedUnion('op', [BrowserAction.options[0], BrowserAction.options[6], BrowserAction.options[11], z.object({ op: z.literal('captions'), tabId: z.string().max(100).optional() }).describe('Read the current captions/transcript')]) });
+const BrowserReadInput = z.object({ action: z.discriminatedUnion('op', [BrowserAction.options[0], BrowserAction.options[6], BrowserAction.options[12], z.object({ op: z.literal('captions'), tabId: z.string().max(100).optional() }).describe('Read the current captions/transcript')]) });
 
 export const computerBrowserRead: Skill<z.infer<typeof BrowserReadInput>, BrowserOpResult> = {
   name: 'computer.browser_read',
@@ -473,13 +474,17 @@ export const computerFindOnScreen: Skill<z.infer<typeof FindInput>, { matches: S
 
 // ---------------------------------------------------------------- computer.app
 
-const AppInput = z.discriminatedUnion('op', [
-  z.object({ op: z.literal('open'), name: z.string().min(1).max(80).describe('Application name, or: browser, terminal, files, editor, calculator') }),
-  z.object({ op: z.literal('open_file'), path: z.string().min(1).max(1000).describe('Absolute path of a file or folder') }),
-  z.object({ op: z.literal('close'), name: z.string().min(1).max(80) }),
-  z.object({ op: z.literal('running'), name: z.string().min(1).max(80) }),
-  z.object({ op: z.literal('start_browser'), url: z.string().url().max(2000).optional() }),
-]);
+const AppInput = z
+  .object({
+    op: z.enum(['open', 'open_file', 'close', 'running', 'start_browser']).describe('open/close/running: an application; open_file: a file or folder; start_browser: start the browser for browser control'),
+    name: z.string().min(1).max(80).optional().describe('Application name (open/close/running), or: browser, terminal, files, editor, calculator'),
+    path: z.string().min(1).max(1000).optional().describe('Absolute path of a file or folder (open_file)'),
+    url: z.string().url().max(2000).optional().describe('Page to open (start_browser)'),
+  })
+  .superRefine((v, ctx) => {
+    if ((v.op === 'open' || v.op === 'close' || v.op === 'running') && !v.name) ctx.addIssue({ code: 'custom', path: ['name'], message: `"${v.op}" needs an application name` });
+    if (v.op === 'open_file' && !v.path) ctx.addIssue({ code: 'custom', path: ['path'], message: '"open_file" needs a path' });
+  });
 
 export const computerApp: Skill<z.infer<typeof AppInput>, { ok: boolean; detail: string }> = {
   name: 'computer.app',
@@ -503,13 +508,13 @@ export const computerApp: Skill<z.infer<typeof AppInput>, { ok: boolean; detail:
     const o = { preapproved: ctx.explicitlyApproved, task: ctx.taskId };
     switch (input.op) {
       case 'open':
-        return c.openApp(input.name, o, ctx.signal);
+        return c.openApp(input.name!, o, ctx.signal);
       case 'open_file':
-        return c.openFile(input.path, o, ctx.signal);
+        return c.openFile(input.path!, o, ctx.signal);
       case 'close':
-        return c.closeApp(input.name, o, ctx.signal);
+        return c.closeApp(input.name!, o, ctx.signal);
       case 'running': {
-        const r = await c.appRunning(input.name, ctx.signal);
+        const r = await c.appRunning(input.name!, ctx.signal);
         return { ok: true, detail: `${input.name} is ${r ? '' : 'not '}running` };
       }
       case 'start_browser': {
@@ -584,21 +589,21 @@ export const computerWorkflow: Skill<z.infer<typeof WorkflowInput>, WorkflowResu
 
 // ---------------------------------------------------------------- computer.watch
 
-const WatchInput = z.discriminatedUnion('op', [
-  z.object({
-    op: z.literal('start'),
-    course: z.string().max(200).optional().describe('Course/source name (detected from the page when omitted)'),
+const WatchInput = z
+  .object({
+    op: z.enum(['start', 'stop', 'status', 'continue']).describe('start: watch what is open now; continue: go back to where the last session of `course` stopped; stop; status'),
+    course: z.string().max(200).optional().describe('Course/source name (detected from the page when omitted; required for continue)'),
     source: z.enum(['browser', 'screen']).optional(),
     autoScroll: z.boolean().optional().describe('Scroll to reveal content that appears only after scrolling (interact level)'),
     nextLabel: z.string().max(100).optional().describe('Label of the "next lesson" control to continue through the course (interact level)'),
     maxLessons: z.number().int().min(1).max(200).optional(),
     maxMinutes: z.number().int().min(1).max(600).optional(),
     intervalSec: z.number().min(1).max(120).optional(),
-  }),
-  z.object({ op: z.literal('stop'), id: z.string().max(100).optional() }),
-  z.object({ op: z.literal('status') }),
-  z.object({ op: z.literal('continue'), course: z.string().min(1).max(200), nextLabel: z.string().max(100).optional(), autoScroll: z.boolean().optional() }).describe('Go back to where the last session of this course stopped and keep learning'),
-]);
+    id: z.string().max(100).optional().describe('Session to stop (stop; omit to stop all)'),
+  })
+  .superRefine((v, ctx) => {
+    if (v.op === 'continue' && !v.course) ctx.addIssue({ code: 'custom', path: ['course'], message: '"continue" needs the course name' });
+  });
 
 export const computerWatch: Skill<z.infer<typeof WatchInput>, { sessions: WatchSession[]; note?: string }> = {
   name: 'computer.watch',
@@ -622,7 +627,7 @@ export const computerWatch: Skill<z.infer<typeof WatchInput>, { sessions: WatchS
     if (input.op === 'stop') return { sessions: await w.stop(input.id) };
     if (input.op === 'status') return { sessions: w.sessions(10) };
     if (input.op === 'continue') {
-      const last = w.lastProgress(input.course);
+      const last = w.lastProgress(input.course!);
       if (!last) return { sessions: [], note: `I have no earlier learning session for "${input.course}".` };
       if (last.lastUrl && last.source === 'browser') await ctx.services.computer.browserOp({ op: 'navigate', url: last.lastUrl }, ctx.signal, { task: ctx.taskId });
       const s = await w.start({ course: last.course, source: last.source, nextLabel: input.nextLabel, autoScroll: input.autoScroll, maxLessons: input.nextLabel ? 50 : 1, task: `Continue learning ${last.course}` });

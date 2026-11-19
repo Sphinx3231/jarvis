@@ -62,6 +62,7 @@ function describeStep(s: WorkflowStep): string {
       if (a.op === 'navigate' || a.op === 'open') return `${a.op} ${a.url}`;
       if (a.op === 'scroll') return `scroll ${a.direction}`;
       if (a.op === 'key') return `press ${a.key}`;
+      if (a.op === 'select') return `choose "${a.option}" in "${a.target.name ?? '?'}"`;
       if (a.op === 'wait_text') return `wait for "${a.text}"`;
       return `browser ${a.op}`;
     }
@@ -250,7 +251,7 @@ export class WorkflowExecutor {
     if (r.loginRequired && action.op !== 'navigate') return { status: 'blocked', detail: `The page now asks you to sign in (session expired?). Sign in yourself, then resume.` };
     if (!r.ok) {
       // A click/type that found nothing did not act: safe to look again (page may still be loading).
-      if (/No element matching|No field matching/.test(r.detail)) return { status: 'retry', detail: r.detail };
+      if (/No element matching|No field matching|No dropdown matching/.test(r.detail)) return { status: 'retry', detail: r.detail };
       if (/covered by another element/.test(r.detail)) return { status: 'blocked', detail: r.detail };
       if (action.op === 'navigate') return { status: 'retry', detail: r.detail };
       return { status: 'failed', detail: r.detail };

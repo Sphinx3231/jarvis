@@ -454,8 +454,15 @@ export class BrowserController {
     if (!navigableUrl(url)) throw new Error(`Refusing to open ${JSON.stringify(url.slice(0, 80))}: only http(s) pages.`);
     const t = (await this.http(`/json/new?${encodeURI(url)}`, 'PUT', signal)) as Record<string, string>;
     const tab = { id: t.id, title: t.title, url: t.url, wsUrl: t.webSocketDebuggerUrl ?? null };
-    await this.waitForLoad(tab.id, signal, 20000).catch(() => {});
-    return tab;
+    // A new tab starts on about:blank (already "complete"); wait until the requested page is the one loaded.
+    const start = Date.now();
+    while (Date.now() - start < 20000) {
+      const st = await this.evaluate<{ href: string; ready: string }>(tab.id, '({ href: location.href, ready: document.readyState })', signal).catch(() => null);
+      if (st && st.ready === 'complete' && (url === 'about:blank' || sameDocument(st.href, url))) break;
+      await sleep(150, signal);
+    }
+    const now = (await this.listTabs(signal).catch(() => [])).find((x) => x.id === tab.id);
+    return now ?? tab;
   }
 
   async activateTab(id: string, signal?: AbortSignal): Promise<void> {
@@ -614,6 +621,33 @@ export class BrowserController {
     const ok = value.includes(text.slice(0, 200)) || (after?.tag === 'div' && true);
     if (opts.submit) await this.pressKey(tabId, 'Enter', signal);
     return { ok: true, action: `type into "${fieldName}"`, detail: `Typed ${text.length} char(s) into "${fieldName}"${opts.submit ? ' and pressed Enter' : ''}`, verified: { ok, detail: ok ? `field now contains the text` : `field value is ${JSON.stringify(value.slice(0, 80))}` } };
+  }
+
+  /**
+   * Choose an option in a dropdown (<select>) by its visible text — what a person does by opening the
+   * list and clicking the option. Native dropdown popups differ per OS (macOS needs Enter to commit),
+   * so the option is chosen on the element itself and the same input/change events fire. Verified by
+   * reading the selected option back.
+   */
+  async select(tabId: string, target: ElementTarget, option: string, signal?: AbortSignal): Promise<BrowserActionResult> {
+    const loc = await this.locate(tabId, target, signal);
+    if (!loc.found) return { ok: false, action: 'select', detail: `No dropdown matching ${JSON.stringify(target.name ?? target.index)}. Visible controls: ${(loc.candidates ?? []).slice(0, 15).join(' | ')}`, verified: null };
+    if (loc.el?.tag !== 'select') return { ok: false, action: 'select', detail: `"${loc.el?.name}" is a ${loc.el?.role}, not a dropdown — click it and then click the option instead.`, verified: null };
+    if (loc.el.disabled) return { ok: false, action: 'select', detail: `"${loc.el.name}" is disabled.`, verified: null };
+    const res = await this.evaluate<{ ok: boolean; chosen?: string; options?: string[] }>(
+      tabId,
+      `(() => { const J = window.__jarvis; const el = J.find(${JSON.stringify(target)})[${target.nth ?? 0}]; if (!el || el.tagName !== 'SELECT') return { ok: false };
+        const want = ${JSON.stringify(option.trim().toLowerCase())}; const opts = Array.from(el.options);
+        const i = opts.findIndex((o) => o.text.trim().toLowerCase() === want) >= 0 ? opts.findIndex((o) => o.text.trim().toLowerCase() === want) : opts.findIndex((o) => o.text.trim().toLowerCase().includes(want));
+        if (i < 0) return { ok: false, options: opts.map((o) => o.text.trim()) };
+        el.focus(); el.selectedIndex = i; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true }));
+        return { ok: true, chosen: el.options[el.selectedIndex].text.trim() }; })()`,
+      signal,
+    );
+    if (!res.ok) return { ok: false, action: `select "${option}"`, detail: res.options ? `"${loc.el.name}" has no option "${option}". Options: ${res.options.join(' | ')}` : 'The dropdown disappeared.', verified: null };
+    const after = await this.locate(tabId, target, signal);
+    const shown = after.el?.value ?? '';
+    return { ok: true, action: `select "${option}" in "${loc.el.name}"`, detail: `Chose "${res.chosen}" in "${loc.el.name}"`, verified: { ok: shown.toLowerCase() === (res.chosen ?? '').toLowerCase(), detail: `dropdown now shows "${shown}"` } };
   }
 
   async pressKey(tabId: string, key: string, signal?: AbortSignal): Promise<BrowserActionResult> {

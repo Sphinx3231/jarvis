@@ -90,6 +90,7 @@ export type BrowserOp =
   | { op: 'click'; target: ElementTarget; expectText?: string; expectUrl?: string; tabId?: string }
   | { op: 'type'; target?: ElementTarget; text: string; clear?: boolean; submit?: boolean; tabId?: string }
   | { op: 'key'; key: string; tabId?: string }
+  | { op: 'select'; target: ElementTarget; option: string; tabId?: string }
   | { op: 'scroll'; direction: 'up' | 'down'; amount?: number; tabId?: string }
   | { op: 'wait_text'; text: string; timeoutMs?: number; tabId?: string }
   | { op: 'dismiss_dialog'; tabId?: string };
@@ -649,6 +650,11 @@ export class ComputerAccessManager {
         const finding = this.guard('browser.type', { typed: req.text, keys: req.submit ? 'Return' : null, where: `${page.title} ${page.url}` }, `type ${JSON.stringify(req.text.slice(0, 40))}${req.submit ? ' and press Enter' : ''} on ${page.title || page.url}`, opts);
         const result = await this.tracked('INTERACTING', 'browser.type', req.target?.name ?? null, { ...opts, critical: finding?.category ?? null }, () => b.type(tabId, req.target ?? null, req.text, { clear: req.clear, submit: req.submit }, sig), ok);
         return { op: 'type', tabId, result };
+      }
+      case 'select': {
+        const tabId = await this.resolveTab(req.tabId, sig);
+        const result = await this.tracked('INTERACTING', 'browser.select', `${req.target.name ?? '?'} = ${req.option}`, opts, () => b.select(tabId, req.target, req.option, sig), ok);
+        return { op: 'select', tabId, result };
       }
       case 'key': {
         const tabId = await this.resolveTab(req.tabId, sig);

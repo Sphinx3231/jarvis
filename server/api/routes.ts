@@ -342,6 +342,7 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
         z.object({ op: z.literal('click'), target: Target, expectText: z.string().max(200).optional(), expectUrl: z.string().max(500).optional(), tabId: z.string().max(100).optional() }),
         z.object({ op: z.literal('type'), target: Target.optional(), text: z.string().min(1).max(5000), clear: z.boolean().optional(), submit: z.boolean().optional(), tabId: z.string().max(100).optional() }),
         z.object({ op: z.literal('key'), key: z.string().max(20), tabId: z.string().max(100).optional() }),
+        z.object({ op: z.literal('select'), target: Target, option: z.string().min(1).max(200), tabId: z.string().max(100).optional() }),
         z.object({ op: z.literal('scroll'), direction: z.enum(['up', 'down']), amount: z.number().int().min(50).max(5000).optional(), tabId: z.string().max(100).optional() }),
         z.object({ op: z.literal('wait_text'), text: z.string().min(1).max(200), timeoutMs: z.number().int().min(100).max(60000).optional(), tabId: z.string().max(100).optional() }),
         z.object({ op: z.literal('dismiss_dialog'), tabId: z.string().max(100).optional() }),
