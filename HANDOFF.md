@@ -224,10 +224,16 @@ From the user's requests, still open:
    - **Phase 5 — Learning pipeline ("watch this and learn"): ✅ BUILT** (see §12). Deterministic
      extraction of attributed FACT/INFERENCE/UNCERTAIN knowledge into persistent memory; the mandatory
      course acceptance test passes (persist → **restart** → recall → compare → refuse to invent).
-   - **Still open:** **browser control** (Phase 4b — Playwright/CDP against the logged-in browser via
-     the accessibility tree, never copying cookies/tokens); the Phase 3 **UI** (a Computer Access
-     panel: ON/OFF, level, active app, live state, STOP) + feed observation to **Neo**; verifying the
-     Windows/macOS capture + input paths on **real hardware** (they report `unverified` until then).
+   - **Phase 4b/3/4-loop/5b/6/7 — ✅ BUILT (this session):** browser control (DevTools, loopback,
+     method allowlist), multi-step verified workflows with safe recovery, the critical-action gate
+     (send/pay/delete/install/admin always confirm, even under Full Access), the persistent action log +
+     live state machine, the top-bar Computer Access indicator/panel with STOP, the watch-and-learn loop
+     (browser or screen; auto-scroll, next lesson, caption following, resumable progress), the scored
+     real-browser course test, real X11 OS tests, and a cross-platform CI matrix. Full docs:
+     `docs/COMPUTER_ACCESS.md`; evidence: `docs/COMPUTER_ACCESS_REPORT.md`.
+   - **Still open:** native widget accessibility trees (AT-SPI/UIA/AX — today: web element tree via
+     the browser, OCR text elsewhere); Wayland input; feeding observations to **Neo**; verifying macOS
+     on a real Mac with the permissions granted (CI runners can't grant them).
 4. **MCP presets** for the above services (optional; MCP client already verified — `tests/mcp.test.ts`).
 
 Suggested order: browser control (Phase 4b) + the Computer Access UI/Neo surfacing, or Gmail + PayPal.
