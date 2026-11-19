@@ -63,19 +63,72 @@ export function isLocalUrl(url: string): boolean {
   }
 }
 
-function toOpenAi(system: string, messages: LlmMessage[]): OaiMessage[] {
+function toOpenAi(system: string, messages: LlmMessage[], prompted = false): OaiMessage[] {
   const out: OaiMessage[] = [{ role: 'system', content: system }];
   for (const m of messages) {
     if (m.role === 'user') out.push({ role: 'user', content: m.content });
     else if (m.role === 'assistant') {
-      out.push({
-        role: 'assistant',
-        content: m.text || '', // OpenJarvis requires a string even when the turn is only tool calls
-        ...(m.toolCalls.length ? { tool_calls: m.toolCalls.map((c) => ({ id: c.id, type: 'function' as const, function: { name: c.name, arguments: JSON.stringify(c.input ?? {}) } })) } : {}),
-      });
+      if (prompted) {
+        // Models without native tool calling see their own calls as the text they wrote.
+        const calls = m.toolCalls.map((c) => `<tool_call>${JSON.stringify({ name: c.name, arguments: c.input ?? {} })}</tool_call>`).join('\n');
+        out.push({ role: 'assistant', content: [m.text, calls].filter(Boolean).join('\n') || '(no content)' });
+      } else {
+        out.push({
+          role: 'assistant',
+          content: m.text || '', // OpenJarvis requires a string even when the turn is only tool calls
+          ...(m.toolCalls.length ? { tool_calls: m.toolCalls.map((c) => ({ id: c.id, type: 'function' as const, function: { name: c.name, arguments: JSON.stringify(c.input ?? {}) } })) } : {}),
+        });
+      }
+    } else if (prompted) {
+      out.push({ role: 'user', content: m.results.map((r) => `<tool_result id="${r.toolCallId}"${r.isError ? ' error="true"' : ''}>\n${r.content}\n</tool_result>`).join('\n') });
     } else for (const r of m.results) out.push({ role: 'tool', tool_call_id: r.toolCallId, content: r.isError ? `ERROR: ${r.content}` : r.content });
   }
   return out;
+}
+
+/** The tool catalogue written into the prompt for models that can't take tools natively. */
+export function promptedToolsInstructions(tools: ToolSpec[]): string {
+  const list = tools.map((t) => `- ${t.name}: ${t.description.slice(0, 300)}\n  arguments (JSON Schema): ${JSON.stringify(t.inputSchema)}`).join('\n');
+  return [
+    '',
+    '# Tools',
+    'You can use these tools. To use one, reply with ONLY this, nothing else:',
+    '<tool_call>{"name": "<tool name>", "arguments": { ... }}</tool_call>',
+    'You will get the result in a <tool_result> message; then continue. When you have the answer, reply normally without any <tool_call>.',
+    '',
+    list,
+  ].join('\n');
+}
+
+/** What the local engine (Ollama) says a model can do — from /api/show. */
+export interface ModelCapabilities {
+  tools: boolean;
+  thinking: boolean;
+  vision: boolean;
+  contextLength: number | null;
+  family: string | null;
+  parameterSize: string | null;
+}
+
+/** Ask Ollama what a model supports. Never throws; null when the engine isn't Ollama or can't be reached. */
+export async function ollamaCapabilities(engineUrl: string, model: string, fetchImpl: typeof fetch = fetch): Promise<ModelCapabilities | null> {
+  try {
+    const res = await fetchImpl(`${engineUrl.replace(/\/+$/, '').replace(/\/v1$/, '')}/api/show`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model }), signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return null;
+    const d = (await res.json()) as { capabilities?: string[]; model_info?: Record<string, unknown>; details?: { family?: string; parameter_size?: string } };
+    const caps = d.capabilities ?? [];
+    const ctxKey = Object.keys(d.model_info ?? {}).find((k) => k.endsWith('.context_length'));
+    return {
+      tools: caps.includes('tools'),
+      thinking: caps.includes('thinking'),
+      vision: caps.includes('vision'),
+      contextLength: ctxKey ? Number(d.model_info![ctxKey]) || null : null,
+      family: d.details?.family ?? null,
+      parameterSize: d.details?.parameter_size ?? null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** Some local models put <think>…</think> reasoning in the content; Jarvis only shows the answer. */
@@ -158,15 +211,16 @@ export class OpenJarvisClient {
   }
 
   /** One model turn (OpenAI-compatible). Tools are the client's (Jarvis's) — they come back as calls. */
-  async complete(req: { model: string; system: string; messages: LlmMessage[]; tools?: ToolSpec[]; maxTokens?: number; temperature?: number; signal?: AbortSignal }): Promise<{ text: string; toolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }>; stopReason: StopReason; usage: { inputTokens: number; outputTokens: number }; model: string }> {
+  async complete(req: { model: string; system: string; messages: LlmMessage[]; tools?: ToolSpec[]; maxTokens?: number; temperature?: number; signal?: AbortSignal; promptedTools?: boolean }): Promise<{ text: string; toolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }>; stopReason: StopReason; usage: { inputTokens: number; outputTokens: number }; model: string; empty: boolean }> {
+    const prompted = Boolean(req.promptedTools && req.tools?.length);
     const body: Record<string, unknown> = {
       model: req.model,
-      messages: toOpenAi(req.system, req.messages),
+      messages: toOpenAi(prompted ? req.system + promptedToolsInstructions(req.tools!) : req.system, req.messages, prompted),
       max_tokens: req.maxTokens ?? 2048,
       temperature: req.temperature ?? 0.3,
       stream: false,
     };
-    if (req.tools?.length) body.tools = req.tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.inputSchema } }));
+    if (req.tools?.length && !prompted) body.tools = req.tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.inputSchema } }));
     const r = await this.json<{
       model?: string;
       choices?: Array<{ finish_reason?: string; message?: { content?: string | null; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string | Record<string, unknown> } }> } }>;
@@ -192,7 +246,7 @@ export class OpenJarvisClient {
     const text = toolCalls.length && recoverTextToolCalls(stripThinking(raw), req.tools ?? []).length ? '' : stripThinking(raw);
     const finish = choice?.finish_reason ?? 'stop';
     const stopReason: StopReason = toolCalls.length ? 'tool_use' : finish === 'length' ? 'max_tokens' : finish === 'content_filter' ? 'refusal' : 'end';
-    return { text, toolCalls, stopReason, usage: { inputTokens: r.usage?.prompt_tokens ?? 0, outputTokens: r.usage?.completion_tokens ?? 0 }, model: r.model ?? req.model };
+    return { text, toolCalls, stopReason, usage: { inputTokens: r.usage?.prompt_tokens ?? 0, outputTokens: r.usage?.completion_tokens ?? 0 }, model: r.model ?? req.model, empty: !text.trim() && !toolCalls.length };
   }
 
   /** Local speech-to-text (faster-whisper inside OpenJarvis). */

@@ -1,6 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
-import ical, { type VEvent } from 'node-ical';
-import { createDAVClient, type DAVCalendar } from 'tsdav';
+import { createRequire } from 'node:module';
+import type { VEvent } from 'node-ical';
+import type { createDAVClient, DAVCalendar } from 'tsdav';
+
+// node-ical and tsdav load on first use, not at startup (RAM stays free for the local model).
+const lazyRequire = createRequire(import.meta.url);
+const ical = () => lazyRequire('node-ical') as typeof import('node-ical');
+const dav = () => lazyRequire('tsdav') as typeof import('tsdav');
 import { z } from 'zod';
 import type { SecretStore } from '../core/secrets.ts';
 import type { SettingsStore } from '../core/settings.ts';
@@ -69,13 +75,13 @@ export function buildEvent(e: { uid: string; title: string; start: Date; end: Da
 
 /** Parse ICS text into event instances within [from, to], expanding recurring events. */
 export function eventsFromIcs(text: string, calendar: string, from: Date, to: Date): CalendarEvent[] {
-  const parsed = ical.sync.parseICS(text);
+  const parsed = ical().sync.parseICS(text);
   const out: CalendarEvent[] = [];
   for (const item of Object.values(parsed)) {
     if (!item || (item as { type?: string }).type !== 'VEVENT') continue;
     const ev = item as VEvent;
     if ((ev as unknown as { recurrenceid?: unknown }).recurrenceid) continue; // overrides are applied by expansion
-    const instances = ical.expandRecurringEvent(ev, { from, to, expandOngoing: true });
+    const instances = ical().expandRecurringEvent(ev, { from, to, expandOngoing: true });
     for (const inst of instances) {
       out.push({
         title: String((inst.summary as unknown as { val?: string })?.val ?? inst.summary ?? '(untitled)'),
@@ -121,7 +127,7 @@ export class CalendarService {
 
   private async client(): Promise<DavClient> {
     const c = this.caldavConfig();
-    return createDAVClient({
+    return dav().createDAVClient({
       serverUrl: c.serverUrl,
       credentials: { username: c.username, password: this.secrets.get(CALDAV_SECRET) ?? '' },
       authMethod: 'Basic',

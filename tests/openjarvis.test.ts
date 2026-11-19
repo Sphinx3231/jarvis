@@ -143,7 +143,8 @@ test('openjarvis: local voice — speak with Kokoro, transcribe with Whisper; cl
   const fake = await fakeOpenJarvis();
   const { app, cleanup } = await makeApp({ start: false });
   try {
-    app.settings.update({ brain: { backend: 'openjarvis', openjarvisUrl: fake.url, model: '', localOnly: true }, voice: { transcription: { service: 'openjarvis' }, tts: { provider: 'local', voiceId: 'bm_lewis' } } });
+    // OpenJarvis's own speech endpoints (the on-demand workers are covered by the voice-worker test).
+    app.settings.update({ brain: { backend: 'openjarvis', openjarvisUrl: fake.url, model: '', localOnly: true }, voice: { transcription: { service: 'openjarvis' }, tts: { provider: 'local', voiceId: 'bm_lewis' }, local: { onDemand: false } } });
     await app.start();
     await app.llm.refresh(true);
     const heard = await app.llm.transcribe(Buffer.alloc(400), 'audio/webm', { language: 'en-GB' });
@@ -224,7 +225,10 @@ test('openjarvis REAL: local model uses a tool, Kokoro speaks, Whisper hears it 
     });
     assert.deepEqual(called, { a: 17, b: 23 }, `the local model did not call the tool; it replied: ${JSON.stringify(r.text.slice(0, 300))}`);
     assert.match(r.text, /391/);
-    const wav = await app.llm.openJarvis().synthesize('Remember that my new computer is a mini PC.', { voiceId: 'bm_george' });
+    // The on-demand voice workers when the local voice Python is there (the setup's venv), else OpenJarvis.
+    if (process.env.JARVIS_TEST_VOICE_WORKERS) assert.equal(app.voice.available(), true, 'voice workers available after the local setup');
+    const speak = (text: string) => (app.voice.available() ? app.voice.synthesize(text, { voiceId: 'bm_george' }) : app.llm.openJarvis().synthesize(text, { voiceId: 'bm_george' }));
+    const wav = await speak('Remember that my new computer is a mini PC.');
     assert.ok(wav.audio.length > 10_000, 'Kokoro produced audio');
     const heard = await app.llm.transcribe(wav.audio, 'audio/wav', { language: 'en' });
     assert.match(heard.text.toLowerCase(), /remember.*computer.*mini[ -]?pc/);
@@ -233,5 +237,117 @@ test('openjarvis REAL: local model uses a tool, Kokoro speaks, Whisper hears it 
     assert.ok(app.memory.list({ kind: 'fact', limit: 50 }).some((m) => /mini[ -]?pc/i.test(m.content)), 'Jarvis remembered what it heard');
   } finally {
     await cleanup();
+  }
+});
+
+/** A stand-in Ollama: /api/show capabilities + an OpenAI-compatible /v1/chat/completions. */
+async function fakeEngine(opts: { capabilities: string[]; reply: (body: Record<string, unknown>) => Record<string, unknown> }) {
+  const calls: Array<Record<string, unknown>> = [];
+  const server = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const c of req) chunks.push(c as Buffer);
+    const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
+    const json = (v: unknown) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(v));
+    };
+    if (req.url === '/api/show') return json({ capabilities: opts.capabilities, details: { family: 'deepseek2', parameter_size: '15.7B' }, model_info: { 'deepseek2.context_length': 163840 } });
+    if (req.url === '/v1/chat/completions') {
+      calls.push(body);
+      return json(opts.reply(body));
+    }
+    res.writeHead(404).end();
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, calls, close: () => new Promise<void>((r) => server.close(() => r())) };
+}
+
+test('any model: a thinking-only model that answers empty through OpenJarvis is asked on the engine directly', async () => {
+  const oj = await fakeOpenJarvis();
+  // OpenJarvis returns an empty answer for this model (thinking switched off upstream)…
+  const emptyOj = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const c of req) chunks.push(c as Buffer);
+    if (req.url === '/v1/chat/completions') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ model: 'deepseek-r1:8b', choices: [{ finish_reason: 'stop', message: { content: '' } }] }));
+    }
+    // everything else from the regular fake
+    const r = await fetch(`${oj.url}${req.url}`, { method: req.method, body: req.method === 'POST' ? Buffer.concat(chunks) : undefined, headers: { 'content-type': String(req.headers['content-type'] ?? 'application/json') } });
+    res.writeHead(r.status, { 'content-type': r.headers.get('content-type') ?? 'application/json' });
+    res.end(Buffer.from(await r.arrayBuffer()));
+  });
+  await new Promise<void>((r) => emptyOj.listen(0, '127.0.0.1', r));
+  const ojUrl = `http://127.0.0.1:${(emptyOj.address() as AddressInfo).port}`;
+  // …while the engine itself returns the reasoning separately and the answer in content.
+  const engine = await fakeEngine({ capabilities: ['completion', 'tools', 'thinking'], reply: () => ({ model: 'deepseek-r1:8b', choices: [{ finish_reason: 'stop', message: { content: '<think>Let me think.</think>Paris is the capital of France.', reasoning: 'Let me think.' } }] }) });
+  const { app, cleanup } = await makeApp({ start: false });
+  try {
+    app.settings.update({ brain: { backend: 'openjarvis', openjarvisUrl: ojUrl, engineUrl: engine.url, model: 'qwen3:8b', localOnly: true } });
+    await app.start();
+    await app.llm.refresh(true);
+    const st = app.llm.status();
+    assert.equal(st.capabilities?.thinking, true);
+    assert.equal(st.toolMode, 'native');
+    const r = await app.llm.run({ system: 'You are Jarvis.', messages: [{ role: 'user', content: 'Capital of France?' }] });
+    assert.equal(r.text, 'Paris is the capital of France.', 'answer from the engine, reasoning stripped');
+    assert.equal(engine.calls.length, 1);
+    assert.ok(Number(engine.calls[0].max_tokens) >= 8192, 'reasoning models get room to think');
+    // From then on it goes straight to the engine.
+    await app.llm.run({ system: 'You are Jarvis.', messages: [{ role: 'user', content: 'And Spain?' }] });
+    assert.equal(engine.calls.length, 2);
+  } finally {
+    await cleanup();
+    await engine.close();
+    await new Promise<void>((r) => emptyOj.close(() => r()));
+    await oj.close();
+  }
+});
+
+test('any model: a model without tool support gets Jarvis tools in the prompt and its text calls are run', async () => {
+  const engine = await fakeEngine({ capabilities: ['completion'], reply: () => ({}) });
+  // OpenJarvis forwards to this "model": no native tools, writes the call as text, then answers.
+  const seenBodies: Array<Record<string, unknown>> = [];
+  const oj = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const c of req) chunks.push(c as Buffer);
+    const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
+    const json = (v: unknown) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(v));
+    };
+    if (req.url === '/health') return json({ status: 'ok' });
+    if (req.url === '/v1/models') return json({ data: [{ id: 'deepseek-llm:7b', owned_by: 'openjarvis' }] });
+    if (req.url?.startsWith('/v1/speech')) return json({ available: true, backend: 'x' });
+    if (req.url === '/v1/chat/completions') {
+      seenBodies.push(body);
+      const msgs = body.messages as Array<{ role: string; content: string }>;
+      const result = msgs.find((m) => m.role === 'user' && m.content.includes('<tool_result'));
+      if (!result) return json({ choices: [{ message: { content: 'I will calculate.\n<tool_call>{"name": "calculator", "arguments": {"a": 6, "b": 7}}</tool_call>' } }] });
+      return json({ choices: [{ message: { content: `The answer is ${result.content.match(/>\n(\d+)\n</)?.[1]}.` } }] });
+    }
+    res.writeHead(404).end();
+  });
+  await new Promise<void>((r) => oj.listen(0, '127.0.0.1', r));
+  const { app, cleanup } = await makeApp({ start: false });
+  try {
+    app.settings.update({ brain: { backend: 'openjarvis', openjarvisUrl: `http://127.0.0.1:${(oj.address() as AddressInfo).port}`, engineUrl: engine.url, model: '', localOnly: true } });
+    await app.start();
+    await app.llm.refresh(true);
+    assert.equal(app.llm.status().toolMode, 'prompted');
+    const ran: unknown[] = [];
+    const r = await app.llm.run({
+      system: 'You are Jarvis.',
+      messages: [{ role: 'user', content: 'What is 6 times 7?' }],
+      tools: [{ spec: { name: 'calculator', description: 'Multiply', inputSchema: { type: 'object', properties: { a: { type: 'number' }, b: { type: 'number' } } } }, execute: async (i) => (ran.push(i), { content: String(Number(i.a) * Number(i.b)) }) }],
+    });
+    assert.deepEqual(ran, [{ a: 6, b: 7 }]);
+    assert.equal(r.text, 'The answer is 42.');
+    assert.equal(seenBodies[0].tools, undefined, 'no native tools field for a model that cannot take it');
+    assert.match(String((seenBodies[0].messages as Array<{ content: string }>)[0].content), /# Tools[\s\S]*calculator/);
+  } finally {
+    await cleanup();
+    await engine.close();
+    await new Promise<void>((r) => oj.close(() => r()));
   }
 });

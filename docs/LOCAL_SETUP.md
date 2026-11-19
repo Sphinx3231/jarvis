@@ -1,117 +1,118 @@
-# Running Jarvis fully locally (GEEKOM A6)
+# Running Jarvis fully locally (any PC; the GEEKOM A6 is the target)
 
-Jarvis's default brain is **OpenJarvis**, running on your own PC. That gives you:
-
-- **Thinking:** a local model through Ollama, with tool calling, so Jarvis can act.
-- **Listening:** Whisper (faster-whisper) on your CPU. This replaces paid dictation services such as Wispr Flow.
-- **Speaking:** Kokoro, an 82M-parameter local voice. Jarvis uses the British voice `bm_george`. This replaces Fish Audio.
-- **Everything else stays as it was:** memory, tasks, the sub-agents, Computer Access and the UI.
-
-There are **no API keys, no tokens billed and no usage limits**. The default **local-only** mode refuses every cloud model, cloud voice and cloud transcription. It also stops using the browser's built-in speech recognition, because Chrome sends that audio to Google. The "Hey Jarvis" wake word runs on local Whisper too, and only transcribes short bursts when it actually hears speech.
+Jarvis is a **harness**. It holds the memory, tasks, permissions, Computer Access, sub-agents and UI. The **model** you choose does the thinking. Everything runs on your own computer: no API keys, no tokens billed, no usage limits. Because the model is what earns its keep, the harness is built to take as little RAM as possible and leave the rest to the model.
 
 ```
- You ──mic──▶ Jarvis UI ──audio──▶ OpenJarvis /v1/speech/transcribe (Whisper, CPU)
-                 │                     │
-                 │◀──── WAV ───────────┘ /v1/speech/synthesize (Kokoro, CPU)
+ You ──mic──▶ Jarvis UI ─▶ voice worker (Whisper; starts when you talk, exits when idle)
+                 ▲              │
+                 └─ WAV ◀── voice worker (Kokoro; same)
                  ▼
-            Jarvis server (memory · tasks · permissions · Computer Access · sub-agents)
+            Jarvis harness (~115 MB): memory · tasks · permissions · Computer Access · sub-agents
                  │  tools stay in Jarvis: every action still passes Jarvis's permission engine
                  ▼
-            OpenJarvis /v1/chat/completions ──▶ Ollama ──▶ local model (kept loaded 24/7)
+            OpenJarvis server (~0.6 GB, optional) ──▶ Ollama ──▶ YOUR model (kept loaded 24/7)
 ```
 
-## The hardware: GEEKOM A6
+## Measured RAM
 
-The A6 has a Ryzen 7 6800H (8 cores, 16 threads), a Radeon 680M integrated GPU and dual-channel DDR5-4800. It ships with 32 GB of RAM and can be upgraded to 64 GB. On a CPU-first mini PC, memory bandwidth is what limits speed. That is why the larger profiles use **Mixture-of-Experts** models: only about 3B parameters are active per token, so they run much faster than their total size suggests.
+These are measurements from this codebase, not estimates:
 
-| Profile | Brain (always loaded) | Optional "heavy" model | Listening | Context |
-|---|---|---|---|---|
-| **a6-32gb** (as shipped) | `qwen3.5:9b`, 6.6 GB. Tools, vision, thinking. | `qwen3:30b-a3b`, 18.6 GB MoE. Run it with other apps closed. | Whisper `small` | 16k |
-| **a6-64gb** (after the upgrade) | `qwen3.6:35b-a3b`, 22.6 GB MoE. The full-potential brain. | `qwen3-next:80b`, 50.4 GB MoE | Whisper `medium` | 32k |
-| small (under 24 GB) | `qwen3:8b`, 5.2 GB | — | Whisper `base` | 16k |
+| Part | RAM |
+|---|---|
+| Jarvis harness, idle (lean defaults) | **~115 MB** (was ~350 MB). The Roamies engine, the mail and calendar libraries and the Claude Agent SDK only load if you use them. The 200 MB embedding model is opt-in. |
+| OpenJarvis server, idle | ~500 MB. Skip it with **direct to the engine** (`-Engine` / `--engine`, or Settings → Brain → Route). |
+| Listening worker (Whisper base / small) | ~0.3 / ~0.5 GB, **only while in use**. It exits after `idleSec` (default 120 s). |
+| Voice worker (Kokoro) | ~1.4 GB, **only while in use**. It exits when idle and starts loading the moment you start speaking. |
+| Your model | Everything else: weights plus the context cache. |
 
-The setup picks the profile from your RAM automatically. To see what it would pick, run `node scripts/jarvis-local.ts profile`. When you upgrade to 64 GB, re-run the setup and it moves to the bigger brain on its own.
+In practice, between conversations the stack costs about 0.1–0.7 GB, and the rest of your RAM goes to the model.
 
-All model tags and sizes above were checked against the Ollama registry and are tagged **tools** there. Speeds on the 6800H are estimates until you measure them on the machine.
+## Choosing a model (yours)
 
-**Two tips for the A6:**
+Pull any Ollama model, then check it and make it the brain:
 
-- Set the iGPU's memory (the "UMA frame buffer") to its minimum in the BIOS. RAM reserved for the 680M can't be used by the brain.
-- `-Vulkan` (Windows) or `--vulkan` (Linux) lets Ollama try the 680M via Vulkan. It is **experimental** and I couldn't test it here (there's no AMD GPU in the build environment). CPU is the default and it works.
+```bash
+ollama pull <model>                              # e.g. a DeepSeek tag of your choice
+node scripts/jarvis-local.ts fit <model>         # will it run here, and with how much context?
+node scripts/jarvis-local.ts use <model>         # make it Jarvis's brain
+```
 
-## Install (Windows 11, which the A6 ships with)
+`fit` reads the model's real architecture from Ollama: layers, KV heads and head size. For DeepSeek's Multi-head Latent Attention (MLA) it reads the compressed latent size instead. From that it computes:
 
-Open PowerShell in the Jarvis folder and run:
+- the RAM this machine has for the model: total RAM minus the OS minus the Jarvis stack;
+- the context cache per 1,000 tokens, at Ollama's `q8_0` cache setting;
+- the **largest context window that fits without swapping**, and the setup sets Ollama to it;
+- advice: when a smaller quantization is needed, when the model has no native tool calling, and when it is a reasoning model.
+
+Examples using published model configurations:
+
+| | 16 GB (Windows) | 32 GB (A6) | 64 GB (A6 upgraded) |
+|---|---|---|---|
+| A Qwen3-8B q4 (0.075 GB per 1k tokens) | 32k context | 32k (the model's maximum) | 32k |
+| DeepSeek-V2-Lite q4 (MLA, **0.016 GB per 1k**) | doesn't fit | 128k | 128k |
+
+**Any model works**, because Jarvis adapts to what the engine reports about it:
+
+- **Native tool calling** (`tools`): Jarvis passes its tools to the model natively.
+- **No tool calling** (some DeepSeek and older models): Jarvis writes its tools into the prompt and runs the `<tool_call>` the model writes. Settings → Brain → *Tools for this model* can force either mode.
+- **Reasoning models** (DeepSeek R1 and other thinking models): `<think>…</think>` blocks are stripped from replies, and the model gets a larger output budget (8k tokens or more) so its thinking isn't cut off. Some servers switch thinking off, which leaves a thinking-only model with an empty answer. When that happens, Jarvis asks the engine directly and stays on that route.
+
+## Install (Windows; the A6 ships with Windows 11)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\local-setup\setup-windows.ps1 -KeepAwake
+powershell -ExecutionPolicy Bypass -File scripts\local-setup\setup-windows.ps1 -Model <your-model> -KeepAwake
 ```
 
-The script does the following:
-
-1. Installs Node.js 22+ and Ollama (with winget) if they're missing.
-2. Configures Ollama for 24/7 use. It keeps one model loaded and never unloads it (`OLLAMA_KEEP_ALIVE=-1`, `OLLAMA_MAX_LOADED_MODELS=1`). It also halves the RAM used by the context cache (`OLLAMA_KV_CACHE_TYPE=q8_0`).
-3. Downloads the brain model for your RAM.
-4. Installs OpenJarvis into `%LOCALAPPDATA%\Jarvis\openjarvis`, pinned to the version Jarvis was tested with. That version has the Kokoro voice endpoint, which is newer than the PyPI 1.0.4 release. It also pre-installs the spaCy English model Kokoro needs.
-5. Writes `~/.openjarvis/config.toml`: Ollama engine, your profile's model, Whisper on the CPU, Kokoro `bm_george`.
-6. Builds Jarvis.
-7. Registers two logon tasks, **Jarvis Brain** (OpenJarvis) and **Jarvis** (the app). They restart if they stop.
-8. Warms up the voice, then runs a health check.
-
-Options:
-
-| Option | Effect |
+| Option | What it does |
 |---|---|
-| `-HardwareProfile a6-64gb` | Force a profile instead of choosing from RAM |
-| `-Heavy` | Also download the heavy model |
-| `-Vulkan` | Try the iGPU (experimental) |
-| `-NoServices` | Don't register the logon tasks |
-| `-SkipModels` | Don't download models now |
-| `-KeepAwake` | Stop the PC sleeping on mains power |
+| `-Model <tag>` | The model to run. Omit it to choose later with `jarvis-local use <tag>`. |
+| `-Engine` | Go direct to the engine (no OpenJarvis server, ~0.6 GB more for the model). |
+| `-Vulkan` | Let Ollama try the iGPU. Experimental and untested here; CPU is the default. |
+| `-KeepAwake` | Keep the PC from sleeping on mains power, for 24/7 use. |
+| `-NoServices` | Install only; don't register the logon tasks. |
 
-Then open **http://127.0.0.1:7777**.
+The setup:
+
+1. Installs Node.js 22+ and Ollama (with winget, or Ollama's own installer).
+2. Configures Ollama for 24/7 use: one model kept loaded, never unloaded, with a `q8_0` context cache.
+3. Pulls your model and sets the context window from `fit`.
+4. Installs OpenJarvis into `%LOCALAPPDATA%\Jarvis\openjarvis`, pinned to the tested version. Its Python also runs the voice workers. The spaCy model that Kokoro needs is pre-installed.
+5. Builds Jarvis.
+6. Registers logon tasks, which restart if they stop. Jarvis's Node heap is capped at 384 MB.
+
+Then open **http://127.0.0.1:7777**. You don't need the desktop window running 24/7: any browser works, and Electron would cost about 200–300 MB more.
 
 ## Install (Linux)
 
 ```bash
-bash scripts/local-setup/setup-linux.sh            # --profile a6-64gb --heavy --vulkan --no-services
+bash scripts/local-setup/setup-linux.sh --model <your-model>        # --engine --vulkan --no-services
 ```
 
-This does the same as the Windows script. Ollama runs as a system service with the 24/7 settings. `jarvis-brain` and `jarvis` run as systemd **user** services, with lingering enabled so they keep running when you're logged out. It also installs `espeak-ng`, `ffmpeg`, plus `tesseract`, `scrot`, `xdotool` and `wmctrl` for Computer Access.
+This does the same as the Windows setup. Ollama gets a systemd drop-in, and Jarvis plus OpenJarvis run as systemd user services with lingering enabled.
+
+## Hardware notes (GEEKOM A6: Ryzen 7 6800H, Radeon 680M, 32 GB DDR5, upgradable to 64 GB)
+
+- On a CPU-first mini PC, speed is set by memory bandwidth: every generated token reads the active weights once.
+  - **Mixture-of-Experts** models (DeepSeek-V2-Lite and other "A3B"-style models) read only their active parameters per token, so they are much faster than dense models of the same size.
+  - **MLA** (DeepSeek) keeps long contexts cheap.
+- Set the iGPU memory (UMA frame buffer) to the minimum in the BIOS. RAM reserved for the 680M can't hold model weights.
+- Going from 32 GB to 64 GB doesn't change the setup. Re-run `jarvis-local use <model>` and it recomputes the budget and context window.
 
 ## Checking it
 
 ```bash
-node scripts/jarvis-local.ts check
+node scripts/jarvis-local.ts budget    # RAM left for the model on this machine
+node scripts/jarvis-local.ts check     # engine, OpenJarvis, the model in memory and its context, free RAM
 ```
 
-This checks Ollama, the brain model, OpenJarvis, the local models and listening and voice readiness, and reports free RAM. In the app, **Settings → Brain** shows the same status. **Integrations → Brain — OpenJarvis (local)** shows whether thinking, listening and the voice are ready.
+In the app:
 
-## Settings
-
-- **Settings → Brain:** choose OpenJarvis (local) or the Roamies engine. Also: the **Local only** switch, the OpenJarvis address (this computer or your LAN only) and the local model.
-- **Settings → Voice:**
-  - *Jarvis's voice:* **Local (Kokoro)**, with a choice of British or American, male or female voices. The browser voice is a fallback. Fish Audio is unavailable in local-only mode.
-  - *Transcription:* **OpenJarvis (local Whisper)**.
-  - *Wake word:* "Hey Jarvis", local.
+- **Settings → Brain** shows the model's capabilities (tools, reasoning, vision, maximum context), the route and the tool mode.
+- **Settings → Voice** has on-demand loading, the idle timeout and the Whisper size.
 
 ## Troubleshooting
 
-- **"OpenJarvis isn't running":** start the *Jarvis Brain* task (Windows) or run `systemctl --user restart jarvis-brain` (Linux). Logs are in `%LOCALAPPDATA%\Jarvis\logs` or `~/.local/share/jarvis/logs`.
-- **The voice fails at the first reply, or OpenJarvis exits:** Kokoro's spaCy model is missing. Re-run the setup, which installs it. Also make sure you're on the pinned OpenJarvis version, because PyPI 1.0.4 has no voice endpoint.
-- **Slow answers on 32 GB:** stay on `qwen3.5:9b`, close the heavy model, and check `ollama ps` shows only one model loaded.
-- **OpenJarvis lists cloud models (`owned_by: nim`):** that is NVIDIA's hosted catalogue. It needs an `NIM_API_KEY` that the setup never sets, and Jarvis's local-only mode filters those models out anyway.
-
-## What was tested
-
-These were run in the build environment (Linux, 4 CPU cores, no GPU), using the real OpenJarvis with llama.cpp serving Qwen3-1.7B:
-
-| What | Result |
-|---|---|
-| Tool call | The local model called a Jarvis tool and answered "391" (3.3 s) |
-| Speaking | Kokoro `bm_george` produced a 247 KB WAV (4.6 s, including the first model load) |
-| Listening | Whisper `base` heard that WAV back correctly except one word, "Geekom" → "Geekam" (1.3 s) |
-| Acting | Jarvis stored the memory |
-| Test suite | `tests/openjarvis.test.ts`, including the real-server test (`JARVIS_TEST_OPENJARVIS=http://127.0.0.1:8000`) |
-
-The A6 itself and Windows need testing on real hardware: the setup scripts are written for it, and the Linux script was run end to end here.
+- **Replies are empty with a reasoning model:** Jarvis falls back to the engine automatically. Check that `engineUrl` (Settings → Brain) points at Ollama.
+- **The first spoken reply after a quiet spell is slow:** the voice worker is loading, which takes a few seconds on the A6. Raise `idleSec` to keep it loaded longer, at the cost of about 1.4 GB.
+- **The model is slow or the disk is busy:** it doesn't fit, and the computer is swapping. Run `jarvis-local fit <model>`, then use a smaller quantization or the direct-to-engine route.
+- **OpenJarvis lists cloud models (`owned_by: nim`):** that's a hosted catalogue. It needs keys the setup never sets, and local-only mode filters it out.

@@ -73,6 +73,12 @@ export function SettingsPage() {
         </Field>
         {s.brain.backend === 'openjarvis' && (
           <>
+            <Field label="Route" hint="Through OpenJarvis (default), or straight to the local engine (Ollama) — skipping the OpenJarvis server leaves about 500 MB more RAM for the model. Listening and the voice stay local either way.">
+              <select value={s.brain.via} onChange={(e) => save({ brain: { via: e.target.value as Settings['brain']['via'] } })} aria-label="Brain route">
+                <option value="openjarvis">Through OpenJarvis</option>
+                <option value="engine">Direct to the engine (leanest)</option>
+              </select>
+            </Field>
             <Field label="OpenJarvis address" hint="Where `jarvis serve` runs — this computer or your local network only.">
               <input defaultValue={s.brain.openjarvisUrl} spellCheck={false} aria-label="OpenJarvis address" onBlur={(e) => e.target.value.trim() !== s.brain.openjarvisUrl && save({ brain: { openjarvisUrl: e.target.value.trim() } })} />
             </Field>
@@ -88,8 +94,22 @@ export function SettingsPage() {
                   ))}
               </select>
             </Field>
+            <Field label="Tools for this model" hint="Auto uses the model's own tool calling when the engine says it has it, and otherwise describes Jarvis's tools in the prompt (works with models that have no tool support, at some cost in reliability).">
+              <select value={s.brain.toolMode} onChange={(e) => save({ brain: { toolMode: e.target.value as Settings['brain']['toolMode'] } })} aria-label="Tool mode">
+                <option value="auto">Auto{engine?.toolMode ? ` (${engine.toolMode === 'native' ? 'native tool calling' : 'tools in the prompt'})` : ''}</option>
+                <option value="native">Native tool calling</option>
+                <option value="prompted">Tools described in the prompt</option>
+              </select>
+            </Field>
             {engine?.backend === 'openjarvis' && (
               <div className="stack small">
+                {engine.capabilities && (
+                  <span>
+                    <Badge tone="info">model</Badge> {engine.model?.name}: {[engine.capabilities.parameterSize, engine.capabilities.family].filter(Boolean).join(' ')}
+                    {' — '}
+                    {[engine.capabilities.tools ? 'tools' : 'no native tools', engine.capabilities.thinking ? 'reasons before answering' : null, engine.capabilities.vision ? 'vision' : null, engine.capabilities.contextLength ? `${Math.round(engine.capabilities.contextLength / 1024)}k context max` : null].filter(Boolean).join(' · ')}
+                  </span>
+                )}
                 <span>
                   <Badge tone={engine.openjarvis?.reachable ? 'success' : 'danger'}>{engine.openjarvis?.reachable ? 'running' : 'not running'}</Badge> OpenJarvis — {engine.openjarvis?.detail ?? 'not checked yet'}
                 </span>
@@ -211,6 +231,21 @@ export function SettingsPage() {
             <option value="fish" disabled={s.brain.localOnly}>Fish Audio (cloud){s.brain.localOnly ? ' — off in local-only mode' : ''}</option>
           </select>
         </Field>
+        {(s.voice.tts.provider === 'local' || s.voice.transcription.service === 'openjarvis') && (
+          <Field label="Load voice on demand" hint="Whisper and Kokoro start when you talk and exit after a quiet spell, giving their memory (about 1.5 GB) back to the brain model. The first reply after a pause takes a few seconds longer while the voice loads (it starts loading as soon as you speak).">
+            <div className="inline">
+              <Toggle checked={s.voice.local.onDemand} onChange={(v) => save({ voice: { local: { onDemand: v } } })} ariaLabel="Load voice on demand" />
+              <NumberInput value={s.voice.local.idleSec} min={15} max={3600} onCommit={(v) => save({ voice: { local: { idleSec: v } } })} suffix="s idle, then free" />
+              <select value={s.voice.local.whisperModel} onChange={(e) => save({ voice: { local: { whisperModel: e.target.value as Settings['voice']['local']['whisperModel'] } } })} aria-label="Whisper size">
+                {(['tiny', 'base', 'small', 'medium', 'large-v3'] as const).map((m) => (
+                  <option key={m} value={m}>
+                    Whisper {m}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </Field>
+        )}
         {s.voice.tts.provider === 'local' && (
           <Field label="Local voice" hint="Kokoro voices: British (bm_/bf_) or American (am_/af_), male (m) or female (f).">
             <select value={s.voice.tts.voiceId || 'bm_george'} onChange={(e) => save({ voice: { tts: { voiceId: e.target.value } } })} aria-label="Local voice">

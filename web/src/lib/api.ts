@@ -283,6 +283,8 @@ export interface EngineStatus {
   route: 'api' | 'claude-code' | null;
   backend: 'openjarvis' | 'roamies';
   localOnly: boolean;
+  capabilities: { tools: boolean; thinking: boolean; vision: boolean; contextLength: number | null; family: string | null; parameterSize: string | null } | null;
+  toolMode: 'native' | 'prompted' | null;
   openjarvis: { reachable: boolean; detail: string; models: Array<{ id: string; ownedBy: string | null }>; speech: { available: boolean; detail: string } | null; tts: { available: boolean; detail: string; voiceId: string | null } | null } | null;
   signedIn: Array<{ id: string; name: string; claude?: boolean }>;
   models: Array<{ id: string; name: string; provider: string; tools: boolean }>;
@@ -568,7 +570,7 @@ export interface Settings {
   };
   tasks: { stepTimeoutSec: number; maxAttempts: number };
   permissions: { policies: Record<string, 'allow' | 'ask' | 'deny'>; followRequests: boolean; fullAccess: boolean };
-  brain: { backend: 'openjarvis' | 'roamies'; openjarvisUrl: string; model: string; localOnly: boolean };
+  brain: { backend: 'openjarvis' | 'roamies'; openjarvisUrl: string; model: string; engineUrl: string; via: 'openjarvis' | 'engine'; toolMode: 'auto' | 'native' | 'prompted'; localOnly: boolean };
   computerAccess: { enabled: boolean; level: 'observe' | 'interact' | 'extended'; screenshotRetentionMin: number; browserEndpoint: string; watchIntervalSec: number };
   voice: {
     enabled: boolean;
@@ -581,6 +583,7 @@ export interface Settings {
     inputMode: 'auto' | 'browser' | 'transcription';
     transcription: { service: 'none' | 'openjarvis' | 'openai' | 'custom'; baseUrl: string; model: string };
     tts: { provider: 'local' | 'browser' | 'fish'; voiceId: string };
+    local: { onDemand: boolean; idleSec: number; whisperModel: 'tiny' | 'base' | 'small' | 'medium' | 'large-v3'; python: string };
   };
   notifications: { desktop: boolean; taskCompletion: boolean };
   agents: { enabled: boolean; spendUsd: number; offensive: boolean; autoSubmit: boolean; autoHunt: boolean };

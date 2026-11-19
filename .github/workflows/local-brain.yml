@@ -24,7 +24,8 @@ jobs:
     timeout-minutes: 60
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
-      # qwen3:4b: small enough for a runner, reliable at calling tools (1.7B sometimes answers directly).
+      # qwen3:4b is a thinking-only model on purpose: OpenJarvis turns thinking off and gets an empty
+      # answer, so this exercises Jarvis's fallback to the engine (the same path a DeepSeek R1 takes).
       TEST_MODEL: qwen3:4b
     steps:
       - uses: actions/checkout@v4
@@ -37,21 +38,19 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          powershell -ExecutionPolicy Bypass -File scripts\local-setup\setup-windows.ps1 -HardwareProfile small -SkipModels
+          powershell -ExecutionPolicy Bypass -File scripts\local-setup\setup-windows.ps1 -Model $env:TEST_MODEL
           if (-not (Get-ScheduledTask -TaskName 'Jarvis Brain' -ErrorAction SilentlyContinue)) { throw 'Jarvis Brain task was not registered' }
-          # The setup ran in a child PowerShell: pick up the PATH it changed (Ollama, uv).
-          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User') + ";$env:LOCALAPPDATA\Programs\Ollama"
-          ollama pull $env:TEST_MODEL
           for ($i = 0; $i -lt 60; $i++) { try { Invoke-RestMethod 'http://127.0.0.1:8000/health' -TimeoutSec 2 | Out-Null; break } catch { Start-Sleep 3 } }
 
       - name: Local setup (Linux)
         if: runner.os == 'Linux'
         run: |
-          bash scripts/local-setup/setup-linux.sh --profile small --skip-models --no-services
-          ollama pull "$TEST_MODEL"
+          bash scripts/local-setup/setup-linux.sh --model "$TEST_MODEL" --no-services
 
       - name: Local check
-        run: node --disable-warning=ExperimentalWarning scripts/jarvis-local.ts check --profile small
+        run: |
+          node --disable-warning=ExperimentalWarning scripts/jarvis-local.ts fit ${{ env.TEST_MODEL }}
+          node --disable-warning=ExperimentalWarning scripts/jarvis-local.ts check
         continue-on-error: true
 
       - name: Real OpenJarvis test (tool call + Kokoro + Whisper)
@@ -59,6 +58,7 @@ jobs:
         env:
           JARVIS_TEST_OPENJARVIS: http://127.0.0.1:8000
           JARVIS_TEST_OPENJARVIS_MODEL: ${{ env.TEST_MODEL }}
+          JARVIS_TEST_VOICE_WORKERS: '1'
 
       - name: Collect logs
         if: always()

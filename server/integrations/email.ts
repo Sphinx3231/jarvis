@@ -1,6 +1,20 @@
-import { ImapFlow, type SearchObject } from 'imapflow';
-import { simpleParser } from 'mailparser';
-import nodemailer from 'nodemailer';
+import { createRequire } from 'node:module';
+import type { ImapFlow, SearchObject } from 'imapflow';
+
+// The mail libraries (~60 MB together) load on first use, not at startup: a Jarvis that never touches
+// email never pays for them, leaving that RAM to the local model.
+const lazyRequire = createRequire(import.meta.url);
+const mail = {
+  get ImapFlow(): typeof import('imapflow').ImapFlow {
+    return (lazyRequire('imapflow') as typeof import('imapflow')).ImapFlow;
+  },
+  get simpleParser(): typeof import('mailparser').simpleParser {
+    return (lazyRequire('mailparser') as typeof import('mailparser')).simpleParser;
+  },
+  get nodemailer(): typeof import('nodemailer') {
+    return lazyRequire('nodemailer') as typeof import('nodemailer');
+  },
+};
 import { z } from 'zod';
 import type { SecretStore } from '../core/secrets.ts';
 import type { Settings, SettingsStore } from '../core/settings.ts';
@@ -68,7 +82,7 @@ export class EmailService {
 
   private async imap<T>(fn: (client: ImapFlow) => Promise<T>, signal?: AbortSignal): Promise<T> {
     const c = this.config();
-    const client = new ImapFlow({
+    const client = new mail.ImapFlow({
       host: c.imap.host,
       port: c.imap.port,
       secure: c.imap.security === 'tls',
@@ -92,7 +106,7 @@ export class EmailService {
 
   private transport() {
     const c = this.config();
-    return nodemailer.createTransport({
+    return mail.nodemailer.createTransport({
       host: c.smtp.host,
       port: c.smtp.port,
       secure: c.smtp.security === 'tls',
@@ -137,7 +151,7 @@ export class EmailService {
         const messages: EmailSummary[] = [];
         if (pick.length) {
           for await (const m of client.fetch(pick, { uid: true, envelope: true, flags: true, source: { maxLength: 20_000 } }, { uid: true })) {
-            const parsed = m.source ? await simpleParser(m.source).catch(() => null) : null;
+            const parsed = m.source ? await mail.simpleParser(m.source).catch(() => null) : null;
             const text = parsed?.text ?? (parsed?.html ? htmlToText(parsed.html).text : '');
             messages.push({
               uid: m.uid,
@@ -165,7 +179,7 @@ export class EmailService {
         // Reading through BODY.PEEK keeps the message unread on the server.
         const m = await client.fetchOne(String(uid), { uid: true, envelope: true, flags: true, source: true }, { uid: true });
         if (!m || !m.source) throw new Error(`No message with id ${uid} in ${mailbox}`);
-        const parsed = await simpleParser(m.source);
+        const parsed = await mail.simpleParser(m.source);
         const text = parsed.text ?? (parsed.html ? htmlToText(parsed.html).text : '');
         return {
           uid,

@@ -101,6 +101,8 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
   router.post('/api/voice/transcribe', async ({ req, body }) => {
     if (!Buffer.isBuffer(body) || body.length < 100) throw new UserError('Send the recording as an audio/* request body');
     const mime = String(req.headers['content-type']).split(';')[0];
+    // Jarvis will answer out loud: load the voice now, while listening and thinking, not after.
+    if (app.settings.get().voice.tts.provider === 'local') app.voice.prewarm('tts');
     try {
       const result = await app.llm.transcribe(body, mime, { language: app.settings.get().voice.lang });
       return result;
@@ -114,7 +116,8 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
     try {
       const v = app.settings.get().voice;
       if (v.tts.provider === 'fish' && app.settings.get().brain.localOnly) throw new Error('Fish Audio is a cloud voice and Jarvis is set to local-only. Choose the local voice in Settings → Voice.');
-      const out = v.tts.provider === 'local' ? await app.llm.openJarvis().synthesize(b.text, { voiceId: v.tts.voiceId.trim() || undefined }) : await app.tts.synthesize(b.text);
+      const voiceId = v.tts.voiceId.trim() || undefined;
+      const out = v.tts.provider !== 'local' ? await app.tts.synthesize(b.text) : app.voice.available() ? await app.voice.synthesize(b.text, { voiceId }) : await app.llm.openJarvis().synthesize(b.text, { voiceId });
       res.writeHead(200, { 'content-type': out.mime, 'cache-control': 'no-store', 'content-length': String(out.audio.length) });
       res.end(out.audio);
     } catch (err) {
@@ -273,6 +276,7 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
       tts: await (async () => {
         const st = app.tts.status();
         if (st.provider !== 'local') return st;
+        if (app.voice.available()) return { ...st, available: true, detail: `local Kokoro, loaded on demand (${app.voice.running().tts ? 'loaded now' : 'not in memory'})` };
         const h = app.llm.status().openjarvis ?? (await app.llm.openJarvis().health());
         return { ...st, available: Boolean(h.tts?.available), detail: h.tts?.detail ?? (h.reachable ? 'voice not configured in OpenJarvis' : 'OpenJarvis is not running') };
       })(),

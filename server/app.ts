@@ -21,6 +21,7 @@ import { ComputerAccessManager } from './computer/manager.ts';
 import { LearningPipeline } from './computer/learning.ts';
 import { LearningWatcher } from './computer/watch.ts';
 import { WorkflowExecutor } from './computer/executor.ts';
+import { VoiceWorkers } from './voice/workers.ts';
 import { ObsidianSync, obsidianSkills } from './integrations/obsidian.ts';
 import { ConversationStore } from './intelligence/conversations.ts';
 import { Jarvis } from './intelligence/jarvis.ts';
@@ -87,6 +88,7 @@ export class JarvisApp {
   readonly learning: LearningPipeline;
   readonly watcher: LearningWatcher;
   readonly workflows: WorkflowExecutor;
+  readonly voice: VoiceWorkers;
   readonly calendar: CalendarService;
   readonly obsidian: ObsidianSync;
   readonly scheduler: Scheduler;
@@ -117,6 +119,8 @@ export class JarvisApp {
     this.learning = new LearningPipeline(this.memory);
     this.watcher = new LearningWatcher({ computer: this.computer, learning: this.learning, db: this.db, activity: this.activity });
     this.workflows = new WorkflowExecutor(this.computer);
+    this.voice = new VoiceWorkers(this.settings);
+    this.llm.localVoice = this.voice;
     const services: SkillServices = {
       memory: this.memory,
       settings: this.settings,
@@ -399,6 +403,7 @@ export class JarvisApp {
     // refresh still in flight finishes (it logs) before then too.
     await this.watcher.stop().catch(() => []);
     await this.llm.idle();
+    this.voice.stopAll();
     this.computer.browser().closeAll();
     if (this.gateTimer) clearTimeout(this.gateTimer);
     this.gateTimer = null;

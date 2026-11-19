@@ -336,7 +336,7 @@ function SemanticMemoryCard({ data, patch }: { data: Integrations; patch: (p: un
   const modelState = e.builtin.state;
   return (
     <Card title="Semantic memory" icon={<Database size={18} />}>
-      <Field label="Search memories by meaning" hint="Finds memories even when you use different words. Keyword search always works too.">
+      <Field label="Search memories by meaning" hint="Finds memories even when you use different words. Keyword search always works too. Off by default: the model keeps about 200 MB of RAM busy that the local brain model can use instead.">
         <Toggle checked={e.enabled} onChange={(v) => patch({ embeddings: { enabled: v } })} ariaLabel="Semantic memory search" />
       </Field>
       <Field label="Built-in model" hint={e.builtin.error ?? 'A small model (all-MiniLM-L6-v2, 23 MB) that runs on this computer. Your memories never leave it.'}>

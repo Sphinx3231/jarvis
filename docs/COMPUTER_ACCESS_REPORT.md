@@ -26,7 +26,10 @@ Branch `ccr-3670aed0-joz4xe`. Every result below comes from a real run. The comm
 |---|---|
 | `openjarvis.ts` | OpenAI-compatible client for `jarvis serve`. Runs the tool loop with Jarvis's own tools, so every action still goes through Jarvis's permission engine. Strips `<think>` blocks and recovers tool calls a small model writes as text. Detects cloud models by owner (e.g. `nim`). Local Whisper `transcribe` and Kokoro `synthesize`. |
 | `engine.ts` | New `brain.backend` (**`openjarvis`**, the default, or `roamies`). **Local-only mode** refuses cloud models, the OpenAI transcription route, Fish Audio and remote "custom" servers. |
-| `profiles.ts`, `scripts/jarvis-local.ts` | GEEKOM A6 profiles for 32 GB and 64 GB (model tags and sizes checked in the Ollama registry, all tool-capable), OpenJarvis config generation, the 24/7 Ollama environment and a health `check`. |
+| `profiles.ts`, `scripts/jarvis-local.ts` | **Model-agnostic sizing.** The RAM budget is total RAM minus the OS minus the measured Jarvis stack. `fit <model>` reads the model's architecture from Ollama, including DeepSeek's MLA, and picks the largest context window that fits without swapping. Also `use <model>`, `budget` and `check`. No model is chosen for you. |
+| `openjarvis.ts` + `engine.ts` (any model) | A capability probe (`/api/show`). **Prompted tools** for models without native tool calling. A **direct-to-engine fallback** when a reasoning model answers empty through OpenJarvis, which is what made CI fail with a thinking-only model. An 8k+ output budget for reasoning models. An optional *direct to the engine* route, which saves ~0.6 GB. |
+| `voice/workers.ts`, `voice/voice_worker.py` | **On-demand voice.** Whisper and Kokoro run in worker processes that exit after an idle timeout and give their ~1.7 GB back to the model. The voice worker starts loading as soon as you speak. |
+| Lean harness | The Roamies engine, Claude Agent SDK and mail/calendar libraries load only when used. The embedding model is opt-in. The service heap is capped at 384 MB. **Idle harness: ~350 MB → 115 MB** (`tests/lean.test.ts`). |
 | `scripts/local-setup/setup-windows.ps1`, `setup-linux.sh` | One-command setup: Ollama, OpenJarvis pinned to the tested commit, the spaCy model Kokoro needs, the model download, building Jarvis, and logon tasks or systemd services. |
 | `app.ts`, `RoamiesGate.tsx` | Roamies is required **only** when the Roamies brain is selected. The lock screen offers "Run fully local with OpenJarvis instead". |
 | Voice (`web/src/lib/voice.tsx`) | Local Kokoro voice. In local-only mode, listening always uses local Whisper (never Chrome's cloud recognition). A **local "Hey Jarvis" wake word** transcribes only when speech is detected. |
@@ -66,7 +69,7 @@ Gaps were reported correctly: the lesson-3 video has no captions, and lesson 2 c
 
 | Suite | Command | Result |
 |---|---|---|
-| Full regression suite | `npm test` (with `JARVIS_TEST_OPENJARVIS` set) | **165 tests: 164 pass, 0 fail, 1 skipped** (CalDAV needs Radicale). Baseline before this work: 130 tests, 129 pass, 1 skipped. |
+| Full regression suite | `npm test` (with `JARVIS_TEST_OPENJARVIS` set) | **169 tests: 168 pass, 0 fail, 1 skipped** (CalDAV needs Radicale). Baseline before this work: 130 tests, 129 pass, 1 skipped. |
 | Safety / unit | `node --test tests/computer.safety.test.ts` | 13/13 |
 | Real browser | `node --test tests/computer.browser.test.ts` | 8/8 |
 | Scored course test | `node --test tests/computer.course.test.ts` | pass (scores above) |
@@ -110,15 +113,15 @@ Linux was run here on Xvfb and in CI. Windows and macOS are **GitHub-hosted runn
 - **Wayland** blocks synthetic input. Use an X11 session or the browser path.
 - **Windows:** elevated windows, UAC and the lock screen can't be driven. SendKeys can't press the Windows key.
 - **Learning** keeps only sentences with a recognisable shape. Videos without captions aren't learned, and that is reported. There is no DRM or paywall bypass.
-- **Local brain:** the speeds in the A6 profiles are estimates until measured on the A6. Vulkan on the 680M is experimental and untested. OpenJarvis's voice endpoint is newer than its PyPI 1.0.4 release, so the setup pins a GitHub commit. The model I tested here (1.7B) is far smaller than the A6's brain: answer quality there will be much better, and that has not been measured.
+- **Local brain:** speed on the A6 depends on the model you choose and hasn't been measured on the A6 itself. Vulkan on the 680M is experimental and untested. OpenJarvis's voice endpoint is newer than its PyPI 1.0.4 release, so the setup pins a GitHub commit. The voice worker has a cold start of about 10 s on the 4-core build machine (it pre-warms while you speak); expect less on the 6800H. Prompted tools, for models without native tool calling, are less reliable than native tools.
 
 ## G. Remaining work, in priority order
 
-1. Run the Windows setup on the actual GEEKOM A6 and measure tokens per second for `qwen3.5:9b` and `qwen3:30b-a3b`. Then decide whether the 32 GB default should move to the MoE model.
+1. Run the Windows setup on the actual GEEKOM A6 with your chosen model (`-Model <tag>`). Check `jarvis-local fit` and `check`, and measure tokens per second.
 2. Native accessibility trees (UI Automation on Windows first), for apps without readable text.
 3. Test Vulkan on the 680M; it may speed up prompt processing.
 4. Feed observations and learning sessions to the **Neo** sub-agent.
-5. Vision-model screen understanding: Qwen3.5/3.6 have vision, so a screenshot could go to the local brain when OCR isn't enough.
+5. Vision-model screen understanding: when your model has vision (the probe reports it), send a screenshot to the local brain when OCR isn't enough.
 
 ## H. Demonstration (reproducible)
 

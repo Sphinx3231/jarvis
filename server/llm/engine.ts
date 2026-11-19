@@ -1,36 +1,16 @@
 import { mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { stream, type ContentPart, type Message, type Provider, type ThinkingLevel, type Tool } from '@kenkaiiii/gg-ai';
+import type { ContentPart, Message, Provider, ThinkingLevel, Tool } from '@kenkaiiii/gg-ai';
 import type { AgentTool } from '@kenkaiiii/gg-agent';
-import {
-  AUTH_PROVIDERS,
-  AuthStorage,
-  DEFAULT_LOCAL_ENDPOINTS,
-  LOCAL_API_KEY_PLACEHOLDER,
-  claudeCodeEnv,
-  clearRuntimeModels,
-  discoverLocalModels,
-  getAuthStorageKeys,
-  getDefaultModel,
-  getMaxThinkingLevel,
-  getModel,
-  getModelsForProvider,
-  localAuthStorageKey,
-  localModelShortName,
-  parseLocalModelId,
-  registerRuntimeModels,
-  resolveClaudeCodeBinary,
-  type LocalEndpoint,
-  type LocalEndpointProbe,
-} from '@kenkaiiii/gg-core';
+import type { LocalEndpoint, LocalEndpointProbe } from '@kenkaiiii/gg-core';
 import { z } from 'zod';
 import type { ActivityLog } from '../core/activity.ts';
 import type { SecretStore } from '../core/secrets.ts';
 import type { SettingsStore } from '../core/settings.ts';
 import { errorMessage } from '../core/util.ts';
 import type { RoamiesGate } from '../roamies/gate.ts';
-import { ClaudeCodeAgent, type ClaudeCodeAgentOptions } from './claudecode.mjs';
-import { isCloudModel, OpenJarvisClient, type OpenJarvisHealth } from './openjarvis.ts';
+import type { ClaudeCodeAgentOptions } from './claudecode.mjs';
+import { isCloudModel, ollamaCapabilities, OpenJarvisClient, type ModelCapabilities, type OpenJarvisHealth } from './openjarvis.ts';
 import type { LocalModelManager } from './local-embeddings.ts';
 import type { EmbeddingProvider, LlmMessage, LlmRequest, LlmResponse, StopReason, ToolSpec } from './types.ts';
 import { ProviderError } from './types.ts';
@@ -41,6 +21,28 @@ import { ProviderError } from './types.ts';
  * When Roamies is signed in with Claude, Jarvis runs through Claude Code exactly as Roamies does.
  * Jarvis never shows, copies or stores those credentials; it asks gg-core for them per request.
  */
+
+/**
+ * The Roamies engine (GG framework) is loaded only when the Roamies brain is in use: with the local
+ * OpenJarvis brain Jarvis never pays its memory (~50 MB, plus the Claude Agent SDK) — RAM that stays
+ * free for the local model.
+ */
+type GgAi = typeof import('@kenkaiiii/gg-ai');
+type GgCore = typeof import('@kenkaiiii/gg-core');
+let ggAi: GgAi | null = null;
+let ggCore: GgCore | null = null;
+export async function loadRoamiesEngine(): Promise<void> {
+  ggAi ??= await import('@kenkaiiii/gg-ai');
+  ggCore ??= await import('@kenkaiiii/gg-core');
+}
+/** Whether the Roamies engine libraries are in memory (diagnostics / the lean-harness test). */
+export function roamiesEngineLoaded(): boolean {
+  return ggAi !== null || ggCore !== null;
+}
+function core(): GgCore {
+  if (!ggCore) throw new Error('The Roamies engine is not loaded (the Roamies brain is not in use).');
+  return ggCore;
+}
 
 export const TRANSCRIPTION_SECRET = 'voice:transcription:apiKey';
 const OPENAI_API = 'https://api.openai.com/v1';
@@ -91,7 +93,7 @@ const MIN_LOCAL_CONTEXT = 16_384;
 
 /** OLLAMA_HOST as Ollama reads it ("host", "host:port" or a URL) → its OpenAI-compatible base URL. */
 export function ollamaBaseUrl(host = process.env.OLLAMA_HOST): string {
-  const fallback = DEFAULT_LOCAL_ENDPOINTS.find((e) => e.id === 'ollama')?.baseUrl ?? 'http://127.0.0.1:11434/v1';
+  const fallback = ggCore?.DEFAULT_LOCAL_ENDPOINTS.find((e) => e.id === 'ollama')?.baseUrl ?? 'http://127.0.0.1:11434/v1';
   if (!host?.trim()) return fallback;
   try {
     const u = new URL(/^[a-z]+:\/\//i.test(host.trim()) ? host.trim() : `http://${host.trim()}`);
@@ -126,6 +128,10 @@ export interface EngineStatus {
   localOnly: boolean;
   /** OpenJarvis server state (openjarvis backend). */
   openjarvis: OpenJarvisHealth | null;
+  /** What the local engine says the model can do (tools / thinking / vision / context), when it knows. */
+  capabilities: ModelCapabilities | null;
+  /** How Jarvis gives this model its tools: the model's own tool calling, or described in the prompt. */
+  toolMode: 'native' | 'prompted' | null;
   signedIn: Array<{ id: string; name: string; claude?: boolean }>;
   models: Array<{ id: string; name: string; provider: string; tools: boolean }>;
   /** Whether the model in use can call tools (local models may not). Without tools Jarvis can talk but not act. */
@@ -154,10 +160,10 @@ interface RoamiesConfig {
   look: string | null;
 }
 
-const providerName = (id: string): string => (id === 'openjarvis' ? 'OpenJarvis (this computer)' : id === 'local' ? 'Local models' : AUTH_PROVIDERS.find((p) => p.value === id)?.label ?? id);
+const providerName = (id: string): string => (id === 'openjarvis' ? 'OpenJarvis (this computer)' : id === 'local' ? 'Local models' : core().AUTH_PROVIDERS.find((p) => p.value === id)?.label ?? id);
 const modelName = (id: string): string => {
-  const local = parseLocalModelId(id);
-  return local ? localModelShortName(local.rawId) : getModel(id)?.name ?? id;
+  const local = core().parseLocalModelId(id);
+  return local ? core().localModelShortName(local.rawId) : core().getModel(id)?.name ?? id;
 };
 
 function readJsonFile(path: string): Record<string, unknown> | null {
@@ -232,7 +238,7 @@ export class RoamiesEngine {
   private dataDir: string;
   readonly localModel: LocalModelManager | null;
 
-  private auth: AuthStorage | null = null;
+  private auth: InstanceType<GgCore['AuthStorage']> | null = null;
   private authPath = '';
   private stamp = '';
   private target: Target | null = null;
@@ -242,8 +248,13 @@ export class RoamiesEngine {
   private lastError: string | null = null;
   private lastUsedAt: number | null = null;
   private probes: LocalEndpointProbe[] = [];
+  /** On-demand local voice workers (set by the app); preferred over OpenJarvis's always-loaded speech. */
+  localVoice: import('../voice/workers.ts').VoiceWorkers | null = null;
   private oj: OpenJarvisClient | null = null;
   private ojHealth: OpenJarvisHealth | null = null;
+  private caps: ModelCapabilities | null = null;
+  /** The reasoning model answered empty through OpenJarvis; talk to the engine directly from now on. */
+  private direct = false;
   /** Test seam for the Claude Code route (replaces the Claude Agent SDK's query()). */
   claudeCodeQuery: ClaudeCodeAgentOptions['query'] | undefined;
 
@@ -264,6 +275,13 @@ export class RoamiesEngine {
     return this.settings.get().brain.localOnly;
   }
 
+  /** Tools in the prompt instead of native tool calling: when asked to, or when the engine says the model has no tool support. */
+  private promptedTools(): boolean {
+    const mode = this.settings.get().brain.toolMode;
+    if (mode !== 'auto') return mode === 'prompted';
+    return this.caps !== null && !this.caps.tools;
+  }
+
   /** The OpenJarvis client for the configured address. */
   openJarvis(): OpenJarvisClient {
     const url = this.settings.get().brain.openjarvisUrl;
@@ -272,8 +290,29 @@ export class RoamiesEngine {
   }
 
   /** Load OpenJarvis's state: reachable, models, voice. The brain is ready when a local model is there. */
+  /** Health of the local engine itself (Ollama), shaped like OpenJarvis health — for via: 'engine'. */
+  private async engineHealth(): Promise<OpenJarvisHealth> {
+    const url = this.settings.get().brain.engineUrl.replace(/\/+$/, '').replace(/\/v1$/, '');
+    try {
+      const r = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(4000) });
+      const d = (await r.json()) as { models?: Array<{ name: string }> };
+      const models = (d.models ?? []).map((m) => ({ id: m.name, ownedBy: 'ollama' }));
+      const voice = this.localVoice?.available() ?? false;
+      return {
+        reachable: true,
+        detail: `Local engine at ${url} — ${models.length ? models.map((m) => m.id).slice(0, 4).join(', ') : 'no model pulled yet'} (direct, no OpenJarvis server)`,
+        models,
+        speech: { available: voice, detail: voice ? 'local Whisper, on demand' : 'needs the local voice Python (run the local setup)' },
+        tts: { available: voice, detail: voice ? 'local Kokoro, on demand' : 'needs the local voice Python (run the local setup)', voiceId: null },
+      };
+    } catch (err) {
+      return { reachable: false, detail: `The local engine isn't reachable at ${url} (${(err as Error).message}). Start Ollama.`, models: [], speech: null, tts: null };
+    }
+  }
+
   private async loadOpenJarvis(stamp: string): Promise<void> {
-    const h = await this.openJarvis().health();
+    const viaEngine = this.settings.get().brain.via === 'engine';
+    const h = viaEngine ? await this.engineHealth() : await this.openJarvis().health();
     this.ojHealth = h;
     const wanted = this.settings.get().brain.model.trim();
     const localOnly = this.localOnly();
@@ -282,12 +321,17 @@ export class RoamiesEngine {
     let problem: string | null = null;
     let warning: string | null = null;
     let model: string | null = null;
-    if (!h.reachable) problem = `OpenJarvis isn't running at ${this.settings.get().brain.openjarvisUrl}. Start it (\`jarvis serve\`, or the "Jarvis Brain" service from the local setup) and Jarvis connects within 30 seconds.`;
+    if (!h.reachable && viaEngine) problem = h.detail;
+    else if (!h.reachable) problem = `OpenJarvis isn't running at ${this.settings.get().brain.openjarvisUrl}. Start it (\`jarvis serve\`, or the "Jarvis Brain" service from the local setup) and Jarvis connects within 30 seconds.`;
     else if (wanted && localOnly && isCloudModel(wanted, owner(wanted))) problem = `"${wanted}" is a cloud model, and Jarvis is set to local-only (no API spending). Pick a local model in Settings → Model.`;
     else if (wanted) model = wanted;
     else if (usable.length) model = usable[0].id;
     else problem = 'OpenJarvis is running but has no local model yet. Pull one (e.g. `ollama pull qwen3:8b`) or run the local setup.';
     if (model && !h.models.some((m) => m.id === model)) warning = `OpenJarvis doesn't list "${model}" — it may still be downloading.`;
+    const prevModel = this.target?.model;
+    this.caps = model ? await ollamaCapabilities(this.settings.get().brain.engineUrl, model) : null;
+    if (model !== prevModel) this.direct = false;
+    if (viaEngine) this.direct = true;
     if (h.reachable && !h.speech?.available) warning = [warning, `Local listening isn't ready (${h.speech?.detail ?? 'unknown'}).`].filter(Boolean).join(' ');
     this.target = !problem && model ? { provider: 'openjarvis', model, source: 'openjarvis', route: 'api' } : null;
     this.snapshot = {
@@ -307,6 +351,8 @@ export class RoamiesEngine {
       backend: 'openjarvis',
       localOnly,
       openjarvis: h,
+      capabilities: this.caps,
+      toolMode: model ? (this.promptedTools() ? 'prompted' : 'native') : null,
     };
     const was = this.stamp ? this.lastReady : null;
     this.lastReady = Boolean(this.target);
@@ -315,10 +361,10 @@ export class RoamiesEngine {
     this.stamp = stamp;
   }
 
-  private authStorage(): AuthStorage {
+  private authStorage(): InstanceType<GgCore['AuthStorage']> {
     const path = join(this.gate.detection().ggDir, 'auth.json');
     if (!this.auth || this.authPath !== path) {
-      this.auth = new AuthStorage(path);
+      this.auth = new (core().AuthStorage)(path);
       this.authPath = path;
     }
     return this.auth;
@@ -332,7 +378,7 @@ export class RoamiesEngine {
 
   /** The local servers Jarvis looks at: Ollama (where Roamies connects it, or OLLAMA_HOST) plus servers added in Settings. */
   localEndpoints(): LocalEndpoint[] {
-    const ollama = DEFAULT_LOCAL_ENDPOINTS.find((e) => e.id === 'ollama')!;
+    const ollama = core().DEFAULT_LOCAL_ENDPOINTS.find((e) => e.id === 'ollama')!;
     const list: LocalEndpoint[] = [{ ...ollama, baseUrl: ollamaBaseUrl() }];
     for (const url of this.settings.get().llm.localServers) {
       const id = serverId(url);
@@ -345,9 +391,9 @@ export class RoamiesEngine {
   /** Ask the local servers what they serve (gg-core caches answers for 30 s; `force` re-asks). */
   async discoverLocal(force = false): Promise<void> {
     try {
-      const { probes, models } = await discoverLocalModels(this.localEndpoints(), { timeoutMs: 1500, force });
-      clearRuntimeModels((m) => m.provider === 'local');
-      registerRuntimeModels(models);
+      const { probes, models } = await core().discoverLocalModels(this.localEndpoints(), { timeoutMs: 1500, force });
+      core().clearRuntimeModels((m) => m.provider === 'local');
+      core().registerRuntimeModels(models);
       this.probes = probes;
     } catch {
       this.probes = [];
@@ -367,7 +413,7 @@ export class RoamiesEngine {
         reason: p ? (p.reachable ? null : p.reason ?? 'not reachable') : 'not checked yet',
         models: (p?.reachable ? p.models : []).map((m) => ({
           id: `local/${e.id}/${m.rawId}`,
-          name: localModelShortName(m.rawId),
+          name: core().localModelShortName(m.rawId),
           tools: m.supportsTools,
           thinking: m.supportsThinking,
           contextWindow: m.contextWindow,
@@ -392,10 +438,10 @@ export class RoamiesEngine {
     const s = this.settings.get().llm;
     // Local servers start and stop on their own: look again at most every 30 s.
     const b = this.settings.get().brain;
-    const stamp = [b.backend, b.openjarvisUrl, b.model, b.localOnly, d.installed, d.configPath, fileStamp(d.configPath), fileStamp(join(d.ggDir, 'auth.json')), s.model, s.localServers.join(','), Math.floor(Date.now() / 30_000)].join('|');
+    const stamp = [b.backend, b.via, b.engineUrl, b.toolMode, b.openjarvisUrl, b.model, b.localOnly, d.installed, d.configPath, fileStamp(d.configPath), fileStamp(join(d.ggDir, 'auth.json')), s.model, s.localServers.join(','), Math.floor(Date.now() / 30_000)].join('|');
     if (!force && stamp === this.stamp && this.snapshot) return;
     if (this.closing) return;
-    this.refreshing = (b.backend === 'openjarvis' ? this.loadOpenJarvis(stamp) : this.load(stamp)).finally(() => {
+    this.refreshing = (b.backend === 'openjarvis' ? this.loadOpenJarvis(stamp) : loadRoamiesEngine().then(() => this.load(stamp))).finally(() => {
       this.refreshing = null;
     });
     return this.refreshing;
@@ -404,7 +450,7 @@ export class RoamiesEngine {
   private async load(stamp: string): Promise<void> {
     const d = this.gate.detection();
     const cfg = this.roamiesConfig();
-    const base = { configPath: d.configPath, look: cfg.look, backend: 'roamies' as const, localOnly: this.localOnly(), openjarvis: null };
+    const base = { configPath: d.configPath, look: cfg.look, backend: 'roamies' as const, localOnly: this.localOnly(), openjarvis: null, capabilities: null, toolMode: null };
     if (!d.installed) {
       this.target = null;
       this.snapshot = { ...base, ready: false, provider: null, model: null, source: null, route: null, signedIn: [], models: [], tools: false, local: [], warning: null, problem: 'Roamies is not installed.' };
@@ -416,7 +462,7 @@ export class RoamiesEngine {
     const local = this.localStatus();
     const localModels = local.flatMap((l) => l.models);
     const claude = await auth.hasClaudeCodeLogin().catch(() => false);
-    const providers = [...new Set([...PREFERRED, ...AUTH_PROVIDERS.map((p) => p.value)])];
+    const providers = [...new Set([...PREFERRED, ...core().AUTH_PROVIDERS.map((p) => p.value)])];
     const signedIn: EngineStatus['signedIn'] = [];
     for (const p of providers) {
       const has = (p === 'anthropic' && claude) || (await auth.hasProviderAuth(p).catch(() => false));
@@ -431,7 +477,7 @@ export class RoamiesEngine {
     let model: string | null = null;
     let source: Target['source'] | null = null;
     if (override) {
-      provider = parseLocalModelId(override) ? 'local' : getModel(override)?.provider ?? cfg.provider;
+      provider = core().parseLocalModelId(override) ? 'local' : core().getModel(override)?.provider ?? cfg.provider;
       model = override;
       source = 'jarvis';
     } else if (cfg.provider && cfg.model) {
@@ -442,7 +488,7 @@ export class RoamiesEngine {
       const first = signedIn.find((s) => s.id !== 'local' && s.id !== 'palsu');
       if (first) {
         provider = first.id;
-        model = cfg.provider === first.id && cfg.model ? cfg.model : getDefaultModel(first.id as Provider)?.id ?? null;
+        model = cfg.provider === first.id && cfg.model ? cfg.model : core().getDefaultModel(first.id as Provider)?.id ?? null;
         source = 'auto';
       } else if (localModels.length) {
         // Nothing signed in, but a local model is running: use it (one that can use tools, if any).
@@ -455,7 +501,7 @@ export class RoamiesEngine {
     let problem: string | null = null;
     let warning: string | null = null;
     let route: Target['route'] | null = null;
-    const pickedLocal = provider === 'local' && model ? parseLocalModelId(model) : undefined;
+    const pickedLocal = provider === 'local' && model ? core().parseLocalModelId(model) : undefined;
     if (!provider || !model) problem = signedIn.length ? 'No model is picked in Roamies yet. Pick one on the Model page in Roamies.' : 'Roamies has no AI sign-in yet. Open Roamies and sign in on its Model page (Claude, ChatGPT or an API key), or start a local model server such as Ollama.';
     else if (provider === 'local') {
       const server = local.find((l) => l.id === pickedLocal?.endpointId);
@@ -473,12 +519,12 @@ export class RoamiesEngine {
     else if (!signedIn.some((s) => s.id === provider)) problem = `${providerName(provider)} isn't signed in. Sign in on the Model page in Roamies.`;
     else {
       route = provider === 'anthropic' && claude ? 'claude-code' : 'api';
-      if (route === 'claude-code' && !resolveClaudeCodeBinary()) problem = "Claude Code isn't installed for Roamies anymore. Sign in with Claude again on the Model page in Roamies.";
+      if (route === 'claude-code' && !core().resolveClaudeCodeBinary()) problem = "Claude Code isn't installed for Roamies anymore. Sign in with Claude again on the Model page in Roamies.";
     }
 
     this.target = !problem && provider && model && route ? { provider, model, source: source!, route } : null;
     const models = [
-      ...signedIn.filter((s) => s.id !== 'local' && s.id !== 'palsu').flatMap((s) => getModelsForProvider(s.id as Provider).map((m) => ({ id: m.id, name: m.name, provider: s.id, tools: true }))),
+      ...signedIn.filter((s) => s.id !== 'local' && s.id !== 'palsu').flatMap((s) => core().getModelsForProvider(s.id as Provider).map((m) => ({ id: m.id, name: m.name, provider: s.id, tools: true }))),
       ...localModels.map((m) => ({ id: m.id, name: m.name, provider: 'local', tools: m.tools })),
     ];
     this.snapshot = {
@@ -541,15 +587,17 @@ export class RoamiesEngine {
       backend: this.backend(),
       localOnly: this.localOnly(),
       openjarvis: this.ojHealth,
+      capabilities: this.caps,
+      toolMode: null,
     };
     return { ...s, health: this.health, lastError: this.lastError, lastUsedAt: this.lastUsedAt };
   }
 
   private thinking(model: string): ThinkingLevel | undefined {
     const wanted = this.settings.get().llm.thinking;
-    const info = getModel(model);
+    const info = core().getModel(model);
     if (wanted === 'off' || !info?.supportsThinking) return undefined;
-    const max = getMaxThinkingLevel(model);
+    const max = core().getMaxThinkingLevel(model);
     const maxIdx = THINKING_ORDER.indexOf(max as ThinkingLevel);
     const idx = THINKING_ORDER.indexOf(wanted);
     return maxIdx >= 0 && idx > maxIdx ? THINKING_ORDER[maxIdx] : wanted;
@@ -573,12 +621,12 @@ export class RoamiesEngine {
     if (t.provider === 'palsu') return {};
     if (t.provider === 'local') {
       // The server Jarvis found it on; a key Roamies saved for that server, if any.
-      const parsed = parseLocalModelId(t.model);
+      const parsed = core().parseLocalModelId(t.model);
       const endpoint = this.localEndpoints().find((e) => e.id === parsed?.endpointId);
-      const saved = parsed ? await this.authStorage().getCredentials(localAuthStorageKey(parsed.endpointId)).catch(() => undefined) : undefined;
-      return { apiKey: endpoint?.apiKey || saved?.accessToken || LOCAL_API_KEY_PLACEHOLDER, baseUrl: endpoint?.baseUrl ?? saved?.baseUrl };
+      const saved = parsed ? await this.authStorage().getCredentials(core().localAuthStorageKey(parsed.endpointId)).catch(() => undefined) : undefined;
+      return { apiKey: endpoint?.apiKey || saved?.accessToken || core().LOCAL_API_KEY_PLACEHOLDER, baseUrl: endpoint?.baseUrl ?? saved?.baseUrl };
     }
-    const c = await this.authStorage().resolveCredentials(t.provider, { storageKeys: getAuthStorageKeys(t.provider as Provider, t.model) });
+    const c = await this.authStorage().resolveCredentials(t.provider, { storageKeys: core().getAuthStorageKeys(t.provider as Provider, t.model) });
     return { apiKey: c.accessToken, ...(c.baseUrl ? { baseUrl: c.baseUrl } : {}), ...(c.accountId !== undefined ? { accountId: c.accountId } : {}) };
   }
 
@@ -592,17 +640,31 @@ export class RoamiesEngine {
     const rawId = `${t.provider}:${t.model}`;
     if (t.provider === 'openjarvis') {
       if (this.localOnly() && isCloudModel(t.model, this.ojHealth?.models.find((m) => m.id === t.model)?.ownedBy)) throw new ProviderError(`Refusing cloud model ${t.model}: Jarvis is local-only.`, { retryable: false });
-      const r = await this.openJarvis().complete({ model: t.model, system: req.system, messages: req.messages, tools: req.tools, maxTokens: Math.min(req.maxTokens ?? 4096, 8192), signal: this.signal(req.signal) });
+      // Reasoning models (DeepSeek R1, Qwen thinking…) spend tokens thinking before they answer.
+      const maxTokens = this.caps?.thinking ? Math.max(req.maxTokens ?? 0, 8192) : Math.min(req.maxTokens ?? 4096, 8192);
+      const call = { model: t.model, system: req.system, messages: req.messages, tools: req.tools, maxTokens, signal: this.signal(req.signal), promptedTools: this.promptedTools() };
+      const engine = new OpenJarvisClient(this.settings.get().brain.engineUrl);
+      let r = this.direct ? await engine.complete(call) : await this.openJarvis().complete(call);
+      if (r.empty && !this.direct && !req.signal?.aborted) {
+        // A thinking-only model through a server that turns thinking off answers with nothing: ask the
+        // local engine directly (same model, same tools — it returns the answer after the reasoning).
+        const viaEngine = await engine.complete(call).catch(() => null);
+        if (viaEngine && !viaEngine.empty) {
+          this.direct = true;
+          this.activity.log('info', 'llm', `${t.model} reasons before answering; Jarvis now talks to it on the local engine directly (still fully local).`);
+          r = viaEngine;
+        }
+      }
       return { text: r.text, toolCalls: r.toolCalls, stopReason: r.stopReason, providerId: rawId, model: r.model, raw: null, usage: r.usage };
     }
     const tools: Tool[] | undefined = req.tools?.length
       ? req.tools.map((spec) => ({ name: spec.name, description: spec.description, parameters: z.looseObject({}), rawInputSchema: spec.inputSchema }))
       : undefined;
-    const info = getModel(t.model);
+    const info = core().getModel(t.model);
     let res;
     try {
       const creds = await this.credentials(t);
-      res = await stream({
+      res = await ggAi!.stream({
         provider: t.provider as Provider,
         model: t.model,
         messages: [{ role: 'system', content: req.system }, ...toGgMessages(req.messages, rawId)],
@@ -672,7 +734,9 @@ export class RoamiesEngine {
   }
 
   private async runClaudeCode(t: Target, req: RunRequest): Promise<RunResult> {
-    const executable = resolveClaudeCodeBinary();
+    // The Claude Agent SDK (~33 MB) is only loaded for this route.
+    const { ClaudeCodeAgent } = await import('./claudecode.mjs');
+    const executable = core().resolveClaudeCodeBinary();
     if (!executable) throw new ProviderError("Claude Code isn't installed for Roamies anymore. Sign in with Claude again on the Model page in Roamies.", { retryable: false });
     const history = [...req.messages];
     const last = history.pop();
@@ -701,7 +765,7 @@ export class RoamiesEngine {
       signal: this.signal(req.signal),
       executable,
       cwd,
-      env: claudeCodeEnv(),
+      env: core().claudeCodeEnv(),
       resume: null,
       ...(this.claudeCodeQuery ? { query: this.claudeCodeQuery } : {}),
     });
@@ -767,6 +831,7 @@ export class RoamiesEngine {
   async transcriptionTarget(): Promise<{ name: string; baseUrl: string; key?: string } | null> {
     const t = this.settings.get().voice.transcription;
     if (t.service === 'openjarvis') {
+      if (this.localVoice?.available()) return { name: 'local Whisper (on demand)', baseUrl: 'worker' };
       const h = this.ojHealth ?? (await this.openJarvis().health());
       this.ojHealth = h;
       return h.reachable && h.speech?.available ? { name: 'OpenJarvis (local Whisper)', baseUrl: this.openJarvis().baseUrl } : null;
@@ -779,6 +844,7 @@ export class RoamiesEngine {
     if (t.service === 'openai') {
       if (this.localOnly() || !this.gate.detection().installed) return null;
       try {
+        await loadRoamiesEngine();
         const c = await this.authStorage().resolveApiKey('openai');
         return { name: 'OpenAI (your key in Roamies)', baseUrl: c.baseUrl || OPENAI_API, key: c.accessToken };
       } catch {
@@ -793,7 +859,7 @@ export class RoamiesEngine {
     const target = await this.transcriptionTarget();
     if (!target) throw new ProviderError(this.settings.get().voice.transcription.service === 'openjarvis' ? `Local listening isn't ready: ${this.ojHealth?.speech?.detail ?? 'OpenJarvis is not running'}.` : 'No transcription service is configured. Choose one under Settings → Voice (OpenJarvis on this computer, or your own Whisper server).', { retryable: false });
     if (this.settings.get().voice.transcription.service === 'openjarvis') {
-      const r = await this.openJarvis().transcribe(audio, mimeType, opts);
+      const r = target.baseUrl === 'worker' && this.localVoice ? await this.localVoice.transcribe(audio, mimeType, opts) : await this.openJarvis().transcribe(audio, mimeType, opts);
       return { text: r.text, provider: target.name };
     }
     const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('wav') ? 'wav' : mimeType.includes('mp4') || mimeType.includes('m4a') ? 'm4a' : mimeType.includes('mpeg') ? 'mp3' : 'webm';

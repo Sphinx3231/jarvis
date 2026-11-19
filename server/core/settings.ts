@@ -50,8 +50,23 @@ export const SettingsSchema = z.object({
       .string()
       .url()
       .refine((u) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|[a-z0-9-]+\.(local|lan))(:\d+)?\/?$/i.test(u), 'must be this computer or your local network'),
-    /** Model OpenJarvis should use; empty = OpenJarvis's own default. */
+    /** Model OpenJarvis should use (any local model you pulled, e.g. a DeepSeek); empty = OpenJarvis's default. */
     model: z.string().max(160),
+    /**
+     * The local engine OpenJarvis runs models on (Ollama). Jarvis asks it what the model can do (tools,
+     * thinking) and talks to it directly when a reasoning model's answer would otherwise come back empty.
+     */
+    engineUrl: z
+      .string()
+      .url()
+      .refine((u) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|[a-z0-9-]+\.(local|lan))(:\d+)?\/?$/i.test(u), 'must be this computer or your local network'),
+    /**
+     * openjarvis = through the OpenJarvis server (default). engine = straight to the local engine
+     * (Ollama), skipping the OpenJarvis server (~500 MB more RAM for the model); voice still runs locally.
+     */
+    via: z.enum(['openjarvis', 'engine']),
+    /** native = the model's own tool calling; prompted = tools described in the prompt (models without tool support); auto = decide from the model. */
+    toolMode: z.enum(['auto', 'native', 'prompted']),
     /** Never use a cloud model, cloud voice or cloud transcription — nothing billed, no usage limits. */
     localOnly: z.boolean(),
   }),
@@ -117,6 +132,19 @@ export const SettingsSchema = z.object({
       provider: z.enum(['local', 'browser', 'fish']),
       /** Kokoro voice (local, e.g. bm_george) or Fish Audio reference id; empty = the default. */
       voiceId: z.string().max(120),
+    }),
+    /**
+     * Local listening/voice in on-demand worker processes that exit when idle, so their ~1 GB goes back
+     * to the local model between conversations (onDemand off = use OpenJarvis's always-loaded speech).
+     */
+    local: z.object({
+      onDemand: z.boolean(),
+      /** Seconds without speech before a worker exits and frees its memory. */
+      idleSec: z.number().int().min(15).max(3600),
+      /** faster-whisper size: tiny/base/small/medium/large-v3 (bigger = more accurate, more RAM). */
+      whisperModel: z.enum(['tiny', 'base', 'small', 'medium', 'large-v3']),
+      /** Python with the speech packages; empty = the one the local setup installed. */
+      python: z.string().max(500),
     }),
     /** auto: browser speech recognition where it works, otherwise recorded audio + transcription. */
     inputMode: z.enum(['auto', 'browser', 'transcription']),
@@ -224,13 +252,16 @@ export const BRAIN_DEFAULT: 'openjarvis' | 'roamies' = 'openjarvis';
  */
 function roamiesDefaults(): Partial<Settings> {
   return {
-    brain: { backend: 'roamies', openjarvisUrl: 'http://127.0.0.1:8000', model: '', localOnly: false },
+    brain: { backend: 'roamies', openjarvisUrl: 'http://127.0.0.1:8000', model: '', engineUrl: 'http://127.0.0.1:11434', via: 'openjarvis', toolMode: 'auto', localOnly: false },
     voice: { ...DEFAULT_SETTINGS.voice, transcription: { service: 'openai', baseUrl: '', model: 'whisper-1' }, tts: { provider: 'browser', voiceId: '' } },
   };
 }
 
 export function defaultSettings(env: NodeJS.ProcessEnv = process.env): Settings {
-  return env.JARVIS_BRAIN === 'roamies' ? deepMerge(DEFAULT_SETTINGS, roamiesDefaults()) : DEFAULT_SETTINGS;
+  if (env.JARVIS_BRAIN === 'roamies') return deepMerge(DEFAULT_SETTINGS, roamiesDefaults());
+  // The local setup's "-Engine" choice: go straight to the engine (no OpenJarvis server) from the start.
+  if (env.JARVIS_BRAIN_VIA === 'engine') return deepMerge(DEFAULT_SETTINGS, { brain: { via: 'engine' } });
+  return DEFAULT_SETTINGS;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -242,7 +273,9 @@ export const DEFAULT_SETTINGS: Settings = {
     maxToolIterations: 6,
     requestTimeoutSec: 180,
   },
-  embeddings: { enabled: true },
+  // Off by default: the built-in embedding model costs ~200 MB that the local LLM can use instead;
+  // memory search still works (keyword + full-text). Turn it on in Settings for semantic search.
+  embeddings: { enabled: false },
   memory: {
     autoExtract: true,
     contextMessages: 20,
@@ -261,7 +294,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   tasks: { stepTimeoutSec: 120, maxAttempts: 2 },
   permissions: { policies: {}, followRequests: true, fullAccess: false },
-  brain: { backend: BRAIN_DEFAULT, openjarvisUrl: 'http://127.0.0.1:8000', model: '', localOnly: true },
+  brain: { backend: BRAIN_DEFAULT, openjarvisUrl: 'http://127.0.0.1:8000', model: '', engineUrl: 'http://127.0.0.1:11434', via: 'openjarvis', toolMode: 'auto', localOnly: true },
   computerAccess: { enabled: false, level: 'observe', screenshotRetentionMin: 0, browserEndpoint: 'http://127.0.0.1:9222', watchIntervalSec: 4 },
   voice: {
     enabled: true,
@@ -274,6 +307,7 @@ export const DEFAULT_SETTINGS: Settings = {
     inputMode: 'auto',
     transcription: { service: 'openjarvis', baseUrl: '', model: 'whisper-1' },
     tts: { provider: 'local', voiceId: 'bm_george' },
+    local: { onDemand: true, idleSec: 120, whisperModel: 'small', python: '' },
   },
   notifications: { desktop: true, taskCompletion: true },
   agents: { enabled: true, spendUsd: 0, offensive: false, autoSubmit: false, autoHunt: false },
