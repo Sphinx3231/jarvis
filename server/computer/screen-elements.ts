@@ -73,12 +73,21 @@ function distance(a: string, b: string): number {
  * ones, and a little OCR noise (1 edit per ~5 chars) is tolerated for a "fuzzy" match.
  */
 export function findTextOnScreen(words: OcrWord[], query: string, opts: { minConfidence?: number } = {}): ScreenTextMatch[] {
+  const confident = matchPhrase(words.filter((w) => w.confidence >= (opts.minConfidence ?? 30)), query);
+  if (confident.length) return confident;
+  // OCR sometimes reads a label correctly but with ~0 confidence (e.g. merged with an input border);
+  // fall back to every word, ranked lower.
+  return matchPhrase(words, query).map((m) => ({ ...m, score: Math.min(m.score, 1) }));
+}
+
+const compact = (s: string) => s.replace(/\s+/g, '');
+
+function matchPhrase(words: OcrWord[], query: string): ScreenTextMatch[] {
   const want = norm(query);
   if (!want) return [];
   const wantWords = want.split(' ');
-  const minConf = opts.minConfidence ?? 30;
   const out: ScreenTextMatch[] = [];
-  for (const line of groupLines(words.filter((w) => w.confidence >= minConf))) {
+  for (const line of groupLines(words)) {
     const ws = line.words;
     for (let i = 0; i < ws.length; i++) {
       for (let len = 1; len <= Math.min(ws.length - i, wantWords.length + 2); len++) {
@@ -90,6 +99,8 @@ export function findTextOnScreen(words: OcrWord[], query: string, opts: { minCon
         else if (len >= wantWords.length && text.startsWith(want + ' ')) score = 3;
         else if (len === wantWords.length && text.includes(want)) score = 2;
         else if (len === wantWords.length && want.length >= 4 && distance(text, want) <= Math.max(1, Math.floor(want.length / 5))) score = 1;
+        // Words OCR glued together ("Fullname(" for "Full name").
+        else if (len <= wantWords.length && compact(text).startsWith(compact(want)) && compact(text).length - compact(want).length <= 3) score = 2;
         if (!score) continue;
         const x = Math.min(...run.map((w) => w.box.x));
         const y = Math.min(...run.map((w) => w.box.y));

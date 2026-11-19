@@ -329,13 +329,14 @@ function describeBrowser(o: BrowserOpResult): string {
     ].filter(Boolean).join('\n');
   }
   if ('found' in o) return o.found ? 'The text appeared.' : 'The text did not appear before the timeout.';
+  if ('captions' in o) return o.captions ? `Captions/transcript:\n${o.captions.slice(0, 4000)}` : 'No captions or transcript are exposed on this page.';
   const r = o.result;
   return `${r.action}: ${r.detail}${r.verified ? ` — verified ${r.verified.ok ? 'OK' : 'NOT VERIFIED'} (${r.verified.detail})` : ''}${r.loginRequired ? ' — the page now asks you to sign in' : ''}`;
 }
 
 // ---------------------------------------------------------------- computer.browser_read
 
-const BrowserReadInput = z.object({ action: z.discriminatedUnion('op', [BrowserAction.options[0], BrowserAction.options[6], BrowserAction.options[11]]) });
+const BrowserReadInput = z.object({ action: z.discriminatedUnion('op', [BrowserAction.options[0], BrowserAction.options[6], BrowserAction.options[11], z.object({ op: z.literal('captions'), tabId: z.string().max(100).optional() }).describe('Read the current captions/transcript')]) });
 
 export const computerBrowserRead: Skill<z.infer<typeof BrowserReadInput>, BrowserOpResult> = {
   name: 'computer.browser_read',
@@ -353,7 +354,7 @@ export const computerBrowserRead: Skill<z.infer<typeof BrowserReadInput>, Browse
   dependsOn: 'Computer Access',
   timeoutMs: 60_000,
   availability: (s) => caOn(s, 'observe'),
-  summarize: (i) => (i.action.op === 'tabs' ? 'List browser tabs' : i.action.op === 'read' ? 'Read the browser page' : `Wait for "${(i.action as { text: string }).text}"`),
+  summarize: (i) => (i.action.op === 'tabs' ? 'List browser tabs' : i.action.op === 'read' ? 'Read the browser page' : i.action.op === 'captions' ? 'Read captions' : `Wait for "${(i.action as { text: string }).text}"`),
   async execute(input, ctx) {
     return ctx.services.computer.browserOp(input.action as BrowserOp, ctx.signal, { task: ctx.taskId });
   },

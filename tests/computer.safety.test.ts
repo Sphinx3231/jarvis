@@ -94,6 +94,10 @@ test('screen understanding: OCR words are grouped into lines and phrases are loc
   assert.equal(sub[0].text, 'Submit');
   assert.ok(sub.some((m) => m.text === 'Subnit' && m.score === 1));
   assert.deepEqual(findTextOnScreen(words, 'Delete'), []);
+  // Glued, zero-confidence OCR ("Fullname(") is still found, ranked as a weak match.
+  const glued = findTextOnScreen([w('Fullname(', 27, 526, 0), w('Email', 27, 557)], 'Full name');
+  assert.equal(glued.length, 1);
+  assert.equal(glued[0].score, 1);
 });
 
 test('learning: lesson numbers are identified from titles and URLs', () => {

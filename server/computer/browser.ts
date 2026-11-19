@@ -497,6 +497,11 @@ export class BrowserController {
     return this.evaluate<PageRead>(tabId, READ_EXPR(Math.min(200_000, opts.maxChars ?? 30_000)), signal);
   }
 
+  /** Just the caption/transcript text currently exposed — cheap enough to poll while a lesson plays. */
+  async captions(tabId: string, signal?: AbortSignal): Promise<string> {
+    return this.evaluate<string>(tabId, '(() => window.__jarvis.captions())()', signal);
+  }
+
   async waitForLoad(tabId: string, signal?: AbortSignal, timeoutMs = 15000): Promise<{ ok: boolean; readyState: string; ms: number }> {
     const start = Date.now();
     let state = 'unknown';

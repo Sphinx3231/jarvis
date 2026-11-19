@@ -130,7 +130,12 @@ class XdotoolDriver implements InputDriver {
           const g = await run('xdotool', ['getwindowgeometry', '--shell', id], signal).catch(() => null);
           const w = Number(g?.stdout.match(/^WIDTH=(\d+)/m)?.[1]);
           const h = Number(g?.stdout.match(/^HEIGHT=(\d+)/m)?.[1]);
-          verified = { ok: w === Math.round(action.width ?? 800) && h === Math.round(action.height ?? 600), detail: `window is ${w}x${h}` };
+          // Some windows resize in steps (terminals snap to character cells), so allow a small tolerance
+          // and always report the real size.
+          const ww = Math.round(action.width ?? 800);
+          const wh = Math.round(action.height ?? 600);
+          const near = (a: number, b: number) => Math.abs(a - b) <= Math.max(16, b * 0.05);
+          verified = { ok: near(w, ww) && near(h, wh), detail: `window is ${w}x${h} (asked ${ww}x${wh})` };
         } else if (action.op === 'close') {
           await new Promise((r) => setTimeout(r, 300));
           const still = (await run('xdotool', ['search', '--name', action.title], signal).catch(() => null))?.stdout.trim();

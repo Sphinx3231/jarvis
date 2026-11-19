@@ -68,6 +68,9 @@ interface Running {
   seenLines: Map<string, Set<string>>;
   lessonsVisited: Set<string>;
   lastHash: string | null;
+  /** Lesson currently being followed (for caption follow-up between samples). */
+  current: { key: string; lesson: string; lessonNumber: number | null; url: string; site: string | null } | null;
+  hasCaptions: boolean;
 }
 
 const sleep = (ms: number, signal: AbortSignal) =>
@@ -212,7 +215,7 @@ export class LearningWatcher {
     const now = Date.now();
     const session: WatchSession = { id: randomUUID(), course, courseSlug: slug(course), source, status: 'watching', lastLesson: null, lastLessonNumber: null, lastUrl: null, lessonsSeen: 0, notesStored: 0, samples: 0, gaps: [], startedAt: now, updatedAt: now, endedAt: null };
     const controller = new AbortController();
-    const run: Running = { session, controller, seenLines: new Map(), lessonsVisited: new Set(), lastHash: null, done: Promise.resolve(session) };
+    const run: Running = { session, controller, seenLines: new Map(), lessonsVisited: new Set(), lastHash: null, current: null, hasCaptions: false, done: Promise.resolve(session) };
     this.running.set(session.id, run);
     this.save(session);
     this.computer.actions.setLearning({ id: session.id, course, lesson: null });
@@ -297,8 +300,25 @@ export class LearningWatcher {
         stableTicks = 0;
         continue;
       }
-      await sleep(intervalMs, signal);
+      if (opts.source === 'browser' && run.hasCaptions && run.current) await this.followCaptions(run, opts, intervalMs, signal);
+      else await sleep(intervalMs, signal);
     }
+  }
+
+  /**
+   * Between full samples, follow the lesson's captions/transcript cheaply (a few hundred ms apart),
+   * so transient caption cues are not missed; new lines are stored at the end of the window.
+   */
+  private async followCaptions(run: Running, opts: WatchOptions, windowMs: number, signal: AbortSignal): Promise<void> {
+    const cur = run.current!;
+    const end = Date.now() + windowMs;
+    const fresh: string[] = [];
+    while (Date.now() < end && !signal.aborted) {
+      const r = await this.computer.browserOp({ op: 'captions', tabId: opts.tabId }, signal).catch(() => null);
+      if (r && 'captions' in r) fresh.push(...this.newLines(run, `${cur.key}#captions`, r.captions));
+      await sleep(Math.min(350, Math.max(50, end - Date.now())), signal);
+    }
+    if (fresh.length) this.ingest(run, cur.lesson, cur.lessonNumber, '', fresh.join('\n'), cur.url, cur.site);
   }
 
   private newLines(run: Running, lessonKey: string, text: string): string[] {
@@ -396,6 +416,8 @@ export class LearningWatcher {
     } else if (!opts.autoScroll && page.scroll.max > 0 && newLesson) {
       s.gaps.push(`"${lesson}" is longer than the screen; only text already in the page was read (enable auto-scroll to reveal lazy-loaded content).`);
     }
+    run.current = { key, lesson, lessonNumber, url: page.url, site: page.meta.siteName };
+    run.hasCaptions = Boolean(page.captions.trim());
     const digest = hash(`${key}\n${text}\n${page.captions}`);
     if (digest === run.lastHash && !newLesson) return reachedEnd && opts.nextLabel ? 'lesson-end' : 'unchanged';
     run.lastHash = digest;
@@ -433,7 +455,13 @@ export class LearningWatcher {
     const digest = hash(`${key}\n${o.ocr.text}`);
     if (digest === run.lastHash) return 'unchanged';
     run.lastHash = digest;
-    const fresh = this.newLines(run, key, o.ocr.text);
+    // OCR wraps sentences across lines; rejoin each paragraph so a definition isn't cut in half.
+    const paragraphs = o.ocr.text
+      .split(/\n\s*\n/)
+      .map((p) => p.replace(/-\n(?=[a-z])/g, '').replace(/\s*\n\s*/g, ' ').trim())
+      .filter(Boolean)
+      .join('\n');
+    const fresh = this.newLines(run, key, paragraphs);
     if (o.ocr.meanConfidence !== null && o.ocr.meanConfidence < 60) s.gaps.push(`Low OCR confidence (${o.ocr.meanConfidence}%) on "${lesson}" — some text may be misread; notes are marked as read from the screen.`);
     this.ingest(run, lesson, lessonNumber, fresh.join('\n'), '', null, o.activeWindow?.app ?? null);
     return 'changed';

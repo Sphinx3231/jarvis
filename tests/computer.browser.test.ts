@@ -1,10 +1,10 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createServer } from 'node:net';
-import { detectBrowserBinary, launchBrowser, CdpSession } from '../server/computer/browser.ts';
+import { launchBrowser, CdpSession } from '../server/computer/browser.ts';
+import { findChromium, freePort } from './_browser.ts';
 import { ConfirmationRequired } from '../server/computer/manager.ts';
 import { makeApp } from './helpers.ts';
 import { startSite, type Site } from './fixtures/computer-site.ts';
@@ -15,21 +15,6 @@ import { startSite, type Site } from './fixtures/computer-site.ts';
  * trusted input events, typing lands in real fields, verification reads the real page.
  * Self-skips only when no Chromium-family browser exists on the host.
  */
-
-export function findChromium(): string | null {
-  for (const p of [process.env.JARVIS_TEST_CHROMIUM, '/opt/pw-browsers/chromium']) if (p && existsSync(p)) return p;
-  return detectBrowserBinary();
-}
-
-export async function freePort(): Promise<number> {
-  return new Promise((resolve) => {
-    const s = createServer();
-    s.listen(0, '127.0.0.1', () => {
-      const p = (s.address() as { port: number }).port;
-      s.close(() => resolve(p));
-    });
-  });
-}
 
 const CHROMIUM = findChromium();
 const SKIP = CHROMIUM ? false : 'no Chromium-family browser on this host';

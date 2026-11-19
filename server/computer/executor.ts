@@ -51,7 +51,7 @@ export interface WorkflowResult {
   summary: string;
 }
 
-const SAFE_TO_RETRY_BROWSER = new Set(['tabs', 'read', 'navigate', 'back', 'scroll', 'wait_text', 'activate']);
+const SAFE_TO_RETRY_BROWSER = new Set(['tabs', 'read', 'captions', 'navigate', 'back', 'scroll', 'wait_text', 'activate']);
 
 function describeStep(s: WorkflowStep): string {
   switch (s.do) {
@@ -244,6 +244,7 @@ export class WorkflowExecutor {
       return { status: 'ok', detail: `read "${p.title}" — ${p.textLength} chars, ${p.elements.length} controls${p.dialogs.length ? `, dialog: ${p.dialogs[0].slice(0, 80)}` : ''}` };
     }
     if (res.op === 'wait_text' && 'found' in res) return res.found ? { status: 'ok', detail: `"${(action as { text: string }).text}" is on the page` } : { status: 'retry', detail: `"${(action as { text: string }).text}" has not appeared yet` };
+    if ('captions' in res) return { status: 'ok', detail: res.captions ? `captions: ${res.captions.slice(0, 120)}` : 'no captions exposed' };
     if (!('result' in res)) return { status: 'failed', detail: 'unexpected browser result' };
     const r = res.result;
     if (r.loginRequired && action.op !== 'navigate') return { status: 'blocked', detail: `The page now asks you to sign in (session expired?). Sign in yourself, then resume.` };

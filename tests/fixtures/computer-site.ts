@@ -132,6 +132,14 @@ const LESSON_HTML: Record<number, { body: string; below: string; video?: 'captio
   },
 };
 
+/** The plain text of a lesson as the page shows it (body + below-the-fold + captions) — ground truth
+ * for checking that every stored FACT really appears in its source lesson. */
+export function lessonPlainText(n: number): string {
+  const l = LESSON_HTML[n];
+  const strip = (h: string) => h.replace(/<[^>]+>/g, ' ');
+  return [LESSONS[n - 1].title, strip(l.body), strip(l.below), ...LESSONS[n - 1].captions].join('\n').replace(/[ \t]+/g, ' ');
+}
+
 function lessonPage(n: number): string {
   const t = LESSONS[n - 1];
   const l = LESSON_HTML[n];
