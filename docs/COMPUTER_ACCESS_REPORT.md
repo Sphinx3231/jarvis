@@ -66,7 +66,7 @@ Gaps were reported correctly: the lesson-3 video has no captions, and lesson 2 c
 
 | Suite | Command | Result |
 |---|---|---|
-| Full regression suite (before the brain switch) | `npm test` | **158 tests: 157 pass, 0 fail, 1 skipped** (CalDAV needs Radicale). Baseline before this work: 130 tests, 129 pass, 1 skipped. |
+| Full regression suite | `npm test` (with `JARVIS_TEST_OPENJARVIS` set) | **165 tests: 164 pass, 0 fail, 1 skipped** (CalDAV needs Radicale). Baseline before this work: 130 tests, 129 pass, 1 skipped. |
 | Safety / unit | `node --test tests/computer.safety.test.ts` | 13/13 |
 | Real browser | `node --test tests/computer.browser.test.ts` | 8/8 |
 | Scored course test | `node --test tests/computer.course.test.ts` | pass (scores above) |
