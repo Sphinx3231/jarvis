@@ -27,6 +27,14 @@ These are measurements from this codebase, not estimates:
 
 In practice, between conversations the stack costs about 0.1–0.7 GB, and the rest of your RAM goes to the model.
 
+**A worker exiting when idle loses nothing.** The voice workers only turn sound into text and text into sound; they hold no knowledge. Everything you say is in Jarvis's database the moment it is sent.
+
+- Standing instructions ("from now on…", "never…") are kept instantly and go into every later turn.
+- Each conversation is digested once it's quiet: a summary, what was new and what was repeated, filed as rules, plans, schedules, ideas and so on. The digest is written to the Obsidian vault.
+- A conversation not digested before a stop or restart is digested on the next start.
+
+See *Conversation digests* in [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ## Choosing a model (yours)
 
 Pull any Ollama model, then check it and make it the brain:

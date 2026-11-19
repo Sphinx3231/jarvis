@@ -242,8 +242,25 @@ Suggested order: browser control (Phase 4b) + the Computer Access UI/Neo surfaci
 
 ## 9. Conventions & gotchas
 
-- **Do not add model guardrails.** The user is explicit: guardrails come from the connected model.
-  Only enforce **authorization** (scope/approval), which is what the methodology itself requires.
+- **Do not add model guardrails.** The user is explicit: the harness (Jarvis) has none; guardrails come
+  only from the model they connect, so the two never overlap. Jarvis adds no content rules to prompts and
+  never refuses a request itself. What remains is **the user's own authorization**, and each part of it
+  is a setting:
+  - approvals for steps beyond what was asked (Settings → Permissions);
+  - critical-action confirmations (`computerAccess.confirmCritical`, which also switches the permission
+    engine's `Skill.critical`).
+
+  Also kept: **protection from third parties**, which never limits the user:
+  - prompt-injection quarantine;
+  - loopback-only DevTools with the cookie/storage block;
+  - origin and token checks on the API.
+- **Memory must never "forget".**
+  - Standing rules are captured instantly (`ConversationDigester.captureNow`) and are always in context
+    (`MemoryStore.standing`).
+  - Every conversation is digested (`server/agents/digest.ts`) and archived in the vault (`Conversations/`
+    and `Digests/` are never removed by sync).
+  - Conversations are kept forever by default (`conversationRetentionDays: 0`).
+  - Keep `digested_until` monotonic, and only advance it after a digest is stored.
 - Commit on the branch above; **don't open a PR unless asked.** Commit trailers used:
   `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>` and `Claude-Session: <url>`.
 - Node ≥22.18 type-stripping: no enums/namespaces/param-properties; use `import type`; `.ts` extensions

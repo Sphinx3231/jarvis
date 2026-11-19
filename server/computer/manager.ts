@@ -357,12 +357,15 @@ export class ComputerAccessManager {
   /**
    * The single safety gate for critical actions. A critical action (send, pay, delete, install,
    * admin, legal agreement…) runs only if the user confirmed THIS exact action — a pending
-   * confirmation is raised otherwise and the action does not happen. Full Access does not bypass it.
+   * confirmation is raised otherwise and the action does not happen. This is the user's authorization,
+   * not a content rule: it never refuses anything, it asks — and the user can turn it off
+   * (computerAccess.confirmCritical).
    */
   private guard(kind: string, ctx: ActionContext, summary: string, opts: ActOptions): CriticalFinding | null {
     const finding = classifyAction(ctx);
     if (!finding) return null;
-    if (opts.preapproved) return finding;
+    // Your own setting: with "Ask before critical actions" off, Jarvis just does them (still logged).
+    if (opts.preapproved || !this.settings.get().computerAccess.confirmCritical) return finding;
     const check = this.actions.checkConfirmation(actionFingerprint(kind, ctx), kind, summary, finding);
     if (check.confirmed) return finding;
     this.actions.record({ kind, target: ctx.label ?? ctx.typed ?? ctx.keys ?? null, detail: `Held for confirmation: ${finding.reason}`, outcome: 'needs_confirmation', verified: null, critical: finding.category, task: opts.task ?? null, durationMs: null });
@@ -647,7 +650,9 @@ export class ComputerAccessManager {
       case 'type': {
         const tabId = await this.resolveTab(req.tabId, sig);
         const page = await b.read(tabId, { maxChars: 200 }, sig);
-        const finding = this.guard('browser.type', { typed: req.text, keys: req.submit ? 'Return' : null, where: `${page.title} ${page.url}` }, `type ${JSON.stringify(req.text.slice(0, 40))}${req.submit ? ' and press Enter' : ''} on ${page.title || page.url}`, opts);
+        const secretField = await b.isSecretField(tabId, req.target ?? null, sig);
+        const shown = secretField ? `a secret (${req.text.length} characters) into the password field` : JSON.stringify(req.text.slice(0, 40));
+        const finding = this.guard('browser.type', { typed: secretField ? '[secret]' : req.text, secretField, keys: req.submit ? 'Return' : null, where: `${page.title} ${page.url}` }, `type ${shown}${req.submit ? ' and press Enter' : ''} on ${page.title || page.url}`, opts);
         const result = await this.tracked('INTERACTING', 'browser.type', req.target?.name ?? null, { ...opts, critical: finding?.category ?? null }, () => b.type(tabId, req.target ?? null, req.text, { clear: req.clear, submit: req.submit }, sig), ok);
         return { op: 'type', tabId, result };
       }

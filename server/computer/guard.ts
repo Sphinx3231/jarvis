@@ -29,7 +29,8 @@ export type CriticalCategory =
   | 'install'
   | 'security-settings'
   | 'admin-privileges'
-  | 'share-private';
+  | 'share-private'
+  | 'credentials';
 
 export interface CriticalFinding {
   category: CriticalCategory;
@@ -65,6 +66,8 @@ export interface ActionContext {
   label?: string | null;
   /** Text being typed. */
   typed?: string | null;
+  /** Typing into a password/secret field (the text itself is never logged or classified). */
+  secretField?: boolean;
   /** Key chord being pressed (e.g. "Return", "ctrl+Return"). */
   keys?: string | null;
   /** Where it happens: page title / URL / window title, used to disambiguate (e.g. Enter in a mail composer). */
@@ -80,6 +83,7 @@ export function classifyAction(ctx: ActionContext): CriticalFinding | null {
   if (label) {
     for (const r of LABEL_RULES) if (r.re.test(label)) return { category: r.category, reason: `"${label.slice(0, 60)}" ${r.reason}` };
   }
+  if (ctx.secretField) return { category: 'credentials', reason: 'enters a password or other secret into a sign-in field' };
   const typed = ctx.typed ?? '';
   if (typed) {
     for (const r of TYPED_RULES) if (r.re.test(typed)) return { category: r.category, reason: `typing ${JSON.stringify(typed.slice(0, 60))} ${r.reason}` };

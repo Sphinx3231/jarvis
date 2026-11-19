@@ -4,6 +4,7 @@ import { errorMessage, truncate } from '../core/util.ts';
 import type { ConversationStore } from '../intelligence/conversations.ts';
 import type { RoamiesEngine } from '../llm/engine.ts';
 import type { MemoryStore } from '../memory/store.ts';
+import type { ConversationDigester } from './digest.ts';
 import type { SkillRegistry } from '../skills/registry.ts';
 import type { Task } from '../tasks/store.ts';
 
@@ -19,14 +20,16 @@ export class MemoryAgent {
   private settings: SettingsStore;
   private activity: ActivityLog;
   private registry: SkillRegistry;
+  private digester: ConversationDigester | null;
 
-  constructor(deps: { memory: MemoryStore; conversations: ConversationStore; llm: RoamiesEngine; settings: SettingsStore; activity: ActivityLog; registry: SkillRegistry }) {
+  constructor(deps: { memory: MemoryStore; conversations: ConversationStore; llm: RoamiesEngine; settings: SettingsStore; activity: ActivityLog; registry: SkillRegistry; digester?: ConversationDigester }) {
     this.memory = deps.memory;
     this.conversations = deps.conversations;
     this.llm = deps.llm;
     this.settings = deps.settings;
     this.activity = deps.activity;
     this.registry = deps.registry;
+    this.digester = deps.digester ?? null;
   }
 
   /** Record a factual summary of a finished task (it is a system record, so it is verified). */
@@ -80,8 +83,22 @@ export class MemoryAgent {
     this.syncToolDocs();
 
     const s = this.settings.get();
-    const pruned = this.conversations.pruneOlderThan(Date.now() - s.memory.conversationRetentionDays * 86_400_000);
-    if (pruned) notes.push(`removed ${pruned} expired conversation(s)`);
+    if (this.digester) {
+      try {
+        const digested = await this.digester.catchUp(signal);
+        if (digested) notes.push(`digested ${digested} conversation part(s)`);
+      } catch (err) {
+        notes.push(`digest failed: ${errorMessage(err)}`);
+      }
+    }
+    // Conversations are kept forever unless a retention period is set; even then each one is
+    // digested (and its vault note kept) before it goes.
+    if (s.memory.conversationRetentionDays > 0) {
+      const cutoff = Date.now() - s.memory.conversationRetentionDays * 86_400_000;
+      await this.digester?.digestBefore(cutoff);
+      const pruned = this.conversations.pruneOlderThan(cutoff);
+      if (pruned) notes.push(`removed ${pruned} expired conversation(s) (their digests and vault notes are kept)`);
+    }
 
     try {
       const embedded = await this.embedPending(signal);

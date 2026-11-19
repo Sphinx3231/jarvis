@@ -1,3 +1,5 @@
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import type { LlmMessage, StopReason, ToolSpec } from './types.ts';
 import { ProviderError } from './types.ts';
 
@@ -172,9 +174,14 @@ export class OpenJarvisClient {
   private async json<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
     let res: Response;
     try {
-      res = await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, signal: init.signal ?? AbortSignal.timeout(init.timeoutMs ?? 10_000) });
+      const signal = init.signal ?? AbortSignal.timeout(init.timeoutMs ?? 10_000);
+      // Node's fetch gives up when response headers take over 5 minutes, which a slow local model
+      // easily does on a long answer. Long calls go over node:http, bounded only by our own timeout.
+      const long = (init.timeoutMs ?? 0) > 290_000 && typeof init.body === 'string' && this.fetchImpl === fetch;
+      res = long ? await longPost(`${this.baseUrl}${path}`, init.body as string, (init.headers ?? {}) as Record<string, string>, signal) : await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, signal });
     } catch (err) {
-      throw new ProviderError(`OpenJarvis isn't reachable at ${this.baseUrl} (${(err as Error).message}). Start it with \`jarvis serve\`, or run the Jarvis local setup.`, { retryable: true });
+        if (init.signal?.aborted || (err as Error).name === 'AbortError' || (err as Error).name === 'TimeoutError') throw new ProviderError(`The local model at ${this.baseUrl} did not answer in time (${(err as Error).message}).`, { retryable: false });
+      throw new ProviderError(`The brain server isn't reachable at ${this.baseUrl} (${(err as Error).message}). Start OpenJarvis (\`jarvis serve\`) or Ollama, or run the Jarvis local setup.`, { retryable: true });
     }
     const text = await res.text();
     if (!res.ok) throw new ProviderError(`OpenJarvis ${path} failed (HTTP ${res.status}): ${text.slice(0, 300)}`, { retryable: res.status >= 500 || res.status === 429, status: res.status });
@@ -225,7 +232,7 @@ export class OpenJarvisClient {
       model?: string;
       choices?: Array<{ finish_reason?: string; message?: { content?: string | null; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string | Record<string, unknown> } }> } }>;
       usage?: { prompt_tokens?: number; completion_tokens?: number };
-    }>('/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: req.signal, timeoutMs: 600_000 });
+    }>('/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: req.signal, timeoutMs: 900_000 });
     const choice = r.choices?.[0];
     const raw = choice?.message?.content ?? '';
     let toolCalls = (choice?.message?.tool_calls ?? [])
@@ -278,4 +285,23 @@ export class OpenJarvisClient {
     if (audio.length < 44) throw new ProviderError('OpenJarvis returned no audio.', { retryable: false });
     return { audio, mime: res.headers.get('content-type')?.split(';')[0] || 'audio/wav', voiceId: res.headers.get('x-voice-id') };
   }
+}
+
+/** POST over node:http(s) with no header timeout (only `signal` ends it), returned as a fetch Response. */
+function longPost(url: string, body: string, headers: Record<string, string>, signal: AbortSignal): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(signal.reason ?? new Error('aborted'));
+    const u = new URL(url);
+    const req = (u.protocol === 'https:' ? httpsRequest : httpRequest)(u, { method: 'POST', headers: { ...headers, 'content-length': Buffer.byteLength(body) } }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => resolve(new Response(Buffer.concat(chunks), { status: res.statusCode ?? 500 })));
+      res.on('error', reject);
+    });
+    const onAbort = () => req.destroy(Object.assign(new Error(String((signal.reason as Error)?.message ?? 'aborted')), { name: (signal.reason as Error)?.name ?? 'AbortError' }));
+    signal.addEventListener('abort', onAbort, { once: true });
+    req.on('close', () => signal.removeEventListener('abort', onAbort));
+    req.on('error', reject);
+    req.end(body);
+  });
 }

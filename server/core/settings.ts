@@ -78,8 +78,17 @@ export const SettingsSchema = z.object({
     autoExtract: z.boolean(),
     contextMessages: z.number().int().min(2).max(100),
     retrievalLimit: z.number().int().min(0).max(30),
-    conversationRetentionDays: z.number().int().min(1).max(3650),
+    /** 0 = keep every conversation forever (the default). */
+    conversationRetentionDays: z.number().int().min(0).max(3650),
     summarizeConversations: z.boolean(),
+    /**
+     * Digest every conversation: once it has been quiet this many seconds, Jarvis summarises it to
+     * itself (what was new, what was repeated), files each item under a category (rules, plans,
+     * schedules, ideas, …) and writes it to the vault. 0 = only in the background job.
+     */
+    digestAfterSec: z.number().int().min(0).max(3600),
+    /** How much of the standing knowledge (rules, preferences, plans, schedules) goes into every turn. */
+    standingChars: z.number().int().min(0).max(20000),
   }),
   background: z.object({
     enabled: z.boolean(),
@@ -118,6 +127,8 @@ export const SettingsSchema = z.object({
     browserEndpoint: z.string().max(200).refine((u) => /^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):\d{2,5}$/.test(u), 'must be a loopback http://127.0.0.1:<port> endpoint'),
     /** Seconds between samples while watching/learning (event-driven change detection skips unchanged samples). */
     watchIntervalSec: z.number().min(1).max(120),
+    /** Ask the user before critical actions (send, pay, delete, install, enter a password…). Off = Jarvis does them and logs them. */
+    confirmCritical: z.boolean(),
   }),
   voice: z.object({
     enabled: z.boolean(),
@@ -280,8 +291,10 @@ export const DEFAULT_SETTINGS: Settings = {
     autoExtract: true,
     contextMessages: 20,
     retrievalLimit: 6,
-    conversationRetentionDays: 90,
+    conversationRetentionDays: 0,
     summarizeConversations: true,
+    digestAfterSec: 60,
+    standingChars: 4000,
   },
   background: {
     enabled: true,
@@ -295,7 +308,7 @@ export const DEFAULT_SETTINGS: Settings = {
   tasks: { stepTimeoutSec: 120, maxAttempts: 2 },
   permissions: { policies: {}, followRequests: true, fullAccess: false },
   brain: { backend: BRAIN_DEFAULT, openjarvisUrl: 'http://127.0.0.1:8000', model: '', engineUrl: 'http://127.0.0.1:11434', via: 'openjarvis', toolMode: 'auto', localOnly: true },
-  computerAccess: { enabled: false, level: 'observe', screenshotRetentionMin: 0, browserEndpoint: 'http://127.0.0.1:9222', watchIntervalSec: 4 },
+  computerAccess: { enabled: false, level: 'observe', screenshotRetentionMin: 0, browserEndpoint: 'http://127.0.0.1:9222', watchIntervalSec: 4, confirmCritical: true },
   voice: {
     enabled: true,
     autoSpeak: false,

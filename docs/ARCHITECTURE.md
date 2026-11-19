@@ -71,7 +71,7 @@ The scheduler runs internal jobs only:
 | Job | Default | What it does |
 |---|---|---|
 | task-monitor | 30 s | Recover orphaned running tasks, flag slow steps, dispatch due work, one reminder per long-pending approval |
-| memory-maintenance | 30 min | Merge duplicates, refresh tool docs, embed new memories (if enabled), summarise long conversations (≤2 model calls), prune expired conversations |
+| memory-maintenance | 30 min | Digest conversations not digested yet (≤3 per run, plus redoing one quick digest with the model), merge duplicates, refresh tool docs, embed new memories (if enabled), summarise long conversations (≤2 model calls), prune conversations only if a retention period is set |
 | health-check | 15 min | Roamies sign-in check (refreshes the credential, no inference), reconnect dead MCP servers |
 
 Task dispatch itself is event-driven (and a timer for the next scheduled task), so scheduled tasks run even with background monitoring paused. Jobs never take external actions; anything external is a task step and goes through permissions.
@@ -100,7 +100,30 @@ Agent roles add a second boundary: the *jarvis* role in chat may only use inline
 - System records (task history, tool docs) are verified.
 - Exact (normalised hash) and near-duplicates (trigram Jaccard ≥ 0.85, same kind) are merged, keeping provenance.
 - Retrieval = BM25 keyword search (stop words dropped, word forms matched by stem prefix) + cosine similarity over embeddings, weighted by confidence and verification.
+- **Standing knowledge** (`MemoryStore.standing`): every rule, then preferences, schedules and plans, up to `memory.standingChars` (4,000 by default), goes into the context of every turn whatever the topic. Topic-relevant memories are retrieved on top.
 - Embeddings come from the built-in all-MiniLM-L6-v2 model (WebAssembly ONNX runtime, downloaded once from a pinned revision and SHA-256-checked, runs locally) or an OpenAI-compatible endpoint. New memories are embedded within seconds.
+
+### Conversation digests (`agents/digest.ts`)
+
+The fix for "I told it something and five minutes later it forgot":
+
+1. **Instantly:** a standing instruction ("from now on…", "always…", "never…", "whenever you…") is stored as a `rule` memory the moment the message arrives (`captureNow`), in the user's own words and verified. It is in the context of the reply to that very message, and of every turn after.
+2. **When the conversation goes quiet** (`memory.digestAfterSec`, 60 s by default): Jarvis's model gets the part of the conversation it hasn't digested yet, plus what Jarvis already knows (standing knowledge and related memories). It returns JSON: a summary and items `{category, text, repeated}`. The categories are rule, preference, plan, schedule, idea, decision, project, procedure, fact, request and question. Items become memories, and duplicates are merged. Each item is marked new, or repeated if it was known before this part of the conversation. The digest is stored in `conversation_digests`, and `conversations.digested_until` advances.
+3. **Never lost:**
+   - Messages are in SQLite as soon as they are sent.
+   - `digested_until` only moves after a digest is stored.
+   - A user message aborts a model digest in progress, so the local model is free for them; that part is digested later.
+   - Startup and the memory job catch up on anything pending.
+   - With no model, or an unusable answer, a **quick digest** files the user's own sentences by their wording. The model redoes it when one is available.
+   - Before any conversation is pruned (only if a retention period is set; the default is forever), it is digested.
+
+The next turns get the latest digests and the requests from the past week in their context. In the vault:
+
+- `Conversations/` holds every conversation, with its digests and full transcript.
+- `Digests/<date>.md` has every digest of the day.
+- `Knowledge/<Category>.md` lists everything by category.
+
+`Conversations/` and `Digests/` are archives: sync never removes a note there, even after the conversation is deleted from Jarvis. Unchanged archive notes are skipped rather than rebuilt.
 
 ## Voice and API keys
 
@@ -126,7 +149,7 @@ Known limits: Jarvis reads Roamies' model choice but never writes it (change it 
 
 `integrations/obsidian.ts` gives Jarvis its own Obsidian vault — the place everything it learns is kept in readable form. On first start it creates the vault (default `~/Documents/Jarvis Vault`, or `~/Jarvis Vault`; configurable; `JARVIS_VAULT_DIR` overrides) with `.obsidian/` settings (dark theme in the Jarvis purple, daily notes in `Journal/`, graph colour groups per note type) and a `.jarvis-vault.json` marker. It refuses any folder that already contains other files and isn't marked as a Jarvis vault, so it can never write into a personal vault. `.obsidian/` settings are only written at creation.
 
-Contents: `Jarvis.md` (live status and index), `Manual/` (one note per skill generated from the registry, agents, permissions and grants, integrations, background jobs, `docs/*.md` + README), `Memory/<kind>/` (one note per memory: `jarvis_id`, `verified`, `confidence`, sources), `Tasks/` (steps as a checklist, result, history, task log), `Conversations/`, `Journal/<date>.md` (last 30 days) and `Notes/` (notes written on request).
+Contents: `Jarvis.md` (live status and index), `Manual/` (one note per skill generated from the registry, agents, permissions and grants, integrations, background jobs, `docs/*.md` + README), `Memory/<kind>/` (one note per memory: `jarvis_id`, `verified`, `confidence`, sources), `Tasks/` (steps as a checklist, result, history, task log), `Conversations/` (every conversation with its digests; archive), `Digests/` (daily digest notes; archive), `Knowledge/` (rules, preferences, plans, schedules, ideas… one note per category), `Journal/<date>.md` (last 30 days) and `Notes/` (notes written on request).
 
 It updates within ~5 s of meaningful changes and on the `obsidian-sync` schedule. The `obsidian_files` table stores, per vault, the hash of every file Jarvis wrote: a file whose hash no longer matches was edited by the user and is never overwritten or deleted; for memory notes the edited text, `verified` and `kind` are imported back as a correction. Notes the user adds are never touched. Writes are atomic (temp file + rename) and confined to the vault (real paths checked). Moving the vault creates a fresh one and leaves the old untouched. Secrets and feed URLs are never written. Skills: `obsidian.search`/`obsidian.read` (ask first) and `obsidian.write_note` (new notes only).
 

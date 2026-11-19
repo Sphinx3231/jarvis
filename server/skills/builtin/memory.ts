@@ -15,7 +15,7 @@ type SearchOut = { results: Array<{ id: string; kind: string; content: string; v
 export const memorySearch: Skill<z.infer<typeof SearchInput>, SearchOut> = {
   name: 'memory.search',
   title: 'Search memory',
-  description: 'Search Jarvis long-term memory (preferences, project knowledge, decisions, procedures, facts, task history, tool docs). Unverified memories are assumptions, not facts.',
+  description: 'Search Jarvis long-term memory (rules, preferences, plans, schedules, ideas, project knowledge, decisions, procedures, facts, task history, tool docs). Unverified memories are assumptions, not facts.',
   category: 'memory',
   scope: 'memory.read',
   risk: 'internal',
@@ -43,7 +43,7 @@ export const memorySearch: Skill<z.infer<typeof SearchInput>, SearchOut> = {
 
 const RememberInput = z.object({
   content: z.string().min(3).max(1000).describe('A single self-contained statement to remember'),
-  kind: z.enum(userKinds).describe('preference | project | decision | procedure | fact'),
+  kind: z.enum(userKinds).describe('rule (a standing instruction for how Jarvis works) | preference | plan | schedule | idea | project | decision | procedure | fact'),
   tags: z.array(z.string().max(30)).max(6).optional(),
   userStated: z.boolean().describe('true only if the user explicitly stated this; false if you inferred it'),
 });

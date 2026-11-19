@@ -5,13 +5,15 @@ import { api, type Conversation, type Memory, type MemoryStats } from '../lib/ap
 import { dateTime, KIND_LABEL, timeAgo } from '../lib/format';
 import { useAction, useResource } from '../lib/live';
 
-const KINDS = ['preference', 'project', 'decision', 'procedure', 'fact', 'task_history', 'tool_doc'];
-const EDITABLE_KINDS = ['preference', 'project', 'decision', 'procedure', 'fact'];
+const KINDS = ['rule', 'preference', 'plan', 'schedule', 'idea', 'project', 'decision', 'procedure', 'fact', 'task_history', 'tool_doc'];
+const EDITABLE_KINDS = ['rule', 'preference', 'plan', 'schedule', 'idea', 'project', 'decision', 'procedure', 'fact'];
 
 function sourceLabel(m: Memory): string {
   if (m.source === 'user') return 'You told Jarvis';
   if (m.source === 'user (via conversation)') return 'You said it (as understood by Jarvis)';
   if (m.source === 'jarvis (inferred)') return 'Inferred by Jarvis';
+  if (m.source === 'jarvis (digest)') return 'From a conversation digest';
+  if (m.source === 'user (chat)') return 'You said it (your words)';
   if (m.source === 'system') return m.kind === 'tool_doc' ? 'Skill registry' : 'Recorded by Jarvis';
   return m.source;
 }

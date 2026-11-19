@@ -566,6 +566,12 @@ export class BrowserController {
   }
 
   /** Locate an element semantically (accessible name/role), scrolled into view. */
+  /** Whether typing would go into a password/secret field (the target, or the focused field). Never reads its value. */
+  async isSecretField(tabId: string, target: ElementTarget | null, signal?: AbortSignal): Promise<boolean> {
+    const el = target ? (await this.locate(tabId, target, signal).catch(() => null))?.el : await this.evaluate<PageElement | null>(tabId, FOCUSED_EXPR, signal).catch(() => null);
+    return el?.type === 'password' || el?.value === '[hidden]';
+  }
+
   async locate(tabId: string, target: ElementTarget, signal?: AbortSignal) {
     return this.evaluate<{ found: boolean; matches?: number; x?: number; y?: number; w?: number; h?: number; el?: PageElement; obscured?: boolean; candidates?: string[] }>(tabId, FIND_EXPR(target), signal);
   }
@@ -604,18 +610,24 @@ export class BrowserController {
     if (target) {
       const loc = await this.locate(tabId, target, signal);
       if (!loc.found) return { ok: false, action: 'type', detail: `No field matching ${JSON.stringify(target.name ?? target.index)}. Visible controls: ${(loc.candidates ?? []).slice(0, 15).join(' | ')}`, verified: null };
-      if (loc.el?.type === 'password' || loc.el?.value === '[hidden]') return { ok: false, action: 'type', detail: 'Refused: that is a password/secret field. Jarvis never enters passwords or secrets — please sign in yourself.', verified: null };
       if (loc.el?.disabled) return { ok: false, action: 'type', detail: `"${loc.el.name}" is disabled.`, verified: null };
       fieldName = loc.el?.name || fieldName;
       await this.mouseClick(s, loc.x!, loc.y!, signal);
     }
     const focused = await this.evaluate<PageElement | null>(tabId, FOCUSED_EXPR, signal);
-    if (focused?.type === 'password' || focused?.value === '[hidden]') return { ok: false, action: 'type', detail: 'Refused: the focused field is a password/secret field.', verified: null };
+    // A password/secret field: typed like any other, but its value is never read back, returned or
+    // logged — the check below only asks the page whether the field ends with what was typed.
+    const secret = focused?.type === 'password' || focused?.value === '[hidden]';
     if (opts.clear) {
       await this.evaluate(tabId, '(() => { const a = document.activeElement; if (a && "value" in a) { a.select && a.select(); } else document.execCommand("selectAll"); return true; })()', signal);
       await this.pressKey(tabId, 'Backspace', signal);
     }
     await s.send('Input.insertText', { text }, signal);
+    if (secret) {
+      const filled = await this.evaluate<boolean>(tabId, `(() => { const a = document.activeElement; return !!a && typeof a.value === 'string' && a.value.endsWith(${JSON.stringify(text)}); })()`, signal).catch(() => false);
+      if (opts.submit) await this.pressKey(tabId, 'Enter', signal);
+      return { ok: true, action: `type into "${fieldName}"`, detail: `Typed ${text.length} char(s) into the secret field "${fieldName}" (not logged)${opts.submit ? ' and pressed Enter' : ''}`, verified: { ok: filled, detail: filled ? 'the field holds what was typed' : 'the field does not hold what was typed' } };
+    }
     const after = await this.evaluate<PageElement | null>(tabId, FOCUSED_EXPR, signal);
     const value = after?.value ?? '';
     const ok = value.includes(text.slice(0, 200)) || (after?.tag === 'div' && true);

@@ -2,7 +2,11 @@ import type { Database } from '../db/database.ts';
 import type { EventBus } from '../core/events.ts';
 import { newId, now, parseJson, sha256, UserError } from '../core/util.ts';
 
-export const MEMORY_KINDS = ['preference', 'project', 'decision', 'procedure', 'fact', 'task_history', 'tool_doc'] as const;
+/**
+ * rule = a standing instruction from the user ("from now on…", "never…"): always in Jarvis's context.
+ * plan / schedule / idea = categories the conversation digest files things under (see agents/digest.ts).
+ */
+export const MEMORY_KINDS = ['rule', 'preference', 'plan', 'schedule', 'idea', 'project', 'decision', 'procedure', 'fact', 'task_history', 'tool_doc'] as const;
 export type MemoryKind = (typeof MEMORY_KINDS)[number];
 
 export interface Memory {
@@ -370,6 +374,28 @@ export class MemoryStore {
       }
       for (const stale of existing.values()) this.db.run('DELETE FROM memories WHERE id = ?', stale.id);
     });
+  }
+
+  /**
+   * The user's standing knowledge, for every turn regardless of topic: all rules, then preferences,
+   * then plans and schedules (newest first), until the character budget runs out. This is what
+   * stops Jarvis forgetting an instruction a few minutes (or conversations) later.
+   */
+  standing(maxChars = 4000): Memory[] {
+    const out: Memory[] = [];
+    let used = 0;
+    for (const kind of ['rule', 'preference', 'schedule', 'plan'] as const) {
+      const rows = this.db
+        .all<Record<string, unknown>>(`SELECT ${MemoryStore.COLS} FROM memories WHERE kind = ? ORDER BY verified DESC, merged_count DESC, updated_at DESC LIMIT 200`, kind)
+        .map((r) => this.map(r));
+      for (const m of rows) {
+        const cost = m.content.length + 40;
+        if (used + cost > maxChars) return out;
+        out.push(m);
+        used += cost;
+      }
+    }
+    return out;
   }
 
   /** Merge near-duplicates that slipped in (e.g. after user edits). Returns the number merged. */

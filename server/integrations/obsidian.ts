@@ -8,6 +8,7 @@ import { AGENTS } from '../agents/agents.ts';
 import { SUB_AGENTS } from '../agents/subagents.ts';
 import { errorMessage, sha256, truncate } from '../core/util.ts';
 import { MEMORY_KINDS, type Memory, type MemoryKind } from '../memory/store.ts';
+import { CATEGORY_LABEL, DIGEST_CATEGORIES, type Digest, type DigestCategory } from '../agents/digest.ts';
 import type { Task } from '../tasks/store.ts';
 import type { Skill } from '../skills/types.ts';
 
@@ -27,13 +28,22 @@ import type { Skill } from '../skills/types.ts';
  *    user edited it: Jarvis never overwrites or deletes it. Edits to memory notes are imported
  *    back into Jarvis as corrections.
  *  - Credentials, API keys and calendar feed URLs are never written.
+ *  - Conversations/ and Digests/ are an archive: every conversation and every digest Jarvis made of
+ *    it stays in the vault for good, even after the conversation itself is deleted from Jarvis.
  */
+
+/** Vault folders the sync only ever adds to: nothing in them is removed when it leaves Jarvis's database. */
+const ARCHIVE_PREFIXES = ['Conversations/', 'Digests/'];
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DOCS_DIR = join(here, '..', '..', 'docs');
 const README = join(here, '..', '..', 'README.md');
 
 const KIND_FOLDER: Record<MemoryKind, string> = {
+  rule: 'Rules',
+  plan: 'Plans',
+  schedule: 'Schedules',
+  idea: 'Ideas',
   preference: 'Preferences',
   project: 'Projects',
   decision: 'Decisions',
@@ -41,6 +51,20 @@ const KIND_FOLDER: Record<MemoryKind, string> = {
   fact: 'Facts',
   task_history: 'Task history',
   tool_doc: 'Tool docs',
+};
+
+const KNOWLEDGE_INTRO: Record<DigestCategory, string> = {
+  rule: 'Standing instructions you gave Jarvis. Every one is in Jarvis’s context on every turn, until you change it (edit or delete it on the Memory page, or edit its note).',
+  preference: 'How you like things. Always in Jarvis’s context.',
+  plan: 'What you (or you and Jarvis) plan to do. In Jarvis’s context on every turn.',
+  schedule: 'Anything with a time or a date: appointments, deadlines, recurring things. In Jarvis’s context on every turn.',
+  idea: 'Ideas from your conversations.',
+  decision: 'Decisions you made.',
+  project: 'Your projects and what Jarvis knows about them.',
+  procedure: 'How to do things, step by step.',
+  fact: 'Facts about you, your work and your world.',
+  request: 'What you asked Jarvis to do in the last 90 days.',
+  question: 'Questions you asked in the last 90 days.',
 };
 
 const EDIT_HINT = '%% Edit the text above to correct this memory, or set verified: true to confirm it. Jarvis imports your change on the next sync. %%';
@@ -167,6 +191,7 @@ export class ObsidianSync {
   lastReport: SyncReport | null = null;
   private running: Promise<SyncReport> | null = null;
   private timer: NodeJS.Timeout | null = null;
+  private known: Set<string> = new Set();
 
   constructor(app: JarvisApp) {
     this.app = app;
@@ -282,7 +307,7 @@ export class ObsidianSync {
       report.imported = this.importMemoryEdits(base, state, edited);
 
       // 2. Build the full set of notes and write the ones that changed.
-      const notes = this.buildNotes();
+      const notes = this.buildNotes(new Set(state.keys()));
       for (const [rel, content] of notes) {
         const full = join(base, rel);
         if (!full.startsWith(base + sep)) continue;
@@ -310,7 +335,7 @@ export class ObsidianSync {
       // 3. Remove notes Jarvis wrote that no longer exist (deleted memories, pruned tasks),
       //    unless the user edited them.
       for (const rel of state.keys()) {
-        if (notes.has(rel)) continue;
+        if (notes.has(rel) || ARCHIVE_PREFIXES.some((p) => rel.startsWith(p))) continue;
         const full = join(base, rel);
         if (!existsSync(full)) {
           this.forget(rel);
@@ -401,15 +426,22 @@ export class ObsidianSync {
 
   // ---------------------------------------------------------------- note generation
 
-  buildNotes(): Map<string, string> {
+  /**
+   * @param known notes already in the vault: archive notes (conversations, digests) that haven't
+   * changed since the last sync are skipped instead of rebuilt, so years of conversations stay cheap.
+   */
+  buildNotes(known: Set<string> = new Set()): Map<string, string> {
     const inc = this.cfg().include;
     const notes = new Map<string, string>();
+    this.known = known;
     if (inc.manual) this.manualNotes(notes);
     if (inc.memories) this.memoryNotes(notes);
     if (inc.memories) this.agentNotes(notes);
     if (inc.tasks) this.taskNotes(notes);
     if (inc.journal) this.journalNotes(notes);
     if (inc.conversations) this.conversationNotes(notes);
+    if (inc.conversations) this.digestNotes(notes);
+    if (inc.memories || inc.conversations) this.knowledgeNotes(notes);
     notes.set('Jarvis.md', this.homeNote(notes));
     return notes;
   }
@@ -434,7 +466,15 @@ export class ObsidianSync {
         ? ['## Manual', `- ${this.link('Manual/Skills', 'Skills')}`, `- ${this.link('Manual/Agents', 'Agents')}`, `- ${this.link('Manual/Permissions', 'Permissions')}`, `- ${this.link('Manual/Integrations', 'Integrations')}`, `- ${this.link('Manual/Background jobs', 'Background jobs')}`]
         : []),
       ...[...notes.keys()].filter((k) => k.startsWith('Manual/Docs/')).map((k) => `- ${this.link(k, k.split('/').pop()!.replace(/\.md$/, ''))}`),
-      ...(inc.memories ? ['', '## Knowledge', `- ${this.link('Memory/Memory', 'Memory index')}`, `- ${this.link('Agents/Agents', 'Agents — the shared mind')}`] : []),
+      ...(inc.memories || inc.conversations
+        ? [
+            '',
+            '## Knowledge',
+            `- ${this.link('Knowledge/Knowledge', 'Everything Jarvis knows, by category')} — ${DIGEST_CATEGORIES.map((c) => this.link(`Knowledge/${CATEGORY_LABEL[c]}`, CATEGORY_LABEL[c])).join(' · ')}`,
+            ...(inc.memories ? [`- ${this.link('Memory/Memory', 'Memory index')}`, `- ${this.link('Agents/Agents', 'Agents — the shared mind')}`] : []),
+          ]
+        : []),
+      ...(inc.conversations ? ['', '## Conversations', `- ${this.link('Digests/Digests', 'Conversation digests')} — what was new, what was repeated, day by day`] : []),
       ...(inc.tasks ? ['', '## Work', `- ${this.link('Tasks/Task log', 'Task log')}`] : []),
       ...(inc.journal && journalDays.length ? ['', '## Journal', ...journalDays.slice(0, 7).map((k) => `- ${this.link(k, k.slice(8, 18))}`)] : []),
       '',
@@ -788,20 +828,150 @@ export class ObsidianSync {
     }
   }
 
+  private convRel(c: { id: string; createdAt: number; title: string }): string {
+    return `Conversations/${day(c.createdAt)} ${safeName(c.title, 60)} (${c.id.slice(-6)}).md`;
+  }
+
+  /** Changed since the last successful sync (or not in the vault yet), so worth (re)building. */
+  private stale(rel: string, changedAt: number): boolean {
+    const last = this.lastReport?.ok ? this.lastReport.at : 0;
+    return !this.known.has(rel) || changedAt >= last - 5000;
+  }
+
+  private digestBlock(d: Digest, linkConversation: boolean): string[] {
+    const conv = this.app.conversations.get(d.conversationId);
+    const head = linkConversation && conv ? this.link(this.convRel(conv), d.conversationTitle) : d.conversationTitle;
+    const line = (it: Digest['items'][number]) => `- **${CATEGORY_LABEL[it.category].replace(/s$/, '')}:** ${it.text.replace(/\n/g, ' ')}`;
+    const fresh = d.items.filter((i) => i.status === 'new');
+    const again = d.items.filter((i) => i.status === 'repeated');
+    return [
+      `### ${time(d.toTs)} · ${head}`,
+      `*${d.messages} message${d.messages === 1 ? '' : 's'} · ${d.newCount} new · ${d.repeatedCount} repeated · ${d.method === 'model' ? 'digested by Jarvis’s model' : 'quick digest (no model was available; redone by the model later)'}*`,
+      '',
+      `> ${d.summary.replace(/\n/g, '\n> ')}`,
+      '',
+      ...(fresh.length ? ['**New**', ...fresh.map(line), ''] : []),
+      ...(again.length ? ['**Repeated**', ...again.map(line), ''] : []),
+    ];
+  }
+
   private conversationNotes(notes: Map<string, string>): void {
-    for (const c of this.app.conversations.list(200)) {
-      const messages = this.app.conversations.messages(c.id, { limit: 500 });
+    const convs = this.app.db
+      .all<Record<string, unknown>>('SELECT id, title, summary, created_at, updated_at, (SELECT MAX(created_at) FROM conversation_digests d WHERE d.conversation_id = c.id) AS digested_at FROM conversations c ORDER BY updated_at DESC')
+      .map((r) => ({ id: String(r.id), title: String(r.title), summary: (r.summary as string | null) ?? null, createdAt: Number(r.created_at), updatedAt: Number(r.updated_at), digestedAt: Number(r.digested_at ?? 0) }));
+    for (const c of convs) {
+      const rel = this.convRel(c);
+      if (!this.stale(rel, Math.max(c.updatedAt, c.digestedAt))) continue;
+      const messages = this.app.conversations.messages(c.id, { limit: 5000 });
+      const digests = this.app.digester.list({ conversationId: c.id, limit: 500 }).reverse();
       notes.set(
-        `Conversations/${day(c.createdAt)} ${safeName(c.title, 60)} (${c.id.slice(-6)}).md`,
+        rel,
         [
-          frontmatter({ jarvis_id: c.id, created: iso(c.createdAt), updated: iso(c.updatedAt), tags: ['jarvis/conversation'] }),
+          frontmatter({ jarvis_id: c.id, created: iso(c.createdAt), updated: iso(c.updatedAt), messages: messages.length, digests: digests.length, tags: ['jarvis/conversation'] }),
           `# ${c.title}`,
           '',
-          ...(c.summary ? [`> [!summary] Summary\n> ${c.summary.replace(/\n/g, '\n> ')}`, ''] : []),
-          ...messages.flatMap((m) => [`**${m.role === 'user' ? 'You' : 'Jarvis'}** · ${time(m.createdAt)}`, m.content, '']),
+          ...(digests.length ? ['## Jarvis’s digest', '', ...digests.flatMap((d) => this.digestBlock(d, false))] : c.summary ? [`> [!summary] Summary\n> ${c.summary.replace(/\n/g, '\n> ')}`, ''] : ['*Not digested yet — Jarvis digests a conversation once it has been quiet for a minute.*', '']),
+          '## Transcript',
+          '',
+          ...messages.flatMap((m) => [`**${m.role === 'user' ? 'You' : 'Jarvis'}** · ${day(m.createdAt)} ${time(m.createdAt)}`, m.content, '']),
         ].join('\n'),
       );
     }
+  }
+
+  /** One note per day with every digest Jarvis made that day, plus an index. */
+  private digestNotes(notes: Map<string, string>): void {
+    const all = this.app.digester.list({ limit: 100_000 });
+    const byDay = new Map<string, Digest[]>();
+    for (const d of all) byDay.set(day(d.toTs), [...(byDay.get(day(d.toTs)) ?? []), d]);
+    const days = [...byDay.keys()].sort().reverse();
+    for (const dd of days) {
+      const list = byDay.get(dd)!.sort((a, b) => a.toTs - b.toTs);
+      const rel = `Digests/${dd}.md`;
+      if (!this.stale(rel, Math.max(...list.map((d) => d.createdAt)))) continue;
+      const n = list.reduce((a, d) => a + d.newCount, 0);
+      const r = list.reduce((a, d) => a + d.repeatedCount, 0);
+      notes.set(
+        rel,
+        [
+          frontmatter({ date: dd, digests: list.length, new: n, repeated: r, tags: ['jarvis/digest'] }),
+          `# Conversations on ${new Date(`${dd}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`,
+          '',
+          `${list.length} digest${list.length === 1 ? '' : 's'} · ${n} new · ${r} repeated`,
+          '',
+          ...list.flatMap((d) => this.digestBlock(d, true)),
+        ].join('\n'),
+      );
+    }
+    const stats = this.app.digester.stats();
+    notes.set(
+      'Digests/Digests.md',
+      [
+        frontmatter({ tags: ['jarvis/digest'], jarvis_generated: true }),
+        '# Conversation digests',
+        '',
+        'After every conversation (once it has been quiet for a minute) Jarvis writes itself a digest: a summary, then everything worth keeping — marked **new** or **repeated** and filed by category (see [[Knowledge/Knowledge|Knowledge]]). Conversations from before a restart are digested on the next start. These notes are an archive: they stay even if the conversation is deleted from Jarvis.',
+        '',
+        `${stats.digests} digest${stats.digests === 1 ? '' : 's'}${stats.pendingConversations ? ` · ${stats.pendingConversations} conversation${stats.pendingConversations === 1 ? '' : 's'} waiting to be digested` : ''}`,
+        '',
+        ...(days.length ? days.slice(0, 120).map((d) => `- ${this.link(`Digests/${d}`, d)} — ${byDay.get(d)!.map((x) => x.conversationTitle).slice(0, 4).join(' · ')}`) : ['_No conversations digested yet._']),
+        '',
+      ].join('\n'),
+    );
+  }
+
+  /** Everything Jarvis knows, one note per category: rules, preferences, plans, schedules, ideas, … */
+  private knowledgeNotes(notes: Map<string, string>): void {
+    const counts: string[] = [];
+    const fromDigests = this.app.digester.list({ since: Date.now() - 90 * 86_400_000, limit: 2000 });
+    for (const cat of DIGEST_CATEGORIES) {
+      const label = CATEGORY_LABEL[cat];
+      const lines: string[] = [];
+      let n = 0;
+      if (cat === 'request' || cat === 'question') {
+        for (const d of fromDigests) {
+          const conv = this.app.conversations.get(d.conversationId);
+          for (const it of d.items.filter((i) => i.category === cat)) {
+            n++;
+            lines.push(`- ${day(d.toTs)} · ${it.text.replace(/\n/g, ' ')}${it.status === 'repeated' ? ' *(repeated)*' : ''} — ${conv ? this.link(this.convRel(conv), d.conversationTitle) : d.conversationTitle}`);
+          }
+        }
+      } else {
+        for (const m of this.app.memory.list({ kind: cat as MemoryKind, limit: 2000 })) {
+          n++;
+          const { rel } = this.memoryNote(m);
+          const times = m.mergedCount > 1 ? ` · mentioned ${m.mergedCount}×` : '';
+          lines.push(`- ${m.content.replace(/\n/g, ' ')} — *${day(m.createdAt)}${times}${m.verified ? '' : ' · as Jarvis understood it'}* ${this.link(rel, '↗')}`);
+        }
+      }
+      counts.push(`- ${this.link(`Knowledge/${label}`, label)} — ${n}`);
+      notes.set(
+        `Knowledge/${label}.md`,
+        [
+          frontmatter({ tags: ['jarvis/knowledge', `jarvis/knowledge/${cat}`], jarvis_generated: true, count: n }),
+          `# ${label}`,
+          '',
+          KNOWLEDGE_INTRO[cat],
+          '',
+          ...(lines.length ? lines : ['_Nothing yet._']),
+          '',
+        ].join('\n'),
+      );
+    }
+    notes.set(
+      'Knowledge/Knowledge.md',
+      [
+        frontmatter({ tags: ['jarvis/knowledge'], jarvis_generated: true }),
+        '# Knowledge',
+        '',
+        'Everything Jarvis has learned from your conversations, by category. Rules, preferences, plans and schedules are in Jarvis’s context on every turn; the rest is searched when relevant.',
+        '',
+        ...counts,
+        '',
+        `Day by day: ${this.link('Digests/Digests', 'conversation digests')}.`,
+        '',
+      ].join('\n'),
+    );
   }
 
   // ---------------------------------------------------------------- vault access for skills

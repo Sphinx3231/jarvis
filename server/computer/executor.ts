@@ -241,7 +241,7 @@ export class WorkflowExecutor {
     if (res.op === 'open' && 'tab' in res) return { status: 'ok', detail: `opened ${res.tab.url}` };
     if (res.op === 'read' && 'page' in res) {
       const p = res.page;
-      if (p.loginRequired) return { status: 'blocked', detail: `"${p.title}" needs you to sign in (${p.loginReason}). Jarvis never enters passwords — sign in, then resume.` };
+      if (p.loginRequired) return { status: 'blocked', detail: `"${p.title}" needs a sign-in (${p.loginReason}). Sign in, or give Jarvis the credentials to type, then resume.` };
       return { status: 'ok', detail: `read "${p.title}" — ${p.textLength} chars, ${p.elements.length} controls${p.dialogs.length ? `, dialog: ${p.dialogs[0].slice(0, 80)}` : ''}` };
     }
     if (res.op === 'wait_text' && 'found' in res) return res.found ? { status: 'ok', detail: `"${(action as { text: string }).text}" is on the page` } : { status: 'retry', detail: `"${(action as { text: string }).text}" has not appeared yet` };

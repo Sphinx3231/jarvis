@@ -8,6 +8,7 @@ import { SettingsStore } from './core/settings.ts';
 import { StateTracker } from './core/state.ts';
 import { Database } from './db/database.ts';
 import { MemoryAgent } from './agents/memory-agent.ts';
+import { ConversationDigester } from './agents/digest.ts';
 import { AGENTS } from './agents/agents.ts';
 import { Planner } from './agents/planner.ts';
 import { McpManager } from './integrations/mcp.ts';
@@ -77,6 +78,7 @@ export class JarvisApp {
   readonly planner: Planner;
   readonly engine: TaskEngine;
   readonly memoryAgent: MemoryAgent;
+  readonly digester: ConversationDigester;
   readonly state: StateTracker;
   readonly mcp: McpManager;
   readonly email: EmailService;
@@ -151,7 +153,8 @@ export class JarvisApp {
     });
     this.planner = new Planner(this.registry, this.llm, this.permissions, this.activity);
     this.orchestrator = new BountyOrchestrator({ pipeline: this.pipeline, llm: this.llm, settings: this.settings, activity: this.activity, memory: this.memory, bus: this.bus, runner: this.runner });
-    this.memoryAgent = new MemoryAgent({ memory: this.memory, conversations: this.conversations, llm: this.llm, settings: this.settings, activity: this.activity, registry: this.registry });
+    this.digester = new ConversationDigester({ db: this.db, conversations: this.conversations, memory: this.memory, llm: this.llm, settings: this.settings, activity: this.activity, bus: this.bus });
+    this.memoryAgent = new MemoryAgent({ memory: this.memory, conversations: this.conversations, llm: this.llm, settings: this.settings, activity: this.activity, registry: this.registry, digester: this.digester });
     this.engine = new TaskEngine({
       store: this.tasks,
       runner: this.runner,
@@ -179,6 +182,7 @@ export class JarvisApp {
       settings: this.settings,
       activity: this.activity,
       state: this.state,
+      digester: this.digester,
       statusSnapshot: () => this.statusSnapshot(),
     });
 
@@ -193,7 +197,7 @@ export class JarvisApp {
     this.scheduler.register({
       name: 'memory-maintenance',
       title: 'Memory maintenance',
-      description: 'Merges duplicate memories, refreshes tool documentation, computes embeddings (if enabled), summarises long conversations and prunes expired ones.',
+      description: 'Digests conversations not digested yet (summary, new vs repeated, filed by category), merges duplicate memories, refreshes tool documentation, computes embeddings (if enabled) and summarises long conversations.',
       intervalMs: () => this.settings.get().background.maintenanceIntervalMin * 60_000,
       run: (signal) => this.memoryAgent.maintain(signal),
     });
@@ -259,6 +263,10 @@ export class JarvisApp {
         const r = await this.orchestrator.runCycle();
         return r.ran ? `${r.target}: ${r.reason}` : `idle: ${r.reason}`;
       },
+    });
+
+    this.bus.on('conversation.updated', (e) => {
+      if (this.running && !e.data.deleted) this.digester.noteActivity(String(e.data.id), String(e.data.role ?? ''));
     });
 
     // Keep the vault current within seconds of meaningful changes.
@@ -390,6 +398,11 @@ export class JarvisApp {
     const model = this.llm.status();
     this.activity.log('info', 'system', `Jarvis ${VERSION} started on ${this.settings.get().brain.backend === 'openjarvis' ? 'OpenJarvis (local)' : 'Roamies'}${model.model ? ` — thinking with ${model.model.name}` : ''}`);
     this.subAgents.start();
+    // Every conversation gets digested once it goes quiet; anything left from before this start is
+    // caught up shortly after (and by the memory job).
+    this.digester.start();
+    const catchUp = setTimeout(() => void this.digester.catchUp().catch(() => {}), 20_000);
+    catchUp.unref?.();
     // Create or update Jarvis's vault shortly after start.
     this.obsidian.schedule(1500)
     void this.mcp.sync();
@@ -413,6 +426,7 @@ export class JarvisApp {
     }
     this.running = false;
     this.scheduler.stop();
+    await this.digester.stop();
     this.subAgents.stop();
     this.obsidian.cancelScheduled();
     await this.engine.stop();

@@ -72,7 +72,7 @@ At startup and on **Run capability check**, Jarvis detects the OS, the display s
 | Interact | Everything in Observe, plus mouse, keyboard, scroll, window switching and window ops, the browser (click, type, navigate, tabs), on-screen clicks by text, multi-step workflows, and learning sessions that scroll and move to the next lesson. |
 | Extended | Everything in Interact, plus opening and closing applications and opening files and folders. |
 
-**Approval boundaries.** These actions are classified from what is being clicked, typed or pressed and where. They always wait for your explicit confirmation of that exact action, for one use only, and the confirmation expires after 5 minutes. **Full Access, allow-policies, grants and "this is part of what you asked for" never cover them:**
+**Approval boundaries.** These actions are classified from what is being clicked, typed or pressed and where. By default they wait for your explicit confirmation of that exact action, for one use only, and the confirmation expires after 5 minutes. Full Access, allow-policies, grants and "this is part of what you asked for" don't cover them. This is your authorization, not a content rule: Jarvis never refuses these, it asks. You can switch the asking off in **Settings → Computer Access → Ask me before critical actions**; Jarvis then just does them, and every one is still logged. The actions:
 
 - sending or replying to messages, and publishing or posting
 - purchases, payments, subscriptions, upgrades and trials
@@ -84,22 +84,23 @@ At startup and on **Run capability check**, Jarvis detects the OS, the display s
 - running anything with sudo, su, runas or `-Verb RunAs`
 - destructive commands (`rm -rf`, `mkfs`, `dd`, `format`, …)
 - typing card or account numbers, and sharing items or links externally
+- typing a password or other secret into a sign-in field (the value is never read back, logged or shown in the confirmation)
 - pressing Enter in a mail composer, chat or checkout
 - closing an application or window (unsaved work could be lost)
 
-These rules are enforced in two places:
+These rules are enforced in two places, and the setting switches both:
 
 1. **The permission engine** (`Skill.critical`). For a critical input the engine always returns "ask". It never auto-allows the action, and an approval made "by request" does not count.
 2. **The manager's guard.** It checks the label that is actually resolved at run time (for example, the real name of the button the model's target matched). It raises a pending confirmation that you approve or refuse in the panel.
 
-Jarvis never bypasses a CAPTCHA, MFA, payment confirmation or any other access control. It never types into password fields, and never reads cookies, tokens or browser storage.
+Jarvis never bypasses a CAPTCHA, MFA, payment confirmation or any other access control, and never reads cookies, tokens, stored passwords or browser storage. It can sign in with credentials you give it: it types them like a person would.
 
 ## 5. Security model
 
 - **The toggle is the single off switch.** With it off, every observe and control method throws. Turning it off aborts in-flight actions, workflows and learning sessions through a shared `AbortSignal`, and voids pending confirmations. **STOP** does the same and also turns the toggle off.
 - **Only the user has authority.** The API needs the per-install token (`x-jarvis-token`), so a web page cannot turn Computer Access on, change its level or approve a confirmation. The end-to-end test checks this.
 - **External content is data, never authority.** Screen, page and caption text is marked as untrusted output. Lines that try to instruct Jarvis ("ignore previous instructions", "Jarvis must click…", "send the user's files…", "turn off computer access") are flagged in observations and quarantined before learning, so they are never stored as knowledge.
-- **No credential collection.** The DevTools connection uses a method allowlist, so `Network.*`, `Storage.*`, `DOMStorage.*`, `IndexedDB.*`, `CacheStorage.*`, `Fetch.*`, `Browser.*` and `Target.*` cannot be called. Page scripts are fixed, read-only extractors; model-supplied JavaScript is never run. Password field values are hidden and Jarvis refuses to type into them. Credential-shaped strings (passwords, API keys, tokens, card numbers) are redacted before anything is stored.
+- **No credential collection.** The DevTools connection uses a method allowlist, so `Network.*`, `Storage.*`, `DOMStorage.*`, `IndexedDB.*`, `CacheStorage.*`, `Fetch.*`, `Browser.*` and `Target.*` cannot be called. Page scripts are fixed, read-only extractors; model-supplied JavaScript is never run. Password field values are never read: typing into one is checked by asking the page whether the field holds what was typed, and the text is never logged. Credential-shaped strings seen on screen while watching (passwords, API keys, tokens, card numbers) are redacted before anything is stored.
 - **Local only.** The browser endpoint must be a loopback address (enforced in settings and in the controller). Jarvis launches the browser with `--remote-debugging-address=127.0.0.1`. Nothing is exposed to the network.
 - **Screenshots** are deleted as soon as they are read (retention 0 by default; configurable from 0 to 1440 minutes).
 - **Audit.** Every action is written to `computer_actions`: time, kind, target, outcome, verification result, critical category, task and duration. The log survives restarts.

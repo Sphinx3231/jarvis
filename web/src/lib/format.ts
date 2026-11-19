@@ -57,6 +57,10 @@ export const STATUS_LABEL: Record<string, string> = {
 export const PRIORITY_LABEL: Record<number, string> = { 1: 'Low', 2: 'Normal', 3: 'High', 4: 'Urgent' };
 
 export const KIND_LABEL: Record<string, string> = {
+  rule: 'Rule',
+  plan: 'Plan',
+  schedule: 'Schedule',
+  idea: 'Idea',
   preference: 'Preference',
   project: 'Project',
   decision: 'Decision',

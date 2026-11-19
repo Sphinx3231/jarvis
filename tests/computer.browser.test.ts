@@ -127,7 +127,7 @@ test('browser: click, type, checkbox, dropdown, tabs, menu — each verified on 
   }
 });
 
-test('browser: a dead button is reported unverified; passwords are refused; a covering dialog blocks the click', { skip: SKIP }, async () => {
+test('browser: a dead button is reported unverified; a password is typed only with your OK and never logged; a covering dialog blocks the click', { skip: SKIP }, async () => {
   const { app, cleanup } = await appWithBrowser();
   try {
     await app.computer.browserOp({ op: 'navigate', url: `${site.url}/app` });
@@ -135,8 +135,26 @@ test('browser: a dead button is reported unverified; passwords are refused; a co
     assert.ok('result' in dead);
     assert.equal(dead.result.verified?.ok, false, 'no fake success');
     assert.equal(app.computer.actions.recent(1)[0].outcome, 'unverified');
+    // Entering a password is the user's call: Jarvis asks (a confirmation, not a refusal), then types it.
+    let held: ConfirmationRequired | null = null;
+    try {
+      await app.computer.browserOp({ op: 'type', target: { name: 'Password' }, text: 'hunter2' });
+    } catch (err) {
+      held = err as ConfirmationRequired;
+    }
+    assert.ok(held instanceof ConfirmationRequired, 'asks first');
+    assert.equal(held.confirmation.finding.category, 'credentials');
+    assert.ok(!held.confirmation.summary.includes('hunter2'), 'the secret is not in the prompt');
+    app.computer.decideConfirmation(held.confirmation.id, true);
     const pw = await app.computer.browserOp({ op: 'type', target: { name: 'Password' }, text: 'hunter2' });
-    assert.ok('result' in pw && !pw.result.ok && /never enters passwords/.test(pw.result.detail));
+    assert.ok('result' in pw && pw.result.ok && pw.result.verified?.ok, 'typed and verified without reading the value back');
+    // With "Ask me before critical actions" off, it just happens — and the secret is never logged.
+    app.settings.update({ computerAccess: { confirmCritical: false } });
+    const again = await app.computer.browserOp({ op: 'type', target: { name: 'Password' }, text: 'hunter3', clear: true });
+    assert.ok('result' in again && again.result.ok);
+    const log = JSON.stringify(app.computer.actions.recent(50)) + JSON.stringify(app.activity.recent(200));
+    assert.ok(!log.includes('hunter2') && !log.includes('hunter3'), 'no secret in the action log or activity');
+    app.settings.update({ computerAccess: { confirmCritical: true } });
     await app.computer.browserOp({ op: 'click', target: { name: 'Open Settings' } });
     const blocked = await app.computer.browserOp({ op: 'click', target: { name: 'Say Hello' } });
     assert.ok('result' in blocked && /covered by another element/.test(blocked.result.detail));

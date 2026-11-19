@@ -357,4 +357,30 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_learning_sessions_course ON learning_sessions (course_slug, updated_at);
     `,
   },
+  {
+    version: 8,
+    sql: `
+      -- Conversation digests: after every conversation (once it goes quiet) Jarvis summarises the new
+      -- part to itself — what was new, what was repeated — and files each item under a category
+      -- (rule, plan, schedule, idea, decision, …). digested_until marks how far each conversation has
+      -- been digested, so a restart or a crash never loses a conversation: it is digested next time.
+      ALTER TABLE conversations ADD COLUMN digested_until INTEGER NOT NULL DEFAULT 0;
+      CREATE TABLE conversation_digests (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        conversation_title TEXT NOT NULL,
+        from_ts INTEGER NOT NULL,
+        to_ts INTEGER NOT NULL,
+        messages INTEGER NOT NULL,
+        summary TEXT NOT NULL,
+        items TEXT NOT NULL DEFAULT '[]',
+        new_count INTEGER NOT NULL DEFAULT 0,
+        repeated_count INTEGER NOT NULL DEFAULT 0,
+        method TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX idx_conversation_digests_conv ON conversation_digests (conversation_id, to_ts);
+      CREATE INDEX idx_conversation_digests_created ON conversation_digests (created_at);
+    `,
+  },
 ];

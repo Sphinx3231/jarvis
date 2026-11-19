@@ -327,8 +327,14 @@ export function SettingsPage() {
         <Field label="Summarise long conversations" hint="Background job; uses the model a few times at most per run.">
           <Toggle checked={s.memory.summarizeConversations} onChange={(v) => save({ memory: { summarizeConversations: v } })} />
         </Field>
-        <Field label="Keep conversations for">
-          <NumberInput value={s.memory.conversationRetentionDays} min={1} max={3650} onCommit={(v) => save({ memory: { conversationRetentionDays: v } })} suffix="days" />
+        <Field label="Digest conversations after" hint="Once a conversation is quiet this long, Jarvis summarises it to itself (what was new, what was repeated), files everything by category (rules, plans, schedules, ideas…) and writes it to the vault. Rules you give are kept instantly. 0 = only in the background job.">
+          <NumberInput value={s.memory.digestAfterSec} min={0} max={3600} onCommit={(v) => save({ memory: { digestAfterSec: v } })} suffix="seconds quiet" />
+        </Field>
+        <Field label="Always in context" hint="Your standing rules, preferences, schedules and plans go into every request, whatever the topic, up to this size.">
+          <NumberInput value={s.memory.standingChars} min={0} max={20000} onCommit={(v) => save({ memory: { standingChars: v } })} suffix="characters" />
+        </Field>
+        <Field label="Keep conversations for" hint="0 = forever (the default). Digests and the vault's copy of every conversation are kept either way.">
+          <NumberInput value={s.memory.conversationRetentionDays} min={0} max={3650} onCommit={(v) => save({ memory: { conversationRetentionDays: v } })} suffix={s.memory.conversationRetentionDays ? 'days' : 'days (forever)'} />
         </Field>
       </Card>
 
@@ -482,6 +488,9 @@ export function SettingsPage() {
         </Field>
         <Field label="Look again every" hint="While watching and learning, how often Jarvis samples the screen/page. Unchanged content is skipped, so shorter is cheap.">
           <NumberInput value={s.computerAccess.watchIntervalSec} min={1} max={120} onCommit={(v) => save({ computerAccess: { watchIntervalSec: v } })} suffix="seconds" />
+        </Field>
+        <Field label="Ask me before critical actions" hint="Sending, paying, deleting, installing, entering a password… Jarvis asks you first. This is your approval, not a content rule — what the model will or won't do is up to the model. Off: Jarvis just does them (every action is still logged).">
+          <Toggle checked={s.computerAccess.confirmCritical} onChange={(v) => save({ computerAccess: { confirmCritical: v } })} />
         </Field>
         <div className="inline">
           <Button size="sm" variant="danger" icon={<Square size={14} />} disabled={!s.computerAccess.enabled} onClick={() => act(() => api.post('/api/computer/stop', { reason: 'Stopped from Settings' }), 'Computer Access stopped')}>

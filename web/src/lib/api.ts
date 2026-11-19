@@ -558,7 +558,7 @@ export interface Settings {
     requestTimeoutSec: number;
   };
   embeddings: { enabled: boolean };
-  memory: { autoExtract: boolean; contextMessages: number; retrievalLimit: number; conversationRetentionDays: number; summarizeConversations: boolean };
+  memory: { autoExtract: boolean; contextMessages: number; retrievalLimit: number; conversationRetentionDays: number; summarizeConversations: boolean; digestAfterSec: number; standingChars: number };
   background: {
     enabled: boolean;
     monitorIntervalSec: number;
@@ -571,7 +571,7 @@ export interface Settings {
   tasks: { stepTimeoutSec: number; maxAttempts: number };
   permissions: { policies: Record<string, 'allow' | 'ask' | 'deny'>; followRequests: boolean; fullAccess: boolean };
   brain: { backend: 'openjarvis' | 'roamies'; openjarvisUrl: string; model: string; engineUrl: string; via: 'openjarvis' | 'engine'; toolMode: 'auto' | 'native' | 'prompted'; localOnly: boolean };
-  computerAccess: { enabled: boolean; level: 'observe' | 'interact' | 'extended'; screenshotRetentionMin: number; browserEndpoint: string; watchIntervalSec: number };
+  computerAccess: { enabled: boolean; level: 'observe' | 'interact' | 'extended'; screenshotRetentionMin: number; browserEndpoint: string; watchIntervalSec: number; confirmCritical: boolean };
   voice: {
     enabled: boolean;
     autoSpeak: boolean;

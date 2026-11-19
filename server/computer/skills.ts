@@ -301,7 +301,7 @@ const BrowserAction = z.discriminatedUnion('op', [
   z.object({ op: z.literal('back'), tabId: z.string().max(100).optional() }).describe('Go back'),
   z.object({ op: z.literal('read'), tabId: z.string().max(100).optional(), maxChars: z.number().int().min(200).max(200000).optional() }).describe('Read the page: text, headings, controls, dialogs, captions, sign-in state'),
   z.object({ op: z.literal('click'), target: Target, expectText: z.string().max(200).optional(), expectUrl: z.string().max(500).optional(), tabId: z.string().max(100).optional() }).describe('Click an element by its name/role and verify the result'),
-  z.object({ op: z.literal('type'), target: Target.optional(), text: z.string().min(1).max(5000), clear: z.boolean().optional(), submit: z.boolean().optional(), tabId: z.string().max(100).optional() }).describe('Type into a field (never passwords)'),
+  z.object({ op: z.literal('type'), target: Target.optional(), text: z.string().min(1).max(5000), clear: z.boolean().optional(), submit: z.boolean().optional(), tabId: z.string().max(100).optional() }).describe('Type into a field (password fields too: the value is never read back or logged)'),
   z.object({ op: z.literal('key'), key: z.string().max(20), tabId: z.string().max(100).optional() }).describe('Press Enter/Tab/Escape/arrows/PageDown…'),
   z.object({ op: z.literal('select'), target: Target, option: z.string().min(1).max(200), tabId: z.string().max(100).optional() }).describe('Choose an option in a dropdown by its text'),
   z.object({ op: z.literal('scroll'), direction: z.enum(['up', 'down']), amount: z.number().int().min(50).max(5000).optional(), tabId: z.string().max(100).optional() }).describe('Scroll the page'),
@@ -321,7 +321,7 @@ function describeBrowser(o: BrowserOpResult): string {
   if ('page' in o) {
     const p = o.page;
     return [
-      `Page: ${p.title} — ${p.url}${p.loginRequired ? `\nSIGN-IN REQUIRED: ${p.loginReason} (Jarvis never enters passwords; ask the user to sign in)` : ''}`,
+      `Page: ${p.title} — ${p.url}${p.loginRequired ? `\nSIGN-IN REQUIRED: ${p.loginReason} (sign in with credentials the user gave you, or ask the user to sign in)` : ''}`,
       p.dialogs.length ? `Dialog open: ${p.dialogs.map((d) => JSON.stringify(d.slice(0, 160))).join(' | ')}` : '',
       `Headings: ${p.headings.map((h) => `${'#'.repeat(h.level)} ${h.text}`).slice(0, 20).join(' / ') || '(none)'}`,
       `Controls (${p.elements.length}):\n${p.elements.filter((e) => e.name).slice(0, 60).map((e) => `  [${e.index}] ${e.role} "${e.name}"${e.disabled ? ' (disabled)' : ''}${e.value !== null ? ` value=${JSON.stringify(e.value.slice(0, 40))}` : ''}${e.checked !== null ? ` ${e.checked ? '[x]' : '[ ]'}` : ''}${e.inViewport ? '' : ' (off-screen)'}`).join('\n')}`,
@@ -373,7 +373,7 @@ export const computerBrowser: Skill<z.infer<typeof BrowserInput>, BrowserOpResul
   name: 'computer.browser',
   title: 'Use the browser',
   description:
-    "Operate the user's browser like a person (Computer Access, interact level): open/switch/close tabs, navigate, click links and buttons by their visible name, type into fields, press keys, scroll, dismiss dialogs. Every action is verified (the page must visibly change). Uses the existing logged-in session; never types passwords and never reads cookies/tokens. Clicking things like Send/Buy/Delete needs the user's explicit confirmation.",
+    "Operate the user's browser like a person (Computer Access, interact level): open/switch/close tabs, navigate, click links and buttons by their visible name, type into fields, press keys, scroll, dismiss dialogs. Every action is verified (the page must visibly change). Uses the existing logged-in session and can sign in with credentials the user provides; never reads cookies, tokens or stored passwords. Unless the user turned it off, things like Send/Buy/Delete/entering a password wait for the user's confirmation.",
   category: 'web',
   scope: 'computer.control',
   risk: 'consequential',

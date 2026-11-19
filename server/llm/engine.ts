@@ -630,8 +630,8 @@ export class RoamiesEngine {
     return { apiKey: c.accessToken, ...(c.baseUrl ? { baseUrl: c.baseUrl } : {}), ...(c.accountId !== undefined ? { accountId: c.accountId } : {}) };
   }
 
-  private signal(signal?: AbortSignal): AbortSignal {
-    const timeout = AbortSignal.timeout(this.settings.get().llm.requestTimeoutSec * 1000);
+  private signal(signal?: AbortSignal, minSec = 0): AbortSignal {
+    const timeout = AbortSignal.timeout(Math.max(minSec, this.settings.get().llm.requestTimeoutSec) * 1000);
     return signal ? AbortSignal.any([signal, timeout]) : timeout;
   }
 
@@ -642,7 +642,9 @@ export class RoamiesEngine {
       if (this.localOnly() && isCloudModel(t.model, this.ojHealth?.models.find((m) => m.id === t.model)?.ownedBy)) throw new ProviderError(`Refusing cloud model ${t.model}: Jarvis is local-only.`, { retryable: false });
       // Reasoning models (DeepSeek R1, Qwen thinking…) spend tokens thinking before they answer.
       const maxTokens = this.caps?.thinking ? Math.max(req.maxTokens ?? 0, 8192) : Math.min(req.maxTokens ?? 4096, 8192);
-      const call = { model: t.model, system: req.system, messages: req.messages, tools: req.tools, maxTokens, signal: this.signal(req.signal), promptedTools: this.promptedTools() };
+      // A local model costs nothing per token but can be slow: a reasoning model on a CPU mini PC may
+      // think for minutes. Give it up to 15 minutes before calling it a timeout.
+      const call = { model: t.model, system: req.system, messages: req.messages, tools: req.tools, maxTokens, signal: this.signal(req.signal, 900), promptedTools: this.promptedTools() };
       const engine = new OpenJarvisClient(this.settings.get().brain.engineUrl);
       let r = this.direct ? await engine.complete(call) : await this.openJarvis().complete(call);
       if (r.empty && !this.direct && !req.signal?.aborted) {

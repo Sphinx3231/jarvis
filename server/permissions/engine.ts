@@ -127,9 +127,11 @@ export class PermissionEngine {
 
   /** The single authorization check every skill execution goes through. */
   decide(skill: Skill, input: unknown, ctx: { taskId?: string; stepIndex?: number; approvalId?: string }): Decision {
-    // Critical actions (send/pay/delete/install/admin…) always need the user's own approval of this
-    // exact input: Full Access, allow-policies, grants and request coverage never authorize them.
-    const critical = skill.critical?.(input) ?? null;
+    // Critical actions (send/pay/delete/install/admin…) need the user's own approval of this exact
+    // input: Full Access, allow-policies, grants and request coverage never authorize them — unless the
+    // user switched that off (Settings → Computer Access → Ask me before critical actions). It is the
+    // user's own authorization, not a content rule, so it is theirs to turn off.
+    const critical = this.settings.get().computerAccess.confirmCritical ? (skill.critical?.(input) ?? null) : null;
     // Full access: the user has granted Jarvis every capability with no approvals. Overrides all policies.
     if (!critical && this.settings.get().permissions.fullAccess) return { kind: 'allow', via: 'policy' };
     const policy = this.policyFor(skill.scope);
