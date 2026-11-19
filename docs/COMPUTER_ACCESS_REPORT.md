@@ -69,7 +69,7 @@ Gaps were reported correctly: the lesson-3 video has no captions, and lesson 2 c
 
 | Suite | Command | Result |
 |---|---|---|
-| Full regression suite | `npm test` (with `JARVIS_TEST_OPENJARVIS` set) | **169 tests: 168 pass, 0 fail, 1 skipped** (CalDAV needs Radicale). Baseline before this work: 130 tests, 129 pass, 1 skipped. |
+| Full regression suite | `npm test` | **179 tests: 176 pass, 0 fail, 3 skipped**. The skips: CalDAV needs Radicale; the real OpenJarvis and voice-worker tests need a running OpenJarvis and the local speech Python, and run in CI (`local-brain.yml`, green on Windows and Linux). Includes 9 conversation-digest tests. Baseline before this work: 130 tests, 129 pass, 1 skipped. |
 | Safety / unit | `node --test tests/computer.safety.test.ts` | 13/13 |
 | Real browser | `node --test tests/computer.browser.test.ts` | 8/8 |
 | Scored course test | `node --test tests/computer.course.test.ts` | pass (scores above) |

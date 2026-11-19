@@ -115,6 +115,13 @@ export function isStandingRule(sentence: string): boolean {
   return s.length >= 12 && s.split(/\s+/).length >= 3 && RULE_NOW.test(s);
 }
 
+const STOP = new Set('also that this with from have will what your about there their would could should just into than then them they when where which while were been being does done like make made want need please jarvis going gonna later soon today tomorrow really very much some thing things maybe actually'.split(' '));
+
+/** The meaning-carrying words of a sentence (4+ letters, lightly stemmed), to tell paraphrases apart from omissions. */
+export function contentWords(text: string): string[] {
+  return [...new Set((text.toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? []).filter((w) => !STOP.has(w)).map((w) => w.replace(/(ing|ed|es|s)$/, '')))];
+}
+
 export function sentences(text: string): string[] {
   return text
     .replace(/```[\s\S]*?```/g, ' ')
@@ -416,7 +423,7 @@ export class ConversationDigester {
    * Store the items as memories and mark each new or repeated. Repeated = it was already known before
    * this part of the conversation (a rule kept the moment it was said, in this same part, is new).
    */
-  private file(conversationId: string, partStart: number, raw: Array<{ category: DigestCategory; text: string; repeated?: boolean }>, source: 'user (chat)' | 'jarvis (digest)'): DigestItem[] {
+  private file(conversationId: string, partStart: number, raw: Array<{ category: DigestCategory; text: string; repeated?: boolean; verbatim?: boolean }>, source: 'user (chat)' | 'jarvis (digest)'): DigestItem[] {
     const items: DigestItem[] = [];
     const earlier = this.list({ since: now() - 30 * 86_400_000, limit: 80 }).flatMap((d) => d.items);
     for (const r of raw) {
@@ -425,11 +432,11 @@ export class ConversationDigester {
       const kind = MEMORY_OF[r.category];
       if (kind) {
         try {
-          const verbatim = source === 'user (chat)';
+          const verbatim = source === 'user (chat)' || r.verbatim === true;
           const { memory, merged } = this.d.memory.add({
             kind,
             content: text,
-            source,
+            source: verbatim ? 'user (chat)' : 'jarvis (digest)',
             sourceRef: `conversation:${conversationId}`,
             // The user's own words are what they said; the model's paraphrase is Jarvis's understanding of it.
             verified: verbatim,
@@ -454,16 +461,22 @@ export class ConversationDigester {
     return { newCount: items.filter((i) => i.status === 'new').length, repeatedCount: items.filter((i) => i.status === 'repeated').length };
   }
 
+  /** The user's own sentences, filed by their wording. */
+  private wordingItems(msgs: ChatMessage[]): Array<{ category: DigestCategory; text: string; verbatim: true }> {
+    const raw: Array<{ category: DigestCategory; text: string; verbatim: true }> = [];
+    for (const m of msgs.filter((x) => x.role === 'user')) {
+      for (const s of sentences(m.content)) {
+        const category = classifySentence(s);
+        if (category) raw.push({ category, text: s, verbatim: true });
+      }
+    }
+    return raw;
+  }
+
   /** Without a model: the user's sentences filed by their wording, and a plain account of the exchange. */
   quickDigest(conversationId: string, title: string, msgs: ChatMessage[]): Omit<Digest, 'id' | 'createdAt'> {
     const userMsgs = msgs.filter((m) => m.role === 'user');
-    const raw: Array<{ category: DigestCategory; text: string }> = [];
-    for (const m of userMsgs) {
-      for (const s of sentences(m.content)) {
-        const category = classifySentence(s);
-        if (category) raw.push({ category, text: s });
-      }
-    }
+    const raw = this.wordingItems(msgs);
     const items = this.file(conversationId, msgs[0].createdAt - 1, raw, 'user (chat)');
     const clip = (t: string) => (t.length > 160 ? `${t.slice(0, 157).trimEnd()}…` : t);
     const topics = userMsgs.map((m) => clip(m.content.replace(/\s+/g, ' '))).slice(0, 6);
@@ -498,7 +511,21 @@ Categories: rule (a standing instruction for how you must behave or work from no
     signal.throwIfAborted(); // interrupted: store nothing, the part stays pending
     const parsed = parseDigestJson(res.text);
     if (!parsed) throw new Error('the model did not return a digest');
-    const items = this.file(conversationId, fromTs ?? msgs[0].createdAt - 1, parsed.items, 'jarvis (digest)');
+    // A small model can misfile or miss things. The user's own wording backs it up: a clear standing
+    // rule is always a rule, and anything the user's sentences show that the model missed is added.
+    const merged: Array<{ category: DigestCategory; text: string; repeated?: boolean; verbatim?: boolean }> = parsed.items.map((i) => ({ ...i }));
+    const modelWords = new Set(parsed.items.flatMap((i) => contentWords(i.text)));
+    for (const w of this.wordingItems(msgs)) {
+      const match = merged.find((i) => similarity(i.text, w.text) > 0.5);
+      if (match) {
+        if (w.category === 'rule' && isStandingRule(w.text)) match.category = 'rule';
+        continue;
+      }
+      const words = contentWords(w.text);
+      const covered = words.length ? words.filter((x) => modelWords.has(x)).length / words.length : 1;
+      if (covered < 0.6 || (w.category === 'rule' && isStandingRule(w.text) && !merged.some((i) => i.category === 'rule' && similarity(i.text, w.text) > 0.3))) merged.push(w);
+    }
+    const items = this.file(conversationId, fromTs ?? msgs[0].createdAt - 1, merged, 'jarvis (digest)');
     return { conversationId, conversationTitle: title, fromTs: fromTs ?? msgs[0].createdAt - 1, toTs: msgs[msgs.length - 1].createdAt, messages: msgs.length, summary: parsed.summary || 'Conversation digested.', items, ...this.totals(items), method: 'model' };
   }
 }

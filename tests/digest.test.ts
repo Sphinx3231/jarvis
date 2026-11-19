@@ -229,3 +229,34 @@ test('digest: conversations are kept forever by default; with a retention period
     await cleanup();
   }
 });
+
+test('digest: a weak model is backed by the user’s own words — a rule it misfiled is a rule, an idea it missed is added', async () => {
+  const { app, cleanup } = await makeApp();
+  try {
+    const scripted = await usePalsu(app, [palsuText('ok')]);
+    const r = await app.jarvis.handleMessage({ text: "From now on, always keep your answers under three sentences. I'm planning to upgrade the GEEKOM A6 to 64 GB of RAM next month. What if you watched my YouTube courses and took notes?" });
+    // What a real 3B local model returned for this: everything filed as a plan, the idea missed.
+    scripted.appendResponses(
+      palsuText(
+        JSON.stringify({
+          summary: 'The user set a rule about short answers and plans a RAM upgrade.',
+          items: [
+            { category: 'plan', text: 'From now on, always keep your answers under three sentences.' },
+            { category: 'plan', text: 'Upgrade the GEEKOM A6 to 64 GB of RAM next month.' },
+          ],
+        }),
+      ),
+    );
+    const d = await app.digester.digest(r.conversationId);
+    assert.ok(d);
+    assert.equal(d.method, 'model');
+    assert.deepEqual(
+      d.items.map((i) => i.category),
+      ['rule', 'plan', 'idea'],
+      JSON.stringify(d.items),
+    );
+    assert.equal(app.memory.list({ kind: 'plan' }).length, 1, 'the paraphrased plan is not duplicated');
+  } finally {
+    await cleanup();
+  }
+});
