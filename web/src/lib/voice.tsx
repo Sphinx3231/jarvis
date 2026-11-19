@@ -113,8 +113,9 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
   const speak = useCallback(
     async (text: string) => {
       if (!voiceSettings?.enabled) return;
-      // Fish Audio: Jarvis replies in his own voice; fall back to the browser voice if it fails.
-      if (voiceSettings.tts?.provider === 'fish') {
+      // Jarvis's own voice: local Kokoro through OpenJarvis (offline), or Fish Audio. Falls back to the
+      // browser voice if it fails.
+      if (voiceSettings.tts?.provider === 'fish' || voiceSettings.tts?.provider === 'local') {
         stopSpeaking();
         try {
           const blob = await api.postBlob('/api/voice/speak', { text: cleanForSpeech(text) });
@@ -130,7 +131,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
           await audio.play();
           return;
         } catch (err) {
-          setError(`Fish Audio voice failed: ${(err as Error).message}. Using the browser voice.`);
+          setError(`${voiceSettings.tts?.provider === 'local' ? 'Local voice' : 'Fish Audio voice'} failed: ${(err as Error).message}. Using the browser voice.`);
         }
       }
       if (!voiceSupport.synthesis) return;
@@ -154,7 +155,10 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     stopRecording.current?.();
   }, []);
 
-  const mode = voiceSettings?.inputMode ?? 'auto';
+  // Local-only: browser speech recognition (Chrome sends audio to the vendor's cloud) is never used;
+  // everything is recorded and transcribed by Whisper on this computer.
+  const localOnly = Boolean(settings?.brain?.localOnly);
+  const mode = localOnly ? 'transcription' : (voiceSettings?.inputMode ?? 'auto');
   const inputMethod: InputMethod =
     mode === 'browser'
       ? voiceSupport.recognition
@@ -171,7 +175,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
             : 'none';
 
   /** Record until the speaker pauses, then transcribe on the Jarvis service. */
-  const recordOnce = useCallback(async (): Promise<string> => {
+  const recordOnce = useCallback(async (opts: { waitMs?: number; maxMs?: number; wake?: boolean; shouldStop?: () => boolean } = {}): Promise<string> => {
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
@@ -204,30 +208,35 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
         heardSpeech = true;
         lastLoud = now;
       }
-      if ((heardSpeech && now - lastLoud > 1500) || (!heardSpeech && now - started > 8000) || now - started > 60_000) finish();
+      if (opts.shouldStop?.()) finish();
+      if ((heardSpeech && now - lastLoud > (opts.wake ? 900 : 1500)) || (!heardSpeech && now - started > (opts.waitMs ?? 8000)) || now - started > (opts.maxMs ?? 60_000)) finish();
     }, 100);
     recorder.start(250);
-    listeningRef.current = true;
-    setListening(true);
+    if (!opts.wake) {
+      listeningRef.current = true;
+      setListening(true);
+    }
     await done;
     clearInterval(meter);
     stopRecording.current = null;
     stream.getTracks().forEach((t) => t.stop());
     void audioCtx.close();
-    listeningRef.current = false;
-    setListening(false);
+    if (!opts.wake) {
+      listeningRef.current = false;
+      setListening(false);
+    }
     // Nothing was said: don't send silence anywhere.
     if (!heardSpeech || !chunks.length) return '';
-    setTranscribing(true);
+    if (!opts.wake) setTranscribing(true);
     try {
       const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
       const { text } = await api.postAudio<{ text: string }>('/api/voice/transcribe', blob);
       return text;
     } catch (e) {
-      setError(`Transcription failed: ${(e as Error).message}`);
+      if (!opts.wake) setError(`Transcription failed: ${(e as Error).message}`);
       return '';
     } finally {
-      setTranscribing(false);
+      if (!opts.wake) setTranscribing(false);
     }
   }, []);
 
@@ -237,7 +246,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     setError(null);
     if (inputMethod === 'transcription') {
       wakeRef.current?.abort();
-      return recordOnce();
+      return recordOnce({});
     }
     return new Promise<string>((resolve) => {
       if (inputMethod === 'none' || !RecognitionImpl) {
@@ -329,6 +338,44 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
       setWakeActive(false);
     };
   }, [voiceSettings?.enabled, voiceSettings?.wakeWord, voiceSettings?.lang, inputMethod]);
+
+  // Local wake word ("Hey Jarvis") for local-only / recording setups: listen for speech on this
+  // computer, transcribe only short bursts of actual speech with local Whisper, and act when it starts
+  // with the wake word. Nothing leaves the computer; silence is never transcribed.
+  const speakingRef = useRef(false);
+  useEffect(() => {
+    speakingRef.current = speaking;
+  }, [speaking]);
+  useEffect(() => {
+    const enabled = Boolean(voiceSettings?.enabled && voiceSettings.wakeWord && inputMethod === 'transcription' && voiceSupport.recording);
+    if (!enabled) return;
+    let stopped = false;
+    setWakeActive(true);
+    const loop = async () => {
+      while (!stopped) {
+        if (listeningRef.current || speakingRef.current) {
+          await new Promise((r) => setTimeout(r, 400));
+          continue;
+        }
+        const said = (await recordOnce({ wake: true, waitMs: 30_000, maxMs: 9_000, shouldStop: () => stopped || listeningRef.current })).trim();
+        if (stopped || !said) continue;
+        const m = said.match(/^(?:hey|hi|ok|okay)?[,\s]*jarvis[,.!?]?\s*(.*)$/i);
+        if (!m) continue;
+        const command = m[1].trim();
+        if (command) wakeHandler.current?.(command);
+        else {
+          // Just "Hey Jarvis": listen for the request itself.
+          const next = await recordOnce({});
+          if (next.trim()) wakeHandler.current?.(next.trim());
+        }
+      }
+    };
+    void loop();
+    return () => {
+      stopped = true;
+      setWakeActive(false);
+    };
+  }, [voiceSettings?.enabled, voiceSettings?.wakeWord, inputMethod, recordOnce]);
 
   const setWakeHandler = useCallback((fn: ((command: string) => void) | null) => {
     wakeHandler.current = fn;

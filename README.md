@@ -3,18 +3,33 @@
 <h1 align="center">Jarvis</h1>
 <p align="center">A persistent AI personal operating system, represented by a living purple energy core.<br>It remembers context, organises and runs tasks in the background, coordinates skills and agents, and never acts beyond what you authorise.</p>
 
-<p align="center"><strong>Built on <a href="https://github.com/KenKaiii/Roamies">Roamies</a></strong> — Jarvis thinks with the Roamies engine and needs Roamies installed.</p>
+<p align="center"><strong>Runs fully locally on <a href="https://github.com/open-jarvis/OpenJarvis">OpenJarvis</a></strong> — local models, local listening (Whisper) and a local voice (Kokoro). No API keys, no usage limits. The <a href="https://github.com/KenKaiii/Roamies">Roamies</a> engine remains available as an option.</p>
 
 ---
 
-## Requires Roamies
+## Fully local (default): OpenJarvis
 
-Jarvis is built on [Roamies](https://github.com/KenKaiii/Roamies) by KenKaiii. It thinks with the same engine (the [GG framework](https://github.com/KenKaiii/gg-framework)), the model you picked in Roamies and the sign-ins you made there — Claude, ChatGPT, Gemini, an API key or a local model. Jarvis never asks for your passwords or keys and never stores them: it asks the GG framework for a fresh credential for each request.
+Jarvis thinks, listens and speaks on your own computer through [OpenJarvis](https://github.com/open-jarvis/OpenJarvis): a local model through Ollama (with tool calling, so Jarvis can act), Whisper for speech-to-text and Kokoro for its voice. Local-only mode (on by default) refuses every cloud model, cloud voice and cloud transcription, so nothing is ever billed.
+
+One command sets everything up, sized for your RAM (profiles for the GEEKOM A6 at 32 GB and 64 GB):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\local-setup\setup-windows.ps1 -KeepAwake   # Windows
+```
+```bash
+bash scripts/local-setup/setup-linux.sh                                                     # Linux
+```
+
+See **[docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md)** for models, profiles and troubleshooting. Check it any time with `node scripts/jarvis-local.ts check`.
+
+## Optional: the Roamies engine
+
+Choose **Settings → Brain → Roamies engine** to use cloud sign-ins instead. Jarvis can also be built on [Roamies](https://github.com/KenKaiii/Roamies) by KenKaiii. It thinks with the same engine (the [GG framework](https://github.com/KenKaiii/gg-framework)), the model you picked in Roamies and the sign-ins you made there — Claude, ChatGPT, Gemini, an API key or a local model. Jarvis never asks for your passwords or keys and never stores them: it asks the GG framework for a fresh credential for each request.
 
 1. [Install Roamies](https://github.com/KenKaiii/Roamies/releases/latest) and open it once to sign in on its Model page.
 2. Open Jarvis.
 
-Until Roamies is found, Jarvis shows only a **Roamies required** screen with a download link and **Check again** (it also re-checks by itself every few seconds and starts the moment Roamies appears — no restart). It looks for `Roamies.app` in `/Applications` or `~/Applications` on macOS, the Roamies installer's folder (or its uninstall entry) on Windows, and the `roamies` command (`.deb`/`.rpm`) or a `Roamies*.AppImage` in the usual folders on Linux. Installed somewhere else? Choose **Installed it somewhere else?** and give its path.
+With the Roamies brain selected and until Roamies is found, Jarvis shows only a **Roamies required** screen (with a one-click **Run fully local with OpenJarvis instead**) with a download link and **Check again** (it also re-checks by itself every few seconds and starts the moment Roamies appears — no restart). It looks for `Roamies.app` in `/Applications` or `~/Applications` on macOS, the Roamies installer's folder (or its uninstall entry) on Windows, and the `roamies` command (`.deb`/`.rpm`) or a `Roamies*.AppImage` in the usual folders on Linux. Installed somewhere else? Choose **Installed it somewhere else?** and give its path.
 
 Change model or sign in from the Model page in Roamies; Jarvis follows within seconds. Settings → Model can pick a different model from the same sign-ins and how much it thinks.
 

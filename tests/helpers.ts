@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import { palsuText, registerPalsuProvider, type Message, type PalsuProviderHandle, type PalsuResponse } from '@kenkaiiii/gg-ai';
 import { JarvisApp } from '../server/app.ts';
 
+// The suite drives Jarvis with gg-ai's scripted model through the Roamies engine. The OpenJarvis brain
+// (the default for real installs) has its own tests that set it explicitly.
+process.env.JARVIS_BRAIN ??= 'roamies';
 // All test instances share one copy of the built-in embedding model (downloaded at most once).
 process.env.JARVIS_MODEL_DIR ??= join(tmpdir(), 'jarvis-test-model-cache');
 // Never create a real ~/Documents/Jarvis Vault from tests.

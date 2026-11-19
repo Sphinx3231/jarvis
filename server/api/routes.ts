@@ -62,6 +62,8 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
   // ------------------------------------------------------------------ Roamies (work while locked)
   router.get('/api/roamies', () => app.requirement());
   router.post('/api/roamies/check', () => app.recheckRoamies());
+  // From the lock screen: run on OpenJarvis (local, no Roamies needed) instead.
+  router.post('/api/roamies/use-openjarvis', () => app.useOpenJarvis());
   router.put('/api/roamies/location', async ({ body }) => {
     const b = parse(z.object({ path: z.string().min(1).max(1000) }), body);
     if (!isAbsolute(b.path.trim().replace(/^"|"$/g, ''))) throw new UserError('Give the full path to the Roamies app');
@@ -106,11 +108,13 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
       throw new UserError(errorMessage(err), 502);
     }
   });
-  // Fish Audio text-to-speech: returns MP3 bytes for the browser to play.
+  // Jarvis's voice: local Kokoro through OpenJarvis (WAV), or Fish Audio (MP3, cloud). Audio bytes for the browser.
   router.post('/api/voice/speak', async ({ res, body }) => {
     const b = parse(z.object({ text: z.string().min(1).max(4000) }), body);
     try {
-      const out = await app.tts.synthesize(b.text);
+      const v = app.settings.get().voice;
+      if (v.tts.provider === 'fish' && app.settings.get().brain.localOnly) throw new Error('Fish Audio is a cloud voice and Jarvis is set to local-only. Choose the local voice in Settings → Voice.');
+      const out = v.tts.provider === 'local' ? await app.llm.openJarvis().synthesize(b.text, { voiceId: v.tts.voiceId.trim() || undefined }) : await app.tts.synthesize(b.text);
       res.writeHead(200, { 'content-type': out.mime, 'cache-control': 'no-store', 'content-length': String(out.audio.length) });
       res.end(out.audio);
     } catch (err) {
@@ -266,7 +270,12 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
       },
       transcription: { ...s.voice.transcription, keySet: app.secrets.has(TRANSCRIPTION_SECRET), available: Boolean(await app.llm.transcriptionTarget()) },
       hackerone: { ...s.integrations.hackerone, tokenSet: app.pipeline.hasToken(), missing: app.pipeline.missing(), lastCheck: app.pipeline.lastCheck },
-      tts: app.tts.status(),
+      tts: await (async () => {
+        const st = app.tts.status();
+        if (st.provider !== 'local') return st;
+        const h = app.llm.status().openjarvis ?? (await app.llm.openJarvis().health());
+        return { ...st, available: Boolean(h.tts?.available), detail: h.tts?.detail ?? (h.reachable ? 'voice not configured in OpenJarvis' : 'OpenJarvis is not running') };
+      })(),
     };
   });
 

@@ -63,6 +63,13 @@ export function RoamiesGate({ children }: { children: ReactNode }) {
         </Button>
       </div>
       <p className="lock-note">Jarvis checks again by itself every few seconds — you don’t need to restart it.</p>
+      <button
+        type="button"
+        className="lock-link"
+        onClick={() => void api.post<RoamiesRequirement>('/api/roamies/use-openjarvis').then(setReq).catch(() => undefined)}
+      >
+        Run fully local with OpenJarvis instead (no Roamies, no API keys)
+      </button>
       <Elsewhere onFound={setReq} />
       <details className="lock-details">
         <summary>Where Jarvis looked</summary>

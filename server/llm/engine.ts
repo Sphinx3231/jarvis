@@ -30,6 +30,7 @@ import type { SettingsStore } from '../core/settings.ts';
 import { errorMessage } from '../core/util.ts';
 import type { RoamiesGate } from '../roamies/gate.ts';
 import { ClaudeCodeAgent, type ClaudeCodeAgentOptions } from './claudecode.mjs';
+import { isCloudModel, OpenJarvisClient, type OpenJarvisHealth } from './openjarvis.ts';
 import type { LocalModelManager } from './local-embeddings.ts';
 import type { EmbeddingProvider, LlmMessage, LlmRequest, LlmResponse, StopReason, ToolSpec } from './types.ts';
 import { ProviderError } from './types.ts';
@@ -117,8 +118,14 @@ export interface EngineStatus {
   provider: { id: string; name: string } | null;
   model: { id: string; name: string } | null;
   /** roamies: the model picked in Roamies; jarvis: a model chosen in Jarvis's settings; auto: Roamies has none picked yet. */
-  source: 'roamies' | 'jarvis' | 'auto' | null;
+  source: 'roamies' | 'jarvis' | 'auto' | 'openjarvis' | null;
   route: 'api' | 'claude-code' | null;
+  /** openjarvis: local brain via OpenJarvis; roamies: the Roamies engine. */
+  backend: 'openjarvis' | 'roamies';
+  /** Cloud models / voices / transcription are refused. */
+  localOnly: boolean;
+  /** OpenJarvis server state (openjarvis backend). */
+  openjarvis: OpenJarvisHealth | null;
   signedIn: Array<{ id: string; name: string; claude?: boolean }>;
   models: Array<{ id: string; name: string; provider: string; tools: boolean }>;
   /** Whether the model in use can call tools (local models may not). Without tools Jarvis can talk but not act. */
@@ -137,7 +144,7 @@ export interface EngineStatus {
 interface Target {
   provider: string;
   model: string;
-  source: 'roamies' | 'jarvis' | 'auto';
+  source: 'roamies' | 'jarvis' | 'auto' | 'openjarvis';
   route: 'api' | 'claude-code';
 }
 
@@ -147,7 +154,7 @@ interface RoamiesConfig {
   look: string | null;
 }
 
-const providerName = (id: string): string => (id === 'local' ? 'Local models' : AUTH_PROVIDERS.find((p) => p.value === id)?.label ?? id);
+const providerName = (id: string): string => (id === 'openjarvis' ? 'OpenJarvis (this computer)' : id === 'local' ? 'Local models' : AUTH_PROVIDERS.find((p) => p.value === id)?.label ?? id);
 const modelName = (id: string): string => {
   const local = parseLocalModelId(id);
   return local ? localModelShortName(local.rawId) : getModel(id)?.name ?? id;
@@ -207,6 +214,16 @@ function toProviderError(err: unknown, provider: string): ProviderError {
   return new ProviderError(msg, { retryable: status === undefined || status === 429 || status >= 500, status });
 }
 
+/** This computer or the local network (local-only mode keeps voice/brain traffic off the internet). */
+function isLocalAddress(url: string): boolean {
+  try {
+    const h = new URL(url).hostname.replace(/^\[|\]$/g, '');
+    return ['localhost', '127.0.0.1', '::1'].includes(h) || /^10\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\./.test(h) || /\.(local|lan)$/.test(h);
+  } catch {
+    return false;
+  }
+}
+
 export class RoamiesEngine {
   private settings: SettingsStore;
   private secrets: SecretStore;
@@ -225,6 +242,8 @@ export class RoamiesEngine {
   private lastError: string | null = null;
   private lastUsedAt: number | null = null;
   private probes: LocalEndpointProbe[] = [];
+  private oj: OpenJarvisClient | null = null;
+  private ojHealth: OpenJarvisHealth | null = null;
   /** Test seam for the Claude Code route (replaces the Claude Agent SDK's query()). */
   claudeCodeQuery: ClaudeCodeAgentOptions['query'] | undefined;
 
@@ -235,6 +254,65 @@ export class RoamiesEngine {
     this.gate = deps.gate;
     this.dataDir = deps.dataDir;
     this.localModel = deps.localModel ?? null;
+  }
+
+  backend(): 'openjarvis' | 'roamies' {
+    return this.settings.get().brain.backend;
+  }
+
+  localOnly(): boolean {
+    return this.settings.get().brain.localOnly;
+  }
+
+  /** The OpenJarvis client for the configured address. */
+  openJarvis(): OpenJarvisClient {
+    const url = this.settings.get().brain.openjarvisUrl;
+    if (!this.oj || this.oj.baseUrl !== url.replace(/\/+$/, '').replace(/\/v1$/, '')) this.oj = new OpenJarvisClient(url);
+    return this.oj;
+  }
+
+  /** Load OpenJarvis's state: reachable, models, voice. The brain is ready when a local model is there. */
+  private async loadOpenJarvis(stamp: string): Promise<void> {
+    const h = await this.openJarvis().health();
+    this.ojHealth = h;
+    const wanted = this.settings.get().brain.model.trim();
+    const localOnly = this.localOnly();
+    const usable = h.models.filter((m) => !(localOnly && isCloudModel(m.id, m.ownedBy)));
+    const owner = (id: string) => h.models.find((m) => m.id === id)?.ownedBy ?? null;
+    let problem: string | null = null;
+    let warning: string | null = null;
+    let model: string | null = null;
+    if (!h.reachable) problem = `OpenJarvis isn't running at ${this.settings.get().brain.openjarvisUrl}. Start it (\`jarvis serve\`, or the "Jarvis Brain" service from the local setup) and Jarvis connects within 30 seconds.`;
+    else if (wanted && localOnly && isCloudModel(wanted, owner(wanted))) problem = `"${wanted}" is a cloud model, and Jarvis is set to local-only (no API spending). Pick a local model in Settings → Model.`;
+    else if (wanted) model = wanted;
+    else if (usable.length) model = usable[0].id;
+    else problem = 'OpenJarvis is running but has no local model yet. Pull one (e.g. `ollama pull qwen3:8b`) or run the local setup.';
+    if (model && !h.models.some((m) => m.id === model)) warning = `OpenJarvis doesn't list "${model}" — it may still be downloading.`;
+    if (h.reachable && !h.speech?.available) warning = [warning, `Local listening isn't ready (${h.speech?.detail ?? 'unknown'}).`].filter(Boolean).join(' ');
+    this.target = !problem && model ? { provider: 'openjarvis', model, source: 'openjarvis', route: 'api' } : null;
+    this.snapshot = {
+      ready: Boolean(this.target),
+      provider: { id: 'openjarvis', name: providerName('openjarvis') },
+      model: model ? { id: model, name: model } : null,
+      source: 'openjarvis',
+      route: model ? 'api' : null,
+      signedIn: [],
+      models: usable.map((m) => ({ id: m.id, name: m.id, provider: 'openjarvis', tools: true })),
+      tools: Boolean(this.target),
+      local: [],
+      warning,
+      problem,
+      configPath: this.settings.get().brain.openjarvisUrl,
+      look: null,
+      backend: 'openjarvis',
+      localOnly,
+      openjarvis: h,
+    };
+    const was = this.stamp ? this.lastReady : null;
+    this.lastReady = Boolean(this.target);
+    if (was !== null && was !== this.lastReady) this.activity.log(this.lastReady ? 'success' : 'warning', 'llm', this.lastReady ? `Thinking locally with ${model} through OpenJarvis` : `Local brain unavailable: ${problem}`);
+    else if (was === null && this.lastReady) this.activity.log('success', 'llm', `Thinking locally with ${model} through OpenJarvis — no API keys, no usage limits`);
+    this.stamp = stamp;
   }
 
   private authStorage(): AuthStorage {
@@ -313,9 +391,11 @@ export class RoamiesEngine {
     const d = this.gate.detection();
     const s = this.settings.get().llm;
     // Local servers start and stop on their own: look again at most every 30 s.
-    const stamp = [d.installed, d.configPath, fileStamp(d.configPath), fileStamp(join(d.ggDir, 'auth.json')), s.model, s.localServers.join(','), Math.floor(Date.now() / 30_000)].join('|');
+    const b = this.settings.get().brain;
+    const stamp = [b.backend, b.openjarvisUrl, b.model, b.localOnly, d.installed, d.configPath, fileStamp(d.configPath), fileStamp(join(d.ggDir, 'auth.json')), s.model, s.localServers.join(','), Math.floor(Date.now() / 30_000)].join('|');
     if (!force && stamp === this.stamp && this.snapshot) return;
-    this.refreshing = this.load(stamp).finally(() => {
+    if (this.closing) return;
+    this.refreshing = (b.backend === 'openjarvis' ? this.loadOpenJarvis(stamp) : this.load(stamp)).finally(() => {
       this.refreshing = null;
     });
     return this.refreshing;
@@ -324,7 +404,7 @@ export class RoamiesEngine {
   private async load(stamp: string): Promise<void> {
     const d = this.gate.detection();
     const cfg = this.roamiesConfig();
-    const base = { configPath: d.configPath, look: cfg.look };
+    const base = { configPath: d.configPath, look: cfg.look, backend: 'roamies' as const, localOnly: this.localOnly(), openjarvis: null };
     if (!d.installed) {
       this.target = null;
       this.snapshot = { ...base, ready: false, provider: null, model: null, source: null, route: null, signedIn: [], models: [], tools: false, local: [], warning: null, problem: 'Roamies is not installed.' };
@@ -389,7 +469,8 @@ export class RoamiesEngine {
         if (!m.tools) warning = `${m.name} can't use tools, so Jarvis can talk with it but can't search memory, plan tasks or act through it. Direct commands still work. Pick a model with tool support (e.g. qwen3, llama3.1) for everything else.`;
         else if (m.contextWindow < MIN_LOCAL_CONTEXT) warning = `${server.label} gives ${m.name} only ${Math.round(m.contextWindow / 1024)}k tokens of context, which is too little for Jarvis to work well. Raise the context length (Ollama: Settings → Context length 32k, or OLLAMA_CONTEXT_LENGTH=32768).`;
       }
-    } else if (!signedIn.some((s) => s.id === provider)) problem = `${providerName(provider)} isn't signed in. Sign in on the Model page in Roamies.`;
+    } else if (this.localOnly() && provider !== 'palsu') problem = `${providerName(provider)} is a cloud model, and Jarvis is set to local-only (no API spending). Pick a local model, or switch the brain to OpenJarvis.`;
+    else if (!signedIn.some((s) => s.id === provider)) problem = `${providerName(provider)} isn't signed in. Sign in on the Model page in Roamies.`;
     else {
       route = provider === 'anthropic' && claude ? 'claude-code' : 'api';
       if (route === 'claude-code' && !resolveClaudeCodeBinary()) problem = "Claude Code isn't installed for Roamies anymore. Sign in with Claude again on the Model page in Roamies.";
@@ -423,11 +504,19 @@ export class RoamiesEngine {
   }
   private lastReady: boolean | null = null;
 
+  private closing = false;
+
+  /** Shutdown: no new refreshes start, and the one in flight (if any) finishes before the database closes. */
+  async idle(): Promise<void> {
+    this.closing = true;
+    while (this.refreshing) await this.refreshing.catch(() => {});
+  }
+
   /** Whether a model can be used right now (from the last refresh; call refresh() first when it matters). */
   available(): boolean {
     if (!this.snapshot) return false;
     void this.refresh().catch(() => {});
-    return Boolean(this.target) && this.gate.detection().installed;
+    return Boolean(this.target) && (this.backend() === 'openjarvis' || this.gate.detection().installed);
   }
 
   activeProvider(): { id: string; model: string } | null {
@@ -449,6 +538,9 @@ export class RoamiesEngine {
       problem: 'Not checked yet',
       configPath: this.gate.detection().configPath,
       look: null,
+      backend: this.backend(),
+      localOnly: this.localOnly(),
+      openjarvis: this.ojHealth,
     };
     return { ...s, health: this.health, lastError: this.lastError, lastUsedAt: this.lastUsedAt };
   }
@@ -464,15 +556,16 @@ export class RoamiesEngine {
   }
 
   private async requireTarget(): Promise<Target> {
-    if (!this.gate.detection().installed) throw new ProviderError('Roamies is not installed. Jarvis runs on Roamies — install it, then choose Check again.', { retryable: false });
+    if (this.backend() === 'roamies' && !this.gate.detection().installed) throw new ProviderError('Roamies is not installed. Jarvis runs on Roamies — install it, then choose Check again.', { retryable: false });
     await this.refresh();
-    if (!this.target) throw new ProviderError(this.snapshot?.problem ?? 'No model is available from Roamies.', { retryable: false });
+    if (!this.target) throw new ProviderError(this.snapshot?.problem ?? 'No model is available.', { retryable: !this.snapshot?.problem || /isn't running|not reachable/i.test(this.snapshot.problem) });
     return this.target;
   }
 
   /** Whether the model in use can call tools. Jarvis only offers tools to models that can use them. */
   supportsTools(): boolean {
     if (!this.target) return false;
+    if (this.target.provider === 'openjarvis') return true;
     return this.target.provider === 'local' ? Boolean(this.localModelInfo(this.target.model)?.tools) : true;
   }
 
@@ -497,6 +590,11 @@ export class RoamiesEngine {
   /** One model call through gg-ai (API route only). */
   private async callApi(t: Target, req: LlmRequest): Promise<LlmResponse> {
     const rawId = `${t.provider}:${t.model}`;
+    if (t.provider === 'openjarvis') {
+      if (this.localOnly() && isCloudModel(t.model, this.ojHealth?.models.find((m) => m.id === t.model)?.ownedBy)) throw new ProviderError(`Refusing cloud model ${t.model}: Jarvis is local-only.`, { retryable: false });
+      const r = await this.openJarvis().complete({ model: t.model, system: req.system, messages: req.messages, tools: req.tools, maxTokens: Math.min(req.maxTokens ?? 4096, 8192), signal: this.signal(req.signal) });
+      return { text: r.text, toolCalls: r.toolCalls, stopReason: r.stopReason, providerId: rawId, model: r.model, raw: null, usage: r.usage };
+    }
     const tools: Tool[] | undefined = req.tools?.length
       ? req.tools.map((spec) => ({ name: spec.name, description: spec.description, parameters: z.looseObject({}), rawInputSchema: spec.inputSchema }))
       : undefined;
@@ -641,6 +739,7 @@ export class RoamiesEngine {
     const prev = this.health;
     let result: { ok: boolean; detail: string };
     if (!this.target) result = { ok: false, detail: this.snapshot?.problem ?? 'No model available' };
+    else if (this.target.provider === 'openjarvis') result = { ok: true, detail: `${this.target.model} is running locally through OpenJarvis` };
     else if (this.target.route === 'claude-code') result = { ok: true, detail: `Signed in with Claude through Claude Code (${modelName(this.target.model)})` };
     else if (this.target.provider === 'local') result = { ok: true, detail: `${modelName(this.target.model)} is running locally` };
     else {
@@ -667,12 +766,18 @@ export class RoamiesEngine {
   /** Which transcription service voice recordings would use, if one is usable. */
   async transcriptionTarget(): Promise<{ name: string; baseUrl: string; key?: string } | null> {
     const t = this.settings.get().voice.transcription;
+    if (t.service === 'openjarvis') {
+      const h = this.ojHealth ?? (await this.openJarvis().health());
+      this.ojHealth = h;
+      return h.reachable && h.speech?.available ? { name: 'OpenJarvis (local Whisper)', baseUrl: this.openJarvis().baseUrl } : null;
+    }
     if (t.service === 'custom') {
+      if (this.localOnly() && t.baseUrl && !isLocalAddress(t.baseUrl)) return null;
       if (!t.baseUrl) return null;
       return { name: 'your transcription server', baseUrl: t.baseUrl, key: this.secrets.get(TRANSCRIPTION_SECRET) ?? undefined };
     }
     if (t.service === 'openai') {
-      if (!this.gate.detection().installed) return null;
+      if (this.localOnly() || !this.gate.detection().installed) return null;
       try {
         const c = await this.authStorage().resolveApiKey('openai');
         return { name: 'OpenAI (your key in Roamies)', baseUrl: c.baseUrl || OPENAI_API, key: c.accessToken };
@@ -686,7 +791,11 @@ export class RoamiesEngine {
   /** Speech to text through an OpenAI-compatible /audio/transcriptions endpoint. */
   async transcribe(audio: Buffer, mimeType: string, opts: { language?: string; signal?: AbortSignal } = {}): Promise<{ text: string; provider: string }> {
     const target = await this.transcriptionTarget();
-    if (!target) throw new ProviderError('No transcription service is configured. Choose one under Settings → Voice (an OpenAI API key saved in Roamies, or your own Whisper server).', { retryable: false });
+    if (!target) throw new ProviderError(this.settings.get().voice.transcription.service === 'openjarvis' ? `Local listening isn't ready: ${this.ojHealth?.speech?.detail ?? 'OpenJarvis is not running'}.` : 'No transcription service is configured. Choose one under Settings → Voice (OpenJarvis on this computer, or your own Whisper server).', { retryable: false });
+    if (this.settings.get().voice.transcription.service === 'openjarvis') {
+      const r = await this.openJarvis().transcribe(audio, mimeType, opts);
+      return { text: r.text, provider: target.name };
+    }
     const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('wav') ? 'wav' : mimeType.includes('mp4') || mimeType.includes('m4a') ? 'm4a' : mimeType.includes('mpeg') ? 'mp3' : 'webm';
     const form = new FormData();
     form.append('file', new Blob([new Uint8Array(audio)], { type: mimeType }), `speech.${ext}`);

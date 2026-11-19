@@ -279,8 +279,11 @@ export interface EngineStatus {
   ready: boolean;
   provider: { id: string; name: string } | null;
   model: { id: string; name: string } | null;
-  source: 'roamies' | 'jarvis' | 'auto' | null;
+  source: 'roamies' | 'jarvis' | 'auto' | 'openjarvis' | null;
   route: 'api' | 'claude-code' | null;
+  backend: 'openjarvis' | 'roamies';
+  localOnly: boolean;
+  openjarvis: { reachable: boolean; detail: string; models: Array<{ id: string; ownedBy: string | null }>; speech: { available: boolean; detail: string } | null; tts: { available: boolean; detail: string; voiceId: string | null } | null } | null;
   signedIn: Array<{ id: string; name: string; claude?: boolean }>;
   models: Array<{ id: string; name: string; provider: string; tools: boolean }>;
   tools: boolean;
@@ -378,8 +381,8 @@ export interface Integrations {
   workspace: { path: string; exists: boolean; writable: boolean; readPolicy: string; writePolicy: string };
   web: { policy: string; allowPrivateNetwork: boolean };
   shell: { enabled: boolean; policy: string };
-  transcription: { service: 'none' | 'openai' | 'custom'; baseUrl: string; model: string; keySet: boolean; available: boolean };
-  tts: { provider: 'browser' | 'fish'; voiceId: string; keySet: boolean; keyFromEnv: boolean; available: boolean };
+  transcription: { service: 'none' | 'openjarvis' | 'openai' | 'custom'; baseUrl: string; model: string; keySet: boolean; available: boolean };
+  tts: { provider: 'local' | 'browser' | 'fish'; voiceId: string; keySet: boolean; keyFromEnv: boolean; available: boolean; detail?: string };
   email: {
     enabled: boolean;
     address: string;
@@ -565,6 +568,7 @@ export interface Settings {
   };
   tasks: { stepTimeoutSec: number; maxAttempts: number };
   permissions: { policies: Record<string, 'allow' | 'ask' | 'deny'>; followRequests: boolean; fullAccess: boolean };
+  brain: { backend: 'openjarvis' | 'roamies'; openjarvisUrl: string; model: string; localOnly: boolean };
   computerAccess: { enabled: boolean; level: 'observe' | 'interact' | 'extended'; screenshotRetentionMin: number; browserEndpoint: string; watchIntervalSec: number };
   voice: {
     enabled: boolean;
@@ -575,8 +579,8 @@ export interface Settings {
     lang: string;
     wakeWord: boolean;
     inputMode: 'auto' | 'browser' | 'transcription';
-    transcription: { service: 'none' | 'openai' | 'custom'; baseUrl: string; model: string };
-    tts: { provider: 'browser' | 'fish'; voiceId: string };
+    transcription: { service: 'none' | 'openjarvis' | 'openai' | 'custom'; baseUrl: string; model: string };
+    tts: { provider: 'local' | 'browser' | 'fish'; voiceId: string };
   };
   notifications: { desktop: boolean; taskCompletion: boolean };
   agents: { enabled: boolean; spendUsd: number; offensive: boolean; autoSubmit: boolean; autoHunt: boolean };

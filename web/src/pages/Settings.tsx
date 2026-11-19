@@ -61,6 +61,53 @@ export function SettingsPage() {
         </Field>
       </Card>
 
+      <Card title="Brain" icon={<Sparkles size={18} />}>
+        <Field label="Jarvis thinks with" hint="OpenJarvis runs everything on this computer: local models, local listening (Whisper) and a local voice (Kokoro) — no API keys, no token bills, no usage limits. Roamies uses the sign-ins in the Roamies app (cloud models).">
+          <select value={s.brain.backend} onChange={(e) => save({ brain: { backend: e.target.value as Settings['brain']['backend'] } })} aria-label="Brain">
+            <option value="openjarvis">OpenJarvis — fully local (recommended)</option>
+            <option value="roamies">Roamies engine — cloud sign-ins</option>
+          </select>
+        </Field>
+        <Field label="Local only" hint="Refuse every cloud model, cloud voice and cloud transcription — and use local listening instead of the browser's (Chrome's speech recognition sends audio to Google). Nothing is ever billed.">
+          <Toggle checked={s.brain.localOnly} onChange={(v) => save({ brain: { localOnly: v } })} ariaLabel="Local only" />
+        </Field>
+        {s.brain.backend === 'openjarvis' && (
+          <>
+            <Field label="OpenJarvis address" hint="Where `jarvis serve` runs — this computer or your local network only.">
+              <input defaultValue={s.brain.openjarvisUrl} spellCheck={false} aria-label="OpenJarvis address" onBlur={(e) => e.target.value.trim() !== s.brain.openjarvisUrl && save({ brain: { openjarvisUrl: e.target.value.trim() } })} />
+            </Field>
+            <Field label="Local model" hint="The model OpenJarvis serves to Jarvis. Empty = OpenJarvis's default.">
+              <select value={s.brain.model} onChange={(e) => save({ brain: { model: e.target.value } })} aria-label="Local model">
+                <option value="">OpenJarvis default{engine?.backend === 'openjarvis' && engine.model && !s.brain.model ? ` (${engine.model.name})` : ''}</option>
+                {s.brain.model && !engine?.models.some((m) => m.id === s.brain.model) && <option value={s.brain.model}>{s.brain.model}</option>}
+                {engine?.backend === 'openjarvis' &&
+                  engine.models.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+            {engine?.backend === 'openjarvis' && (
+              <div className="stack small">
+                <span>
+                  <Badge tone={engine.openjarvis?.reachable ? 'success' : 'danger'}>{engine.openjarvis?.reachable ? 'running' : 'not running'}</Badge> OpenJarvis — {engine.openjarvis?.detail ?? 'not checked yet'}
+                </span>
+                <span>
+                  <Badge tone={engine.openjarvis?.speech?.available ? 'success' : 'warning'}>{engine.openjarvis?.speech?.available ? 'ready' : 'not ready'}</Badge> Listening (local Whisper) — {engine.openjarvis?.speech?.detail ?? '—'}
+                </span>
+                <span>
+                  <Badge tone={engine.openjarvis?.tts?.available ? 'success' : 'warning'}>{engine.openjarvis?.tts?.available ? 'ready' : 'not ready'}</Badge> Voice (local Kokoro) — {engine.openjarvis?.tts?.detail ?? '—'}
+                </span>
+              </div>
+            )}
+          </>
+        )}
+        {engine && !engine.ready && <div className="note note--warning">{engine.problem} Until then Jarvis handles direct commands only.</div>}
+        {engine?.ready && engine.warning && <div className="note note--warning">{engine.warning}</div>}
+      </Card>
+
+      {s.brain.backend === 'roamies' && (
       <Card title="Model" icon={<Sparkles size={18} />}>
         <Field label="Model" hint="Jarvis thinks with the Roamies engine. By default it uses the model you picked in Roamies; you can choose another model from the same Roamies sign-ins, or a local model (Ollama, LM Studio…), here. What the model will or won't do is up to the model.">
           <select value={s.llm.model} onChange={(e) => save({ llm: { model: e.target.value } })} aria-label="Model">
@@ -92,9 +139,8 @@ export function SettingsPage() {
         <Field label="Max tool steps per message">
           <NumberInput value={s.llm.maxToolIterations} min={1} max={12} onCommit={(v) => save({ llm: { maxToolIterations: v } })} />
         </Field>
-        {engine && !engine.ready && <div className="note note--warning">{engine.problem} Until then Jarvis handles direct commands only.</div>}
-        {engine?.ready && engine.warning && <div className="note note--warning">{engine.warning}</div>}
       </Card>
+      )}
 
       <Card title="Voice" icon={<Mic size={18} />}>
         <Field label="Voice features" hint="Microphone button and spoken replies.">
@@ -119,10 +165,11 @@ export function SettingsPage() {
             </option>
           </select>
         </Field>
-        <Field label="Transcription service" hint="OpenAI uses the OpenAI API key you saved in Roamies (whisper-1 / gpt-4o-mini-transcribe). Or use your own Whisper-compatible server, e.g. a local one for fully offline voice. Audio is only sent after you speak.">
+        <Field label="Transcription service" hint="OpenJarvis transcribes on this computer with Whisper (offline, free). OpenAI uses the OpenAI API key saved in Roamies (cloud; blocked in local-only mode). Or use your own Whisper-compatible server. Audio is only processed after you speak.">
           <div className="inline">
             <select value={s.voice.transcription.service} onChange={(e) => save({ voice: { transcription: { service: e.target.value as Settings['voice']['transcription']['service'] } } })} aria-label="Transcription service">
-              <option value="openai">OpenAI (key from Roamies)</option>
+              <option value="openjarvis">OpenJarvis — local Whisper</option>
+              <option value="openai" disabled={s.brain.localOnly}>OpenAI (key from Roamies){s.brain.localOnly ? ' — off in local-only mode' : ''}</option>
               <option value="custom">My own server</option>
               <option value="none">None</option>
             </select>
@@ -157,12 +204,24 @@ export function SettingsPage() {
             </div>
           </Field>
         )}
-        <Field label="Jarvis's voice" hint="Browser uses the computer's built-in speech. Fish Audio gives Jarvis a natural cloud voice (needs a key — put FISH_AUDIO_KEY in your .env, or paste it below).">
-          <select value={s.voice.tts.provider} onChange={(e) => save({ voice: { tts: { provider: e.target.value as 'browser' | 'fish' } } })} aria-label="Voice output">
+        <Field label="Jarvis's voice" hint="Local runs Kokoro on this computer through OpenJarvis (natural, offline, free). Browser uses the computer's built-in speech. Fish Audio is a cloud voice (needs a key; blocked in local-only mode).">
+          <select value={s.voice.tts.provider} onChange={(e) => save({ voice: { tts: { provider: e.target.value as 'local' | 'browser' | 'fish', ...(e.target.value === 'local' && !s.voice.tts.voiceId ? { voiceId: 'bm_george' } : {}) } } })} aria-label="Voice output">
+            <option value="local">Local — Kokoro via OpenJarvis</option>
             <option value="browser">Browser (built-in)</option>
-            <option value="fish">Fish Audio</option>
+            <option value="fish" disabled={s.brain.localOnly}>Fish Audio (cloud){s.brain.localOnly ? ' — off in local-only mode' : ''}</option>
           </select>
         </Field>
+        {s.voice.tts.provider === 'local' && (
+          <Field label="Local voice" hint="Kokoro voices: British (bm_/bf_) or American (am_/af_), male (m) or female (f).">
+            <select value={s.voice.tts.voiceId || 'bm_george'} onChange={(e) => save({ voice: { tts: { voiceId: e.target.value } } })} aria-label="Local voice">
+              {['bm_george', 'bm_lewis', 'bm_daniel', 'bm_fable', 'bf_emma', 'bf_isabella', 'am_michael', 'am_adam', 'am_onyx', 'af_heart', 'af_bella', 'af_sarah'].map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         {s.voice.tts.provider === 'fish' && (
           <Field label="Fish Audio voice" hint={`Voice/reference id from fish.audio (empty = account default).${integrations.data?.tts.keyFromEnv ? ' Key loaded from .env.' : ''}`}>
             <div className="stack">

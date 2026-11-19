@@ -33,7 +33,7 @@ export class FishAudioService {
   /** Why Fish Audio voice can't be used, or null when it is ready. */
   missing(): string | null {
     const tts = this.settings.get().voice.tts;
-    if (tts.provider !== 'fish') return 'Fish Audio voice is off (replies use the browser voice).';
+    if (tts.provider !== 'fish') return tts.provider === 'local' ? 'Fish Audio is off (replies use the local voice).' : 'Fish Audio voice is off (replies use the browser voice).';
     if (!this.hasKey()) return 'No Fish Audio API key (set FISH_AUDIO_KEY in .env, or add it in Settings → Voice).';
     return null;
   }

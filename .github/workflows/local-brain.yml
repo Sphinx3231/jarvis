@@ -1,0 +1,72 @@
+name: Local brain (OpenJarvis setup)
+
+# Runs the real one-command local setup on fresh Windows and Linux runners (what a GEEKOM A6 runs),
+# then the real OpenJarvis test: a local model calls a Jarvis tool, Kokoro speaks, Whisper hears it
+# back and Jarvis acts on it — no API keys anywhere. A small model keeps the runner time reasonable.
+
+on:
+  push:
+    paths:
+      - 'scripts/local-setup/**'
+      - 'scripts/jarvis-local.ts'
+      - 'server/llm/**'
+      - 'tests/openjarvis.test.ts'
+      - '.github/workflows/local-brain.yml'
+  workflow_dispatch:
+
+jobs:
+  setup:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      TEST_MODEL: qwen3:1.7b
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Local setup (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts\local-setup\setup-windows.ps1 -HardwareProfile small -SkipModels
+          if (-not (Get-ScheduledTask -TaskName 'Jarvis Brain' -ErrorAction SilentlyContinue)) { throw 'Jarvis Brain task was not registered' }
+          ollama pull $env:TEST_MODEL
+
+      - name: Local setup (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          bash scripts/local-setup/setup-linux.sh --profile small --skip-models --no-services
+          ollama pull "$TEST_MODEL"
+
+      - name: Local check
+        run: node --disable-warning=ExperimentalWarning scripts/jarvis-local.ts check --profile small
+        continue-on-error: true
+
+      - name: Real OpenJarvis test (tool call + Kokoro + Whisper)
+        run: node --disable-warning=ExperimentalWarning --test --test-concurrency=1 tests/openjarvis.test.ts
+        env:
+          JARVIS_TEST_OPENJARVIS: http://127.0.0.1:8000
+          JARVIS_TEST_OPENJARVIS_MODEL: ${{ env.TEST_MODEL }}
+
+      - name: Collect logs
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p logs
+          cp -r "$LOCALAPPDATA/Jarvis/logs" logs/windows 2>/dev/null || true
+          cp -r "$HOME/.local/share/jarvis/logs" logs/linux 2>/dev/null || true
+          cp ~/.openjarvis/config.toml logs/ 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: local-brain-${{ runner.os }}
+          path: logs
+          if-no-files-found: ignore

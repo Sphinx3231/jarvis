@@ -6,6 +6,50 @@ import { timeAgo } from '../lib/format';
 import { useAction, useLive, useResource } from '../lib/live';
 import { voiceSupport } from '../lib/voice';
 
+/** Jarvis's local brain: OpenJarvis on this computer (models, listening and voice — no keys, no limits). */
+function OpenJarvisCard({ data }: { data: Integrations }) {
+  const m = data.model;
+  const oj = m.openjarvis;
+  return (
+    <Card title="Brain — OpenJarvis (local)" icon={<Sparkles size={18} />}>
+      <p className="muted small">
+        Jarvis thinks, listens and speaks on this computer through OpenJarvis: a local model (via Ollama / llama.cpp), Whisper for speech-to-text and Kokoro for its voice. No API keys, no tokens billed, no usage limits{m.localOnly ? ' — and local-only mode refuses every cloud service' : ''}. Change the model or address in Settings → Brain.
+      </p>
+      <ul className="integrations">
+        <li className="integration">
+          <div className="integration__head">
+            <div>
+              <div className="integration__title">{m.model?.name ?? 'No model yet'}</div>
+              <div className="muted small">{oj?.detail ?? 'Not checked yet'}</div>
+            </div>
+            <Badge tone={m.ready ? 'success' : 'warning'}>{m.ready ? 'Thinking locally' : 'Not ready'}</Badge>
+          </div>
+        </li>
+        <li className="integration">
+          <div className="integration__head">
+            <div>
+              <div className="integration__title">Listening (Whisper)</div>
+              <div className="muted small">{oj?.speech?.detail ?? '—'}</div>
+            </div>
+            <Badge tone={oj?.speech?.available ? 'success' : 'warning'}>{oj?.speech?.available ? 'Ready' : 'Not ready'}</Badge>
+          </div>
+        </li>
+        <li className="integration">
+          <div className="integration__head">
+            <div>
+              <div className="integration__title">Voice (Kokoro)</div>
+              <div className="muted small">{oj?.tts?.detail ?? '—'}</div>
+            </div>
+            <Badge tone={oj?.tts?.available ? 'success' : 'warning'}>{oj?.tts?.available ? 'Ready' : 'Not ready'}</Badge>
+          </div>
+        </li>
+      </ul>
+      {!m.ready && m.problem && <div className="note note--warning">{m.problem}</div>}
+      {m.ready && m.warning && <div className="note note--warning">{m.warning}</div>}
+    </Card>
+  );
+}
+
 /** Jarvis thinks with the Roamies engine: the model and sign-ins chosen in Roamies. Nothing to configure here. */
 function RoamiesModelCard({ data }: { data: Integrations }) {
   const act = useAction();
@@ -781,7 +825,7 @@ export function IntegrationsPage() {
   return (
     <div className="page">
       <PageHeader title="Integrations" subtitle="Everything Jarvis can connect to. Statuses come from real checks — nothing is shown as connected unless it is." />
-      <RoamiesModelCard data={data} />
+      {data.model.backend === 'roamies' ? <RoamiesModelCard data={data} /> : <OpenJarvisCard data={data} />}
 
       <VaultCard key={data.obsidian.location} data={data.obsidian} />
 

@@ -6,7 +6,7 @@ import { errorMessage, UserError } from '../core/util.ts';
 import { isAllowedOrigin, isLocalHost, readBody, Router, safeEqual, sendJson } from './http.ts';
 
 /** Endpoints that work while Jarvis is locked waiting for Roamies. */
-const LOCKED_PATHS = new Set(['/api/roamies', '/api/roamies/check', '/api/roamies/location', '/api/about']);
+const LOCKED_PATHS = new Set(['/api/roamies', '/api/roamies/check', '/api/roamies/location', '/api/roamies/use-openjarvis', '/api/about']);
 import { registerRoutes } from './routes.ts';
 
 const MIME: Record<string, string> = {

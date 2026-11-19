@@ -268,6 +268,7 @@ export class JarvisApp {
 
     this.registry.onChange(() => this.bus.emit('integrations.changed', {}));
     this.bus.on('settings.changed', () => {
+      void this.llm.refresh().catch(() => {});
       this.ensureWorkspace();
       this.computer.handleSettingsChanged();
       if (this.running) {
@@ -317,20 +318,33 @@ export class JarvisApp {
     }
   }
 
-  /** False while Roamies is missing: the API then serves only the "Roamies required" screen. */
+  /** Roamies is only required when the brain is the Roamies engine; OpenJarvis (the default) needs nothing else installed. */
+  requiresRoamies(): boolean {
+    return this.settings.get().brain.backend === 'roamies';
+  }
+
+  /** False while Roamies is required but missing: the API then serves only the "Roamies required" screen. */
   get unlocked(): boolean {
-    return this.gate.installed;
+    return !this.requiresRoamies() || this.gate.installed;
   }
 
   /** What the lock screen shows. */
   requirement(): { met: boolean; running: boolean; downloadUrl: string; detection: ReturnType<RoamiesGate['detection']> } {
-    return { met: this.gate.installed, running: this.running, downloadUrl: ROAMIES_RELEASES_URL, detection: this.gate.detection() };
+    return { met: this.unlocked, running: this.running, downloadUrl: ROAMIES_RELEASES_URL, detection: this.gate.detection() };
+  }
+
+  /** Switch the brain to OpenJarvis (fully local) and start Jarvis if it was waiting for Roamies. */
+  async useOpenJarvis(): Promise<ReturnType<JarvisApp['requirement']>> {
+    this.settings.update({ brain: { backend: 'openjarvis', localOnly: true }, voice: { transcription: { service: 'openjarvis' }, tts: { provider: 'local', voiceId: 'bm_george' } } });
+    await this.llm.refresh(true).catch(() => {});
+    if (this.unlocked && this.started && !this.running) await this.startServices();
+    return this.requirement();
   }
 
   /** Look for Roamies again; starts Jarvis the moment it is found (no restart needed). */
   async recheckRoamies(): Promise<ReturnType<JarvisApp['requirement']>> {
     this.gate.check();
-    if (this.gate.installed && this.started && !this.running) await this.startServices();
+    if (this.unlocked && this.started && !this.running) await this.startServices();
     return this.requirement();
   }
 
@@ -338,12 +352,12 @@ export class JarvisApp {
     if (this.started) return;
     this.started = true;
     this.bus.on('roamies.changed', (e) => {
-      this.activity.log(e.data.installed ? 'success' : 'warning', 'system', e.data.installed ? `Roamies found (${String(e.data.path)})` : 'Roamies is no longer installed — Jarvis is locked until it is back');
+      if (this.requiresRoamies()) this.activity.log(e.data.installed ? 'success' : 'warning', 'system', e.data.installed ? `Roamies found (${String(e.data.path)})` : 'Roamies is no longer installed — Jarvis is locked until it is back');
       void this.llm.refresh(true).catch(() => {});
       if (e.data.installed && !this.running) void this.startServices().catch((err) => this.activity.log('error', 'system', `Could not start: ${(err as Error).message}`));
     });
     this.watchRoamies();
-    if (!this.gate.installed) {
+    if (!this.unlocked) {
       this.activity.log('warning', 'system', `Jarvis ${VERSION} is waiting for Roamies — Jarvis runs on Roamies, so install it to continue (${ROAMIES_RELEASES_URL})`);
       return;
     }
@@ -381,8 +395,10 @@ export class JarvisApp {
   }
 
   async stop(): Promise<void> {
-    // Learning sessions persist their progress and end cleanly before the DB closes.
+    // Learning sessions persist their progress and end cleanly before the DB closes; a model-status
+    // refresh still in flight finishes (it logs) before then too.
     await this.watcher.stop().catch(() => []);
+    await this.llm.idle();
     this.computer.browser().closeAll();
     if (this.gateTimer) clearTimeout(this.gateTimer);
     this.gateTimer = null;
@@ -428,7 +444,12 @@ export class JarvisApp {
       approvalsPending: this.permissions.listApprovals('pending', 500).length,
       memory: this.memory.stats(),
       model: engine.ready && engine.provider && engine.model ? { provider: engine.provider.name, model: engine.model.name, healthy: engine.health ? engine.health.ok : null } : null,
-      roamies: { installed: this.gate.installed, version: this.gate.detection().version },
+      roamies: { installed: this.gate.installed, version: this.gate.detection().version, required: this.requiresRoamies() },
+      brain: (() => {
+        const b = this.settings.get().brain;
+        const st = this.llm.status();
+        return { backend: b.backend, localOnly: b.localOnly, ready: st.ready, model: st.model?.name ?? null, openjarvis: b.backend === 'openjarvis' ? { url: b.openjarvisUrl, reachable: st.openjarvis?.reachable ?? false } : null };
+      })(),
       skills: { total: skills.length, available: skills.filter((s) => s.available).length },
       background: { enabled: this.settings.get().background.enabled },
       computer: (() => {

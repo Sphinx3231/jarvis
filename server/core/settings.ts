@@ -39,6 +39,22 @@ export const SettingsSchema = z.object({
     maxToolIterations: z.number().int().min(1).max(12),
     requestTimeoutSec: z.number().int().min(10).max(900),
   }),
+  /**
+   * Jarvis's brain. openjarvis (default) = OpenJarvis on this computer (local models, local voice, no
+   * API keys, no usage limits); roamies = the Roamies engine (needs the Roamies app; sign-ins there).
+   */
+  brain: z.object({
+    backend: z.enum(['openjarvis', 'roamies']),
+    /** Where OpenJarvis's server runs (`jarvis serve`). This computer or the local network only. */
+    openjarvisUrl: z
+      .string()
+      .url()
+      .refine((u) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|[a-z0-9-]+\.(local|lan))(:\d+)?\/?$/i.test(u), 'must be this computer or your local network'),
+    /** Model OpenJarvis should use; empty = OpenJarvis's own default. */
+    model: z.string().max(160),
+    /** Never use a cloud model, cloud voice or cloud transcription — nothing billed, no usage limits. */
+    localOnly: z.boolean(),
+  }),
   /** Semantic memory search with the built-in local model. */
   embeddings: z.object({
     enabled: z.boolean(),
@@ -96,17 +112,17 @@ export const SettingsSchema = z.object({
     pitch: z.number().min(0).max(2),
     lang: z.string().max(20),
     wakeWord: z.boolean(),
-    /** How Jarvis speaks: browser = the computer's built-in voice; fish = Fish Audio (needs a key). */
+    /** How Jarvis speaks: local = Kokoro through OpenJarvis (offline); browser = the computer's built-in voice; fish = Fish Audio (cloud, needs a key). */
     tts: z.object({
-      provider: z.enum(['browser', 'fish']),
-      /** Fish Audio voice/reference id; empty = the account default. */
+      provider: z.enum(['local', 'browser', 'fish']),
+      /** Kokoro voice (local, e.g. bm_george) or Fish Audio reference id; empty = the default. */
       voiceId: z.string().max(120),
     }),
     /** auto: browser speech recognition where it works, otherwise recorded audio + transcription. */
     inputMode: z.enum(['auto', 'browser', 'transcription']),
     /** openai = the OpenAI API key saved in Roamies; custom = a Whisper-compatible server (e.g. local). */
     transcription: z.object({
-      service: z.enum(['none', 'openai', 'custom']),
+      service: z.enum(['none', 'openjarvis', 'openai', 'custom']),
       baseUrl: z.string().url().or(z.literal('')),
       model: z.string().min(1).max(120),
     }),
@@ -199,6 +215,24 @@ export const SettingsSchema = z.object({
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
+/** The brain a fresh install starts with: OpenJarvis (fully local). */
+export const BRAIN_DEFAULT: 'openjarvis' | 'roamies' = 'openjarvis';
+
+/**
+ * JARVIS_BRAIN=roamies (read when settings load, not at import) starts a fresh install on the Roamies
+ * engine instead — for existing Roamies setups and the test suite's scripted model.
+ */
+function roamiesDefaults(): Partial<Settings> {
+  return {
+    brain: { backend: 'roamies', openjarvisUrl: 'http://127.0.0.1:8000', model: '', localOnly: false },
+    voice: { ...DEFAULT_SETTINGS.voice, transcription: { service: 'openai', baseUrl: '', model: 'whisper-1' }, tts: { provider: 'browser', voiceId: '' } },
+  };
+}
+
+export function defaultSettings(env: NodeJS.ProcessEnv = process.env): Settings {
+  return env.JARVIS_BRAIN === 'roamies' ? deepMerge(DEFAULT_SETTINGS, roamiesDefaults()) : DEFAULT_SETTINGS;
+}
+
 export const DEFAULT_SETTINGS: Settings = {
   assistant: { userName: '' },
   llm: {
@@ -227,6 +261,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   tasks: { stepTimeoutSec: 120, maxAttempts: 2 },
   permissions: { policies: {}, followRequests: true, fullAccess: false },
+  brain: { backend: BRAIN_DEFAULT, openjarvisUrl: 'http://127.0.0.1:8000', model: '', localOnly: true },
   computerAccess: { enabled: false, level: 'observe', screenshotRetentionMin: 0, browserEndpoint: 'http://127.0.0.1:9222', watchIntervalSec: 4 },
   voice: {
     enabled: true,
@@ -237,8 +272,8 @@ export const DEFAULT_SETTINGS: Settings = {
     lang: 'en-US',
     wakeWord: true,
     inputMode: 'auto',
-    transcription: { service: 'openai', baseUrl: '', model: 'whisper-1' },
-    tts: { provider: 'browser', voiceId: '' },
+    transcription: { service: 'openjarvis', baseUrl: '', model: 'whisper-1' },
+    tts: { provider: 'local', voiceId: 'bm_george' },
   },
   notifications: { desktop: true, taskCompletion: true },
   agents: { enabled: true, spendUsd: 0, offensive: false, autoSubmit: false, autoHunt: false },
@@ -300,10 +335,10 @@ export class SettingsStore {
     if (this.cache) return this.cache;
     const row = this.db.get<{ value: string }>("SELECT value FROM settings WHERE key = 'settings'");
     const stored = parseJson<unknown>(row?.value, {});
-    const merged = deepMerge(DEFAULT_SETTINGS, stored);
+    const merged = deepMerge(defaultSettings(), stored);
     const parsed = SettingsSchema.safeParse(merged);
     // If stored settings became invalid (e.g. after an upgrade), fall back to defaults per field.
-    this.cache = parsed.success ? parsed.data : DEFAULT_SETTINGS;
+    this.cache = parsed.success ? parsed.data : defaultSettings();
     return this.cache;
   }
 
