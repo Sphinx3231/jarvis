@@ -51,7 +51,11 @@ if [ "$OLLAMA" = 1 ]; then
   have ollama || curl -fsSL https://ollama.com/install.sh | sh
   # One model loaded 24/7, never swapped; settings applied to the Ollama service.
   sudo mkdir -p /etc/systemd/system/ollama.service.d
-  { echo "[Service]"; jl env --format systemd; [ "$VULKAN" = 1 ] && echo "Environment=OLLAMA_VULKAN=1"; } | sudo tee /etc/systemd/system/ollama.service.d/jarvis.conf >/dev/null
+  {
+    echo "[Service]"
+    jl env --format systemd
+    if [ "$VULKAN" = 1 ]; then echo "Environment=OLLAMA_VULKAN=1"; fi
+  } | sudo tee /etc/systemd/system/ollama.service.d/jarvis.conf >/dev/null
   sudo systemctl daemon-reload && sudo systemctl enable --now ollama && sudo systemctl restart ollama
   for _ in $(seq 1 30); do curl -fs http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 1; done
   if [ "$MODELS" = 1 ]; then

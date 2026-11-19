@@ -45,10 +45,21 @@ jobs:
         env:
           JARVIS_SMOKE_TEST: '1'
           JARVIS_SMOKE_EXPECT: locked
+          JARVIS_BRAIN: roamies  # the Roamies brain without Roamies installed → the lock screen
           JARVIS_ROAMIES_PATH: ${{ runner.temp }}/no-roamies/Roamies.app
           JARVIS_GG_DIR: ${{ runner.temp }}/gg
           JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-smoke-locked
           JARVIS_VAULT_DIR: ${{ runner.temp }}/jarvis-smoke-vault-locked
+        timeout-minutes: 5
+      - name: Smoke test, local brain without Roamies (unlocked) (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a release/linux-unpacked/jarvis --no-sandbox
+        env:
+          JARVIS_SMOKE_TEST: '1'
+          JARVIS_ROAMIES_PATH: ${{ runner.temp }}/no-roamies/Roamies.app
+          JARVIS_GG_DIR: ${{ runner.temp }}/gg
+          JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-smoke-local
+          JARVIS_VAULT_DIR: ${{ runner.temp }}/jarvis-smoke-vault-local
         timeout-minutes: 5
       - name: Smoke test, with Roamies (Linux)
         if: runner.os == 'Linux'
@@ -68,6 +79,7 @@ jobs:
         env:
           JARVIS_SMOKE_TEST: '1'
           JARVIS_SMOKE_EXPECT: locked
+          JARVIS_BRAIN: roamies  # the Roamies brain without Roamies installed → the lock screen
           JARVIS_ROAMIES_PATH: ${{ runner.temp }}/no-roamies/Roamies.app
           JARVIS_GG_DIR: ${{ runner.temp }}/gg
           JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-smoke-locked
@@ -95,6 +107,7 @@ jobs:
         env:
           JARVIS_SMOKE_TEST: '1'
           JARVIS_SMOKE_EXPECT: locked
+          JARVIS_BRAIN: roamies  # the Roamies brain without Roamies installed → the lock screen
           JARVIS_ROAMIES_PATH: ${{ runner.temp }}\no-roamies\Roamies.app
           JARVIS_GG_DIR: ${{ runner.temp }}\gg
           JARVIS_DATA_DIR: ${{ runner.temp }}\jarvis-smoke-locked

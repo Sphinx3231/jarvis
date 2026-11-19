@@ -54,7 +54,7 @@ before(async () => {
   const args = [`--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--force-device-scale-factor=1', '--window-position=0,0', '--window-size=1280,900', `--app=${site.url}/app`];
   if (process.getuid?.() === 0) args.push('--no-sandbox');
   procs.push(spawn(CHROMIUM!, args, { stdio: 'ignore', env: { ...process.env, DISPLAY: DISP } }));
-  for (let i = 0; i < 80; i++) {
+  for (let i = 0; i < 200; i++) {
     if (await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.ok).catch(() => false)) break;
     await wait(150);
   }

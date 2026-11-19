@@ -43,7 +43,7 @@ const port = await freePort();
 const args = ['--headless=new', '--disable-gpu'];
 if (process.platform === 'linux' && process.getuid?.() === 0) args.push('--no-sandbox');
 const target = launchBrowser({ binary: chromium, profileDir: mkdtempSync(join(tmpdir(), 'jarvis-e2e-prof-')), port, extraArgs: args, url: `${site.url}/app` });
-for (let i = 0; i < 80 && !(await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.ok).catch(() => false)); i++) await new Promise((r) => setTimeout(r, 150));
+for (let i = 0; i < 200 && !(await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.ok).catch(() => false)); i++) await new Promise((r) => setTimeout(r, 150));
 
 const running = await startJarvis({ dataDir: join(dir, 'data'), port: 0, quiet: true });
 const call = async (method: string, path: string, body?: unknown) => {

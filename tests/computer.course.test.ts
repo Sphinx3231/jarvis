@@ -40,7 +40,7 @@ before(async () => {
   const args = ['--headless=new', '--disable-gpu', '--window-size=1200,900'];
   if (process.platform === 'linux' && process.getuid?.() === 0) args.push('--no-sandbox');
   pid = launchBrowser({ binary: CHROMIUM, profileDir: profile, port, extraArgs: args }).pid;
-  for (let i = 0; i < 80; i++) {
+  for (let i = 0; i < 200; i++) {
     if (await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.ok).catch(() => false)) break;
     await new Promise((r) => setTimeout(r, 150));
   }

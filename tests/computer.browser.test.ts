@@ -32,7 +32,7 @@ before(async () => {
   const args = ['--headless=new', '--disable-gpu', '--window-size=1200,900'];
   if (process.platform === 'linux' && process.getuid?.() === 0) args.push('--no-sandbox');
   pid = launchBrowser({ binary: CHROMIUM, profileDir: profile, port, extraArgs: args }).pid;
-  for (let i = 0; i < 80; i++) {
+  for (let i = 0; i < 200; i++) {
     try {
       const r = await fetch(`http://127.0.0.1:${port}/json/version`);
       if (r.ok) break;
