@@ -222,7 +222,7 @@ test('openjarvis REAL: local model uses a tool, Kokoro speaks, Whisper hears it 
       messages: [{ role: 'user', content: 'What is 17 times 23? Use the calculator tool.' }],
       tools: [{ spec: { name: 'calculator', description: 'Multiply two numbers a and b', inputSchema: { type: 'object', properties: { a: { type: 'number' }, b: { type: 'number' } }, required: ['a', 'b'] } }, execute: async (i) => ((called = i), { content: String(Number(i.a) * Number(i.b)) }) }],
     });
-    assert.deepEqual(called, { a: 17, b: 23 });
+    assert.deepEqual(called, { a: 17, b: 23 }, `the local model did not call the tool; it replied: ${JSON.stringify(r.text.slice(0, 300))}`);
     assert.match(r.text, /391/);
     const wav = await app.llm.openJarvis().synthesize('Remember that my new computer is a mini PC.', { voiceId: 'bm_george' });
     assert.ok(wav.audio.length > 10_000, 'Kokoro produced audio');

@@ -24,7 +24,8 @@ jobs:
     timeout-minutes: 60
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
-      TEST_MODEL: qwen3:1.7b
+      # qwen3:4b: small enough for a runner, reliable at calling tools (1.7B sometimes answers directly).
+      TEST_MODEL: qwen3:4b
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -38,7 +39,10 @@ jobs:
         run: |
           powershell -ExecutionPolicy Bypass -File scripts\local-setup\setup-windows.ps1 -HardwareProfile small -SkipModels
           if (-not (Get-ScheduledTask -TaskName 'Jarvis Brain' -ErrorAction SilentlyContinue)) { throw 'Jarvis Brain task was not registered' }
+          # The setup ran in a child PowerShell: pick up the PATH it changed (Ollama, uv).
+          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User') + ";$env:LOCALAPPDATA\Programs\Ollama"
           ollama pull $env:TEST_MODEL
+          for ($i = 0; $i -lt 60; $i++) { try { Invoke-RestMethod 'http://127.0.0.1:8000/health' -TimeoutSec 2 | Out-Null; break } catch { Start-Sleep 3 } }
 
       - name: Local setup (Linux)
         if: runner.os == 'Linux'

@@ -193,6 +193,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     audioCtx.createMediaStreamSource(stream).connect(analyser);
     const samples = new Float32Array(analyser.fftSize);
     let heardSpeech = false;
+    let cancelled = false;
     const started = Date.now();
     let lastLoud = started;
     const done = new Promise<void>((resolve) => (recorder.onstop = () => resolve()));
@@ -208,7 +209,11 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
         heardSpeech = true;
         lastLoud = now;
       }
-      if (opts.shouldStop?.()) finish();
+      if (opts.shouldStop?.()) {
+        // Interrupted (e.g. the mic button was pressed): this recording is discarded, never uploaded.
+        cancelled = true;
+        finish();
+      }
       if ((heardSpeech && now - lastLoud > (opts.wake ? 900 : 1500)) || (!heardSpeech && now - started > (opts.waitMs ?? 8000)) || now - started > (opts.maxMs ?? 60_000)) finish();
     }, 100);
     recorder.start(250);
@@ -225,8 +230,8 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
       listeningRef.current = false;
       setListening(false);
     }
-    // Nothing was said: don't send silence anywhere.
-    if (!heardSpeech || !chunks.length) return '';
+    // Nothing was said (or the recording was interrupted): don't send it anywhere.
+    if (!heardSpeech || !chunks.length || cancelled) return '';
     if (!opts.wake) setTranscribing(true);
     try {
       const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
@@ -347,7 +352,9 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     speakingRef.current = speaking;
   }, [speaking]);
   useEffect(() => {
-    const enabled = Boolean(voiceSettings?.enabled && voiceSettings.wakeWord && inputMethod === 'transcription' && voiceSupport.recording);
+    // Only with Whisper on this computer (OpenJarvis): a wake word over any other transcription service
+    // would stream every burst of speech in the room to it.
+    const enabled = Boolean(voiceSettings?.enabled && voiceSettings.wakeWord && inputMethod === 'transcription' && voiceSettings.transcription?.service === 'openjarvis' && voiceSupport.recording);
     if (!enabled) return;
     let stopped = false;
     setWakeActive(true);
@@ -375,7 +382,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
       stopped = true;
       setWakeActive(false);
     };
-  }, [voiceSettings?.enabled, voiceSettings?.wakeWord, inputMethod, recordOnce]);
+  }, [voiceSettings?.enabled, voiceSettings?.wakeWord, voiceSettings?.transcription?.service, inputMethod, recordOnce]);
 
   const setWakeHandler = useCallback((fn: ((command: string) => void) | null) => {
     wakeHandler.current = fn;

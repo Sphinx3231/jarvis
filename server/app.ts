@@ -384,7 +384,7 @@ export class JarvisApp {
     this.engine.start();
     this.scheduler.start();
     const model = this.llm.status();
-    this.activity.log('info', 'system', `Jarvis ${VERSION} started on Roamies${model.model ? ` — thinking with ${model.model.name}` : ''}`);
+    this.activity.log('info', 'system', `Jarvis ${VERSION} started on ${this.settings.get().brain.backend === 'openjarvis' ? 'OpenJarvis (local)' : 'Roamies'}${model.model ? ` — thinking with ${model.model.name}` : ''}`);
     this.subAgents.start();
     // Create or update Jarvis's vault shortly after start.
     this.obsidian.schedule(1500)

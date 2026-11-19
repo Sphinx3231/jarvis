@@ -119,13 +119,14 @@ if (-not $NoServices) {
   # At logon (in your session) - Jarvis needs your desktop for the microphone, voice and Computer Access.
   $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
   foreach ($t in @(@{ Name = 'Jarvis Brain'; Cmd = $BrainCmd }, @{ Name = 'Jarvis'; Cmd = $AppCmd })) {
-    $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c $($t.Cmd)"
+    # Extra outer quotes: cmd /c strips the first and last quote when the command starts with one.
+    $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$($t.Cmd)`""
     Register-ScheduledTask -TaskName $t.Name -Action $action -Trigger $trigger -Settings $settings -Description 'Jarvis - fully local assistant' -Force | Out-Null
     Start-ScheduledTask -TaskName $t.Name
   }
 }
 else {
-  Start-Process -FilePath 'cmd.exe' -ArgumentList "/c $BrainCmd" -WindowStyle Hidden
+  Start-Process -FilePath 'cmd.exe' -ArgumentList "/c `"$BrainCmd`"" -WindowStyle Hidden
 }
 
 if ($KeepAwake) {
