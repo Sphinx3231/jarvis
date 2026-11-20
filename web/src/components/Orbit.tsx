@@ -75,6 +75,9 @@ export interface Telemetry {
   startedAt: number | null;
   platform: string | null;
   version: string | null;
+  /** The model Jarvis thinks with (null = none configured). */
+  brain: string | null;
+  brainVia: string | null;
 }
 
 const PLATFORM: Record<string, string> = { linux: 'LINUX', win32: 'WINDOWS', darwin: 'MACOS' };
@@ -93,11 +96,11 @@ function StageTelemetry({ t, state }: { t: Telemetry; state: CoreState }) {
   return (
     <>
       <div className="tele tele--tl">
-        <span className="tele__k">LOCAL</span>
-        <span className="tele__v">
-          {two(d.getHours())}:{two(d.getMinutes())}:{two(d.getSeconds())}
+        <span className="tele__k">BRAIN</span>
+        <span className={`tele__v ${t.brain ? '' : 'is-off'}`} title={t.brain ?? 'No model configured'}>
+          {t.brain ? t.brain.toUpperCase().slice(0, 22) : 'NO MODEL'}
         </span>
-        <span className="tele__s">{d.toLocaleDateString('en-US', { weekday: 'short', day: '2-digit', month: 'short' }).toUpperCase()}</span>
+        <span className="tele__s">{t.brain ? `VIA ${(t.brainVia ?? '').toUpperCase()}` : 'NOT SET'}</span>
       </div>
       <div className="tele tele--tr">
         <span className="tele__k">UPTIME</span>

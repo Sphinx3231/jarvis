@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ArrowRight, Brain, ChevronRight, CircleCheck, Clock, Cpu, Globe, Keyboard, ListChecks, Maximize2, MemoryStick, MessageSquarePlus, Mic, Play, SendHorizontal, Sparkles, Square, SquareTerminal, FolderOpen, Network, TriangleAlert, Volume2, Wrench, Zap, BookmarkPlus } from 'lucide-react';
+import { ArrowRight, Brain, ChevronRight, ListTodo, CircleCheck, Clock, Cpu, Globe, Keyboard, ListChecks, Maximize2, MemoryStick, MessageSquarePlus, Mic, Play, SendHorizontal, Sparkles, Square, SquareTerminal, FolderOpen, Network, TriangleAlert, Volume2, Wrench, Zap, BookmarkPlus } from 'lucide-react';
 import { ApprovalsCard } from '../components/Approvals';
 import { Core, CORE_LABEL, type OrbAgent } from '../components/Core';
 import { AgentDetail, agentIcon, agentStatus, OrbitStage } from '../components/Orbit';
 import { Sparkline } from '../components/Sparkline';
+import { ArcReactor, HudClock, RingGauge } from '../components/Hud';
 import { Progress } from '../components/ui';
 import { api, type ActivityEntry, type AgentsResponse, type ChatMessage, type ChatResult, type CoreState, type StatusResponse, type Task } from '../lib/api';
 import { bytes, clock, timeAgo, uptime } from '../lib/format';
@@ -230,27 +231,22 @@ function Panel({ title, icon, action, children, className = '' }: { title: strin
 
 function SystemPanel({ m }: { m: MetricsHistory }) {
   const l = m.latest;
-  const rows: Array<{ id: string; label: string; icon: ReactNode; value: string; sub: string; values: number[]; max?: number; tone: string }> = [
-    { id: 'cpu', label: 'CPU', icon: <Cpu size={14} />, value: l ? `${Math.round(l.cpuPercent)}%` : '—', sub: l ? `${l.cores} threads` : '', values: m.cpu, max: 100, tone: l && l.cpuPercent > 90 ? 'bad' : 'ok' },
-    { id: 'mem', label: 'Memory', icon: <MemoryStick size={14} />, value: l ? `${Math.round(l.memUsedPercent)}%` : '—', sub: l ? `${bytes(l.memUsedBytes)} of ${bytes(l.memTotalBytes)}` : '', values: m.mem, max: 100, tone: l && l.memUsedPercent > 92 ? 'bad' : 'ok' },
-    { id: 'rss', label: 'Jarvis', icon: <Zap size={14} />, value: l ? bytes(l.rssBytes) : '—', sub: 'harness RAM', values: m.rss.map((b) => b / 1048576), tone: 'ok' },
-  ];
   return (
     <Panel title="System overview" icon={<Cpu size={15} />}>
-      <ul className="sysm">
-        {rows.map((r) => (
-          <li key={r.id} className={`sysm__row sysm__row--${r.id} is-${r.tone}`}>
-            <div className="sysm__text">
-              <span className="sysm__label">
-                {r.icon} {r.label}
-              </span>
-              <span className="sysm__value">{r.value}</span>
-              <span className="sysm__sub">{r.sub}</span>
-            </div>
-            <Sparkline values={r.values} max={r.max} label={r.label} width={112} height={38} />
-          </li>
-        ))}
-      </ul>
+      <div className="sysm__rings">
+        <RingGauge value={l ? l.cpuPercent / 100 : null} label="CPU" display={l ? `${Math.round(l.cpuPercent)}%` : '—'} sub={l ? `${l.cores} threads` : ''} tone={l && l.cpuPercent > 90 ? '#f87171' : '#a78bfa'} />
+        <RingGauge value={l ? l.memUsedPercent / 100 : null} label="MEMORY" display={l ? `${Math.round(l.memUsedPercent)}%` : '—'} sub={l ? `${bytes(l.memUsedBytes)} / ${bytes(l.memTotalBytes)}` : ''} tone={l && l.memUsedPercent > 92 ? '#f87171' : '#c084fc'} />
+      </div>
+      <div className="sysm__row sysm__row--rss">
+        <div className="sysm__text">
+          <span className="sysm__label">
+            <Zap size={14} /> Jarvis
+          </span>
+          <span className="sysm__value sysm__value--sm">{l ? bytes(l.rssBytes) : '—'}</span>
+          <span className="sysm__sub">harness RAM</span>
+        </div>
+        <Sparkline values={m.rss.map((b) => b / 1048576)} label="Jarvis RAM" width={112} height={34} />
+      </div>
     </Panel>
   );
 }
@@ -419,9 +415,11 @@ function InsightsPanel({ status }: { status: StatusResponse | null }) {
   );
 }
 
-function QuickActions({ onDraft, onNewChat, onImmersive, agents, hasConversation }: { onDraft: (text: string, caret?: number) => void; onNewChat: () => void; onImmersive: () => void; agents: AgentsResponse | null; hasConversation: boolean }) {
+/** The radial launcher: real actions in a ring around the arc reactor (hover shows the name). */
+function Launcher({ onDraft, onNewChat, onImmersive, agents, hasConversation }: { onDraft: (text: string, caret?: number) => void; onNewChat: () => void; onImmersive: () => void; agents: AgentsResponse | null; hasConversation: boolean }) {
   const act = useAction();
   const [running, setRunning] = useState(false);
+  const [hover, setHover] = useState<string | null>(null);
   const runAll = async () => {
     if (!agents) return;
     setRunning(true);
@@ -431,24 +429,52 @@ function QuickActions({ onDraft, onNewChat, onImmersive, agents, hasConversation
     setRunning(false);
   };
   const items: Array<{ id: string; label: string; icon: ReactNode; run: () => void; disabled?: boolean; title: string }> = [
-    { id: 'cmd', label: 'Run command', icon: <SquareTerminal size={16} />, run: () => onDraft('run ``', 5), title: 'Run a shell command (you type it)' },
-    { id: 'web', label: 'Search web', icon: <Globe size={16} />, run: () => onDraft('Search the web for '), title: 'Ask Jarvis to search the web' },
-    { id: 'files', label: 'Browse files', icon: <FolderOpen size={16} />, run: () => onDraft('list files'), title: 'List the files in your workspace' },
-    { id: 'remember', label: 'Remember', icon: <BookmarkPlus size={16} />, run: () => onDraft('remember that '), title: 'Tell Jarvis something to remember' },
-    { id: 'agents', label: running ? 'Running…' : 'Run agents', icon: <Play size={16} />, run: () => void runAll(), disabled: running || !agents, title: 'Run all six agents now' },
+    { id: 'cmd', label: 'Run command', icon: <SquareTerminal size={18} />, run: () => onDraft('run ``', 5), title: 'Run a shell command (you type it)' },
+    { id: 'web', label: 'Search web', icon: <Globe size={18} />, run: () => onDraft('Search the web for '), title: 'Ask Jarvis to search the web' },
+    { id: 'files', label: 'Browse files', icon: <FolderOpen size={18} />, run: () => onDraft('list files'), title: 'List the files in your workspace' },
+    { id: 'remember', label: 'Remember', icon: <BookmarkPlus size={18} />, run: () => onDraft('remember that '), title: 'Tell Jarvis something to remember' },
+    { id: 'agents', label: running ? 'Running…' : 'Run agents', icon: <Play size={18} />, run: () => void runAll(), disabled: running || !agents, title: 'Run all six agents now' },
+    { id: 'tasks', label: 'Tasks', icon: <ListTodo size={18} />, run: () => navigate({ page: 'tasks' }), title: 'Open Tasks' },
+    { id: 'memory', label: 'Memory', icon: <Brain size={18} />, run: () => navigate({ page: 'memory' }), title: 'Open Memory' },
     hasConversation
-      ? { id: 'new', label: 'New chat', icon: <MessageSquarePlus size={16} />, run: onNewChat, title: 'Start a new conversation' }
-      : { id: 'immersive', label: 'Immersive', icon: <Maximize2 size={16} />, run: onImmersive, title: 'Make Jarvis the whole screen (\\)' },
+      ? { id: 'new', label: 'New chat', icon: <MessageSquarePlus size={18} />, run: onNewChat, title: 'Start a new conversation' }
+      : { id: 'immersive', label: 'Immersive', icon: <Maximize2 size={18} />, run: onImmersive, title: 'Make Jarvis the whole screen (\\)' },
   ];
+  const label = items.find((i) => i.id === hover)?.label;
   return (
-    <Panel title="Quick actions" icon={<Zap size={15} />}>
-      <div className="qa">
-        {items.map((q) => (
-          <button key={q.id} className="qa__btn" onClick={q.run} disabled={q.disabled} title={q.title}>
-            {q.icon}
-            <span>{q.label}</span>
-          </button>
-        ))}
+    <Panel title="Quick launch" icon={<Zap size={15} />}>
+      <div className="launcher">
+        <svg className="launcher__rings" viewBox="0 0 100 100" aria-hidden>
+          <circle cx="50" cy="50" r="48" className="launcher__ring launcher__ring--outer" />
+          <circle cx="50" cy="50" r="38" className="launcher__ring launcher__ring--track" />
+          <circle cx="50" cy="50" r="27" className="launcher__ring launcher__ring--inner" />
+        </svg>
+        <div className="launcher__center">
+          <ArcReactor size="100%" className="launcher__reactor" />
+        </div>
+        <div className={`launcher__label ${label ? 'is-on' : ''}`} aria-hidden>
+          {label ?? ''}
+        </div>
+        {items.map((q, i) => {
+          const a = (i / items.length) * Math.PI * 2 - Math.PI / 2;
+          return (
+            <button
+              key={q.id}
+              className="launcher__btn"
+              style={{ left: `${50 + 38 * Math.cos(a)}%`, top: `${50 + 38 * Math.sin(a)}%` }}
+              onClick={q.run}
+              disabled={q.disabled}
+              title={q.title}
+              aria-label={q.label}
+              onMouseEnter={() => setHover(q.id)}
+              onMouseLeave={() => setHover((h) => (h === q.id ? null : h))}
+              onFocus={() => setHover(q.id)}
+              onBlur={() => setHover((h) => (h === q.id ? null : h))}
+            >
+              {q.icon}
+            </button>
+          );
+        })}
       </div>
     </Panel>
   );
@@ -531,6 +557,9 @@ export function HomePage({ status, onImmersive }: { status: StatusResponse | nul
   return (
     <div className={`dash ${hasConversation ? 'dash--chat' : ''}`}>
       <aside className="dash__col dash__left" aria-label="System">
+        <section className="hud hud--clock">
+          <HudClock />
+        </section>
         <SystemPanel m={metrics} />
         <TasksPanel />
         <ActivityPanel />
@@ -582,6 +611,8 @@ export function HomePage({ status, onImmersive }: { status: StatusResponse | nul
               startedAt: status?.status.startedAt ?? null,
               platform: status?.status.host.platform ?? null,
               version: status?.status.version ?? null,
+              brainVia: status?.status.model?.provider ?? null,
+              brain: status?.status.model ? (status.status.model.healthy === false ? 'UNREACHABLE' : status.status.model.model) : null,
             }}
           />
         )}
@@ -591,7 +622,7 @@ export function HomePage({ status, onImmersive }: { status: StatusResponse | nul
       <aside className="dash__col dash__right" aria-label="Jarvis status">
         <CorePanel status={status} coreState={coreState} detail={statusLine} agents={agents} />
         <ApprovalsCard compact hideWhenEmpty />
-        <QuickActions onDraft={onDraft} onNewChat={newConversation} onImmersive={onImmersive} agents={agents} hasConversation={hasConversation} />
+        <Launcher onDraft={onDraft} onNewChat={newConversation} onImmersive={onImmersive} agents={agents} hasConversation={hasConversation} />
         <AgentsPanel agents={agents} onSelect={setSelected} />
         <InsightsPanel status={status} />
       </aside>

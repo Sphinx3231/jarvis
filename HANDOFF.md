@@ -106,6 +106,13 @@ built web UI and a JSON+SSE API on localhost. The UI is token-gated to that loca
     - a radar sweep, shown only while background monitoring is on;
     - telemetry corners (local clock, uptime, host and threads, monitor state and version);
     - a data plate under each agent (runs, last run).
+  - **Dials** (`components/Hud.tsx`, inspired by a JARVIS phone launcher):
+    - the arc-reactor emblem (header and launcher centre);
+    - the clock dial, with real power status from the Battery Status API, hidden when unavailable;
+    - segmented ring gauges for CPU and memory;
+    - the radial **Quick launch** ring of real actions, with the hovered name shown in the centre.
+
+    The stage's top-left corner shows the brain (model and provider) instead of a second clock.
   - **Type:** Rajdhani (`@fontsource/rajdhani`, bundled latin subsets) for labels, numbers and
     names; monospace for micro-readouts; Inter for body text.
 - **Environment** (`components/Backdrop.tsx`): fixed behind the app. Light sources, a masked
