@@ -1,0 +1,35 @@
+{
+  "note": "TEST-ONLY keys. Shared by Node and the Android client to keep the crypto identical.",
+  "pc": {
+    "signPriv": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgKGWh3XLOo41iBdDmPrd+zTpFEcyF4RlkeaTKYrLZsr+hRANCAAQd/gmRyn/xAxpwvboPPb8Dim7MJYzJ7eFGdLuzV/Ibaq2NWZZ2kLd1WFBIZn4PYZCa911AGdQb5cRYIrgIp1DA",
+    "signPub": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEHf4Jkcp/8QMacL26Dz2/A4puzCWMye3hRnS7s1fyG2qtjVmWdpC3dVhQSGZ+D2GQmvddQBnUG+XEWCK4CKdQwA==",
+    "agreePriv": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgifMacbhY/8QVIcHHo8mOWLNeCkvI75eg6g8y+xM7OyqhRANCAASj9KBrCKqpTvOn6QDojFTisPYOei7azDbFN/pL9tGkFhnH/DPsDOJqZt87lQiRZlH0EAhf4xIc07eRicHJ93Dl",
+    "agreePub": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEo/SgawiqqU7zp+kA6IxU4rD2Dnou2sw2xTf6S/bRpBYZx/wz7AziambfO5UIkWZR9BAIX+MSHNO3kYnByfdw5Q==",
+    "deviceId": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1"
+  },
+  "phone": {
+    "signPriv": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg7K5+ecWe2T5HflPhfvxsedXnsYq5QR2fVOki8cQVR36hRANCAARFsY97vUdsg2a41N4gK1nWefDSzP9SNRM2fCrleDUKl446dfjSrbZCR9ZCX81ZjKElfI6UYCGYQAsDA8JGKERJ",
+    "signPub": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERbGPe71HbINmuNTeICtZ1nnw0sz/UjUTNnwq5Xg1CpeOOnX40q22QkfWQl/NWYyhJXyOlGAhmEALAwPCRihESQ==",
+    "agreePriv": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgs3eOHFvdER0/FqYu81kJlATAv9zdpGw/NWzb0V7dqRChRANCAASFoyg90dXUjPtXPYWpUSj2mwKGEH2cHbtAj8jBGohIfofi9tOFjtfY5Yali+QJYv/4iIFKEMSE/GgVg6dLB262",
+    "agreePub": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhaMoPdHV1Iz7Vz2FqVEo9psChhB9nB27QI/IwRqISH6H4vbThY7X2OWGpYvkCWL/+IiBShDEhPxoFYOnSwdutg==",
+    "deviceId": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87"
+  },
+  "relayAuth": {
+    "nonce": "bm9uY2UtZml4dHVyZQ",
+    "message": "jarvis-relay-auth-v1|bm9uY2UtZml4dHVyZQ|7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87"
+  },
+  "messageKeyPhoneToPc": "4e050d210e453d0498dd35261c67a2c3895e28b7248d9a2599fa1a2fe44fb405",
+  "messageKeyPcToPhone": "3bf890d47620757d357692134f960180e5d43164d2cfb19cdabd069e7f1a2d24",
+  "sealed": {
+    "nonceHex": "000102030405060708090a0b",
+    "aad": "jarvis-msg-v1|7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87|8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "plaintext": "{\"v\":1,\"id\":\"fx_00000007\",\"sessionId\":\"ses_fixture01\",\"from\":\"7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87\",\"to\":\"8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1\",\"ts\":1795000000000,\"type\":\"jarvis.command.submit\",\"payload\":{\"text\":\"remind me in 10 minutes to stretch\",\"conversationId\":null,\"via\":\"text\"},\"idempotencyKey\":\"idem_00000007\"}",
+    "sealedB64": "AAECAwQFBgcICQoLQd6c+X4btY8QQJ7fTyltv348O09AjA+6nfPQgu7WUkabqjaEoTXWScgcgV+tDjcGKYZ3pvL4tPcd3UkrR+DEdtXw1YMv5qj1PYrvZhcX0j/9Oz8iyb7PvI2MBejWBA4vRd6e9sfqHCP0qMqGgg5IgSeJ/jIAXtDJjgtIe4DkOO3CZe1ZcPNRcimWDH6eYHYBxli0RGbjTNyY1Eh+v/TP17RZEDqgsL1jIQS8qAXvSztOEKhSR6YeRHnOptjIyhNTJOj2ae/8k624LpCfsEfQPgkQmd+orb4+SxoTSjDreaPYZX8ynxur9RZ5v8WnxS5FvUA1tPiTghEFM3UrmW/X90sOnHLDtFgOwTMe9ntf/SYdvyzljrcOgZ5gGyFaD/OIiyDmpzt0CE43auoyMSN+PrivJL/DgfUCvj/+iqqo5bCRIwpHogUApxQfilK4AxZMR3KhwRwW8P7kKNS2vM7OaVBO8jz/h7m+GCCFHQ/+Aw/ODU9bqY3OUN7A55Nfp0zYNFTAnGw4"
+  },
+  "pairing": {
+    "secretB64": "WlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo=",
+    "room": "roomFixture1234567",
+    "keyHex": "3f8720c4b7c521298f31493d1b7072c5ee2f38ad5f7061aa579f2da43f7a2ea8",
+    "aad": "jarvis-pair-v1|roomFixture1234567|7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87"
+  }
+}

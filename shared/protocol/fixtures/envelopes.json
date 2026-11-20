@@ -1,0 +1,496 @@
+[
+  {
+    "v": 1,
+    "id": "fx_00000000",
+    "sessionId": "ses_fixture01",
+    "from": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "to": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "ts": 1795000000000,
+    "type": "device.pair.request",
+    "payload": {
+      "deviceName": "Pixel 9",
+      "platform": "android",
+      "appVersion": "0.1.0",
+      "pubSign": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERbGPe71HbINmuNTeICtZ1nnw0sz/UjUTNnwq5Xg1CpeOOnX40q22QkfWQl/NWYyhJXyOlGAhmEALAwPCRihESQ==",
+      "pubAgree": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhaMoPdHV1Iz7Vz2FqVEo9psChhB9nB27QI/IwRqISH6H4vbThY7X2OWGpYvkCWL/+IiBShDEhPxoFYOnSwdutg=="
+    }
+  },
+  {
+    "v": 1,
+    "id": "fx_00000001",
+    "sessionId": "ses_fixture01",
+    "from": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "to": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "ts": 1795000000000,
+    "type": "device.pair.confirm",
+    "payload": {
+      "pcDeviceId": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+      "pcName": "Mo's PC Jarvis",
+      "pubSign": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEHf4Jkcp/8QMacL26Dz2/A4puzCWMye3hRnS7s1fyG2qtjVmWdpC3dVhQSGZ+D2GQmvddQBnUG+XEWCK4CKdQwA==",
+      "pubAgree": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEo/SgawiqqU7zp+kA6IxU4rD2Dnou2sw2xTf6S/bRpBYZx/wz7AziambfO5UIkWZR9BAIX+MSHNO3kYnByfdw5Q==",
+      "scopes": [
+        "observe",
+        "command",
+        "approve",
+        "stop"
+      ],
+      "jarvisVersion": "1.0.0"
+    },
+    "correlationId": "fx_00000000"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000002",
+    "sessionId": "ses_fixture01",
+    "from": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "to": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "ts": 1795000000000,
+    "type": "device.pair.reject",
+    "payload": {
+      "reason": "Device identity does not match its key"
+    },
+    "correlationId": "fx_00000000"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000003",
+    "sessionId": "ses_fixture01",
+    "from": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "to": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "ts": 1795000000000,
+    "type": "device.status",
+    "payload": {
+      "online": true,
+      "name": "Mo's PC Jarvis",
+      "jarvisVersion": "1.0.0",
+      "brain": "qwen3:4b",
+      "scopes": [
+        "observe",
+        "command"
+      ]
+    },
+    "correlationId": "fx_00000000"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000004",
+    "sessionId": "ses_fixture01",
+    "from": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "to": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "ts": 1795000000000,
+    "type": "device.revoke",
+    "payload": {
+      "reason": "Revoked on the PC"
+    },
+    "correlationId": "fx_00000000"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000005",
+    "sessionId": "ses_fixture01",
+    "from": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "to": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "ts": 1795000000000,
+    "type": "pc.snapshot.request",
+    "payload": {}
+  },
+  {
+    "v": 1,
+    "id": "fx_00000006",
+    "sessionId": "ses_fixture01",
+    "from": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "to": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "ts": 1795000000000,
+    "type": "pc.snapshot",
+    "payload": {
+      "agents": [
+        {
+          "id": "neo",
+          "name": "Neo",
+          "color": "#15803d",
+          "role": "Monitor — watches tasks.",
+          "state": "idle",
+          "lastRunAt": 1795000000000,
+          "lastSummary": "Watching 0 task(s)",
+          "runs": 3,
+          "error": null
+        }
+      ],
+      "agentsEnabled": true,
+      "tasks": [
+        {
+          "id": "tsk_abc12345",
+          "title": "Run: echo hi",
+          "status": "running",
+          "progress": 0.5,
+          "createdAt": 1795000000000,
+          "updatedAt": 1795000000000,
+          "error": null,
+          "result": null
+        }
+      ],
+      "approvals": [
+        {
+          "id": "apr_abc12345",
+          "taskId": "tsk_abc12345",
+          "taskTitle": "Housekeeping",
+          "summary": "Run command: echo unrequested",
+          "reason": "Nobody asked for this task directly.",
+          "scope": "shell.execute",
+          "createdAt": 1795000000000
+        }
+      ],
+      "assistantState": "idle",
+      "assistantDetail": "Ready"
+    },
+    "correlationId": "fx_00000000"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000007",
+    "sessionId": "ses_fixture01",
+    "from": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "to": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "ts": 1795000000000,
+    "type": "jarvis.command.submit",
+    "payload": {
+      "text": "remind me in 10 minutes to stretch",
+      "conversationId": null,
+      "via": "text"
+    },
+    "idempotencyKey": "idem_00000007"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000008",
+    "sessionId": "ses_fixture01",
+    "from": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "to": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "ts": 1795000000000,
+    "type": "jarvis.command.accepted",
+    "payload": {
+      "conversationId": null
+    },
+    "correlationId": "fx_00000000"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000009",
+    "sessionId": "ses_fixture01",
+    "from": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "to": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "ts": 1795000000000,
+    "type": "jarvis.command.rejected",
+    "payload": {
+      "code": "unauthorized",
+      "reason": "This phone is not allowed to command"
+    },
+    "correlationId": "fx_00000000"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000010",
+    "sessionId": "ses_fixture01",
+    "from": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "to": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "ts": 1795000000000,
+    "type": "jarvis.response.delta",
+    "payload": {
+      "text": "Partial"
+    },
+    "correlationId": "fx_00000000"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000011",
+    "sessionId": "ses_fixture01",
+    "from": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "to": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "ts": 1795000000000,
+    "type": "jarvis.response.complete",
+    "payload": {
+      "conversationId": "cnv_abc12345",
+      "text": "Queued task “Stretch”.",
+      "handledBy": "rules",
+      "actions": [
+        {
+          "type": "task_created",
+          "title": "Stretch",
+          "taskId": "tsk_abc12345",
+          "needsApproval": false
+        }
+      ],
+      "error": null
+    },
+    "correlationId": "fx_00000000"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000012",
+    "sessionId": "ses_fixture01",
+    "from": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "to": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "ts": 1795000000000,
+    "type": "agent.status.changed",
+    "payload": {
+      "agents": [
+        {
+          "id": "echo",
+          "name": "Echo",
+          "color": "#a855f7",
+          "role": "Reporter",
+          "state": "working",
+          "lastRunAt": null,
+          "lastSummary": "",
+          "runs": 0,
+          "error": null
+        }
+      ],
+      "agentsEnabled": true
+    },
+    "correlationId": "fx_00000000"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000013",
+    "sessionId": "ses_fixture01",
+    "from": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "to": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "ts": 1795000000000,
+    "type": "agent.run",
+    "payload": {
+      "agentId": "trinity"
+    },
+    "idempotencyKey": "idem_00000013"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000014",
+    "sessionId": "ses_fixture01",
+    "from": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "to": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "ts": 1795000000000,
+    "type": "task.created",
+    "payload": {
+      "task": {
+        "id": "tsk_abc12345",
+        "title": "Stretch",
+        "status": "queued",
+        "progress": 0,
+        "createdAt": 1795000000000,
+        "updatedAt": 1795000000000,
+        "error": null,
+        "result": null
+      }
+    },
+    "correlationId": "fx_00000000"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000015",
+    "sessionId": "ses_fixture01",
+    "from": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "to": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "ts": 1795000000000,
+    "type": "task.progress",
+    "payload": {
+      "task": {
+        "id": "tsk_abc12345",
+        "title": "Stretch",
+        "status": "running",
+        "progress": 0.5,
+        "createdAt": 1795000000000,
+        "updatedAt": 1795000000000,
+        "error": null,
+        "result": null
+      }
+    },
+    "correlationId": "fx_00000000"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000016",
+    "sessionId": "ses_fixture01",
+    "from": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "to": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "ts": 1795000000000,
+    "type": "task.completed",
+    "payload": {
+      "task": {
+        "id": "tsk_abc12345",
+        "title": "Stretch",
+        "status": "completed",
+        "progress": 1,
+        "createdAt": 1795000000000,
+        "updatedAt": 1795000000000,
+        "error": null,
+        "result": "Done"
+      }
+    },
+    "correlationId": "fx_00000000"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000017",
+    "sessionId": "ses_fixture01",
+    "from": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "to": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "ts": 1795000000000,
+    "type": "task.failed",
+    "payload": {
+      "task": {
+        "id": "tsk_abc12345",
+        "title": "Stretch",
+        "status": "failed",
+        "progress": 0.2,
+        "createdAt": 1795000000000,
+        "updatedAt": 1795000000000,
+        "error": "Timed out",
+        "result": null
+      }
+    },
+    "correlationId": "fx_00000000"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000018",
+    "sessionId": "ses_fixture01",
+    "from": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "to": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "ts": 1795000000000,
+    "type": "task.cancel",
+    "payload": {
+      "taskId": "tsk_abc12345"
+    },
+    "idempotencyKey": "idem_00000018"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000019",
+    "sessionId": "ses_fixture01",
+    "from": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "to": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "ts": 1795000000000,
+    "type": "approval.requested",
+    "payload": {
+      "approval": {
+        "id": "apr_abc12345",
+        "taskId": "tsk_abc12345",
+        "taskTitle": "Housekeeping",
+        "summary": "Run command",
+        "reason": null,
+        "scope": "shell.execute",
+        "createdAt": 1795000000000
+      }
+    },
+    "correlationId": "fx_00000000"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000020",
+    "sessionId": "ses_fixture01",
+    "from": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "to": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "ts": 1795000000000,
+    "type": "approval.resolve",
+    "payload": {
+      "approvalId": "apr_abc12345",
+      "decision": "approve"
+    },
+    "idempotencyKey": "idem_00000020"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000021",
+    "sessionId": "ses_fixture01",
+    "from": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "to": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "ts": 1795000000000,
+    "type": "approval.resolved",
+    "payload": {
+      "approvalId": "apr_abc12345",
+      "status": "approved"
+    },
+    "correlationId": "fx_00000000"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000022",
+    "sessionId": "ses_fixture01",
+    "from": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "to": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "ts": 1795000000000,
+    "type": "voice.session.started",
+    "payload": {
+      "via": "phone_stt"
+    }
+  },
+  {
+    "v": 1,
+    "id": "fx_00000023",
+    "sessionId": "ses_fixture01",
+    "from": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "to": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "ts": 1795000000000,
+    "type": "voice.transcript",
+    "payload": {
+      "text": "what is on my list today",
+      "conversationId": null,
+      "final": true
+    },
+    "idempotencyKey": "idem_00000023"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000024",
+    "sessionId": "ses_fixture01",
+    "from": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "to": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "ts": 1795000000000,
+    "type": "system.emergency_stop",
+    "payload": {
+      "reason": "Pressed STOP on the phone"
+    },
+    "idempotencyKey": "idem_00000024"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000025",
+    "sessionId": "ses_fixture01",
+    "from": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "to": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "ts": 1795000000000,
+    "type": "system.stopped",
+    "payload": {
+      "cancelledTasks": 2,
+      "computerAccessStopped": true
+    },
+    "correlationId": "fx_00000000"
+  },
+  {
+    "v": 1,
+    "id": "fx_00000026",
+    "sessionId": "ses_fixture01",
+    "from": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "to": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "ts": 1795000000000,
+    "type": "connection.heartbeat",
+    "payload": {
+      "seq": 7
+    }
+  },
+  {
+    "v": 1,
+    "id": "fx_00000027",
+    "sessionId": "ses_fixture01",
+    "from": "8728c3e668ed2fae600ac2b92176b63400da799cfcbab164b2679fdc77a68cf1",
+    "to": "7791d9d6b9cffded98c3cf127e3ef01d11e107dd958db203ebec3157c3cd5c87",
+    "ts": 1795000000000,
+    "type": "error",
+    "payload": {
+      "code": "failed",
+      "message": "Something went wrong"
+    },
+    "correlationId": "fx_00000000"
+  }
+]
