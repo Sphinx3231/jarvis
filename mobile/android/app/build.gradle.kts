@@ -27,8 +27,8 @@ android {
         // Android 12+: hardware-backed key agreement (KeyProperties.PURPOSE_AGREE_KEY) for E2E pairing.
         minSdk = 31
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.3.1"
         // The on-device model runtime (LiteRT-LM) ships native code for 64-bit ARM (every Android 12+ phone).
         ndk { abiFilters += listOf("arm64-v8a") }
         // On-device model bundled into the APK (see mobile/scripts/fetch-model.sh). Only with

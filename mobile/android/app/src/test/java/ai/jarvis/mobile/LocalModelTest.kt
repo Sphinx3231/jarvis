@@ -314,6 +314,43 @@ class LocalModelTest {
         }
     }
 
+    @Test fun gpuThatFailsAtFirstMessageFallsBackToCpuAndIsRemembered() = runBlocking {
+        val dir = File(ctx.cacheDir, "gpu-test").apply { deleteRecursively(); mkdirs() }
+        val bytes = "m".toByteArray()
+        val sha = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        val spec = LocalModels.GEMMA4_E2B.copy(sha256 = sha, sizeBytes = 1)
+        File(dir, spec.file).writeBytes(bytes)
+        val store = LocalModelStore(spec, { null }, dir, File(dir, spec.file))
+        val opened = mutableListOf<String>()
+        var remembered: String? = null
+        val memory = ai.jarvis.mobile.runtime.local.GpuMemory({ remembered }, { remembered = it })
+        // TEST DOUBLE runners: the GPU one starts fine but fails on the first message, like the phone did.
+        fun runner(gpu: Boolean) = object : ai.jarvis.mobile.runtime.local.ModelRunner {
+            override fun send(request: ModelRequest): ModelResponse =
+                if (gpu) throw IllegalStateException("Failed to call nativeSendMessage: UNKNOWN:\n\nUNKNOWN: Can not find OpenCL library on this device")
+                else ModelResponse("Hello from the CPU", emptyList(), "end_turn")
+            override fun close() {}
+        }
+        val p = ai.jarvis.mobile.runtime.local.OnDeviceProvider({ store }, { _, gpu -> opened += if (gpu) "GPU" else "CPU"; runner(gpu) }, memory)
+        val req = ModelRequest("sys", listOf(Turn.User("hi")), emptyList())
+        assertEquals("Hello from the CPU", p.complete(req).text)
+        assertEquals(listOf("GPU", "CPU"), opened)
+        assertEquals("CPU", p.backend)
+        assertEquals("Can not find OpenCL library on this device", p.gpuProblem)
+        assertEquals("remembered for this app version", "Can not find OpenCL library on this device", remembered)
+        // Later messages stay on the CPU; a fresh start (next launch) goes straight to the CPU.
+        p.complete(req)
+        assertEquals(listOf("GPU", "CPU"), opened)
+        val next = ai.jarvis.mobile.runtime.local.OnDeviceProvider({ store }, { _, gpu -> opened += if (gpu) "GPU" else "CPU"; runner(gpu) }, memory)
+        next.complete(req)
+        assertEquals(listOf("GPU", "CPU", "CPU"), opened)
+        // A GPU that fails to start at all also falls back.
+        val opened2 = mutableListOf<String>()
+        val p2 = ai.jarvis.mobile.runtime.local.OnDeviceProvider({ store }, { _, gpu -> opened2 += if (gpu) "GPU" else "CPU"; if (gpu) throw IllegalStateException("no gpu") else runner(false) }, ai.jarvis.mobile.runtime.local.GpuMemory({ null }, {}))
+        assertEquals("Hello from the CPU", p2.complete(req).text)
+        assertEquals(listOf("GPU", "CPU"), opened2)
+    }
+
     @Test fun pinnedModelsMatchTheTestedFiles() {
         assertTrue(LocalModels.GEMMA4_E2B.url.contains("/resolve/2e12bfd869b2962984f97a1f2a26807316d534cc/"))
         assertEquals("181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c", LocalModels.GEMMA4_E2B.sha256)

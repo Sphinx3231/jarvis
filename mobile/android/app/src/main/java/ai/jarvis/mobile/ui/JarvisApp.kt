@@ -293,7 +293,7 @@ private fun Main(c: AppContainer, mode: Mode, deepLink: String?, onDeepLinkHandl
                     val models = ai.jarvis.mobile.runtime.local.LocalModels.ALL.map { spec ->
                         val st by c.modelStores.getValue(spec.id).state.collectAsState()
                         val status = when (val m = st) {
-                            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Ready -> "Ready${if (spec.id == selectedModelId) c.onDevice.backend?.let { b -> " · runs on the $b" } ?: "" else ""}"
+                            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Ready -> "Ready${if (spec.id == selectedModelId) c.onDevice.backend?.let { b -> " · runs on the $b" + (if (b == "CPU" && c.onDevice.gpuProblem != null) " (GPU unavailable: ${c.onDevice.gpuProblem})" else "") } ?: "" else ""}"
                             is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Preparing -> "Unpacking ${(m.fraction * 100).toInt()}%"
                             is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Downloading -> "Downloading ${(m.fraction * 100).toInt()}%"
                             ai.jarvis.mobile.runtime.local.LocalModelStore.State.NotDownloaded -> if (spec.id == selectedModelId) "Not downloaded — tap Download on the Core screen" else "Not downloaded — tap to choose"

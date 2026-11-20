@@ -306,57 +306,103 @@ class ModelDownloader(
     }
 }
 
+/** A loaded model that answers one request at a time. */
+interface ModelRunner : AutoCloseable {
+    fun send(request: ModelRequest): ModelResponse
+}
+
+/** LiteRT-LM: the model's own chat template, native function calling, no automatic tool calls. */
+class LiteRtRunner(file: File, gpu: Boolean, cacheDir: File) : ModelRunner {
+    private val engine = Engine(EngineConfig(modelPath = file.path, backend = if (gpu) Backend.GPU() else Backend.CPU(), maxNumTokens = OnDeviceProvider.MAX_TOKENS, cacheDir = cacheDir.path)).also { it.initialize() }
+
+    override fun send(request: ModelRequest): ModelResponse {
+        val messages = LocalFormat.toMessages(request.turns)
+        val config = ConversationConfig(
+            systemInstruction = Contents.of(request.system),
+            initialMessages = messages.dropLast(1),
+            tools = request.tools.map { tool(LocalFormat.openApiTool(it)) },
+            samplerConfig = SamplerConfig(topK = 40, topP = 0.95, temperature = 0.6),
+            automaticToolCalling = false,
+        )
+        return engine.createConversation(config).use { conv -> LocalFormat.fromMessage(conv.sendMessage(messages.last())) }
+    }
+
+    override fun close() = engine.close()
+}
+
 /**
- * Runs the selected on-device model with Google's LiteRT-LM (GPU when available, else CPU).
- * Nothing leaves the phone. The model's own chat template and native function calling are used;
- * the calls it proposes come back to the router (automatic tool calling is off), which validates
- * and authorizes each one. Loaded on first use, released under memory pressure or on model change.
+ * Runs the selected on-device model (GPU when the phone allows it, else CPU). Nothing leaves the
+ * phone. The calls the model proposes come back to the router, which validates and authorizes them.
+ *
+ * The GPU can fail late — some phones only refuse when the first message runs (e.g. the GPU driver
+ * library can't be loaded). Any GPU failure falls back to the CPU and retries that same message; the
+ * failure is remembered for this app version, so later launches start on the CPU straight away.
  */
-class OnDeviceProvider(private val context: Context, private val store: () -> LocalModelStore) : ModelProvider {
+class OnDeviceProvider(
+    private val store: () -> LocalModelStore,
+    private val open: (file: File, gpu: Boolean) -> ModelRunner,
+    private val gpuMemory: GpuMemory,
+) : ModelProvider {
+    constructor(context: Context, store: () -> LocalModelStore) : this(store, { f, gpu -> LiteRtRunner(f, gpu, context.cacheDir) }, GpuMemory.forApp(context))
+
     override val id = "on_device"
     override val displayName get() = "${store().spec.name} (on this phone)"
     override val onDevice = true
 
     private val lock = Mutex()
-    private var engine: Engine? = null
+    private var runner: ModelRunner? = null
     private var loaded: File? = null
     @Volatile var backend: String? = null
+        private set
+    /** Why the GPU isn't used (shown in Settings), if it failed. */
+    @Volatile var gpuProblem: String? = gpuMemory.failure()
         private set
 
     override suspend fun complete(request: ModelRequest): ModelResponse = lock.withLock {
         val file = store().ensureReady()
-        val eng = engine?.takeIf { loaded == file } ?: run { release(); load(file).also { engine = it; loaded = file } }
         withContext(Dispatchers.Default) {
-            val messages = LocalFormat.toMessages(request.turns)
-            val config = ConversationConfig(
-                systemInstruction = Contents.of(request.system),
-                initialMessages = messages.dropLast(1),
-                tools = request.tools.map { tool(LocalFormat.openApiTool(it)) },
-                samplerConfig = SamplerConfig(topK = 40, topP = 0.95, temperature = 0.6),
-                automaticToolCalling = false,
-            )
+            val r = runner?.takeIf { loaded == file } ?: load(file)
             try {
-                eng.createConversation(config).use { conv -> LocalFormat.fromMessage(conv.sendMessage(messages.last())) }
-            } catch (e: Exception) {
-                throw ProviderUnavailable("The on-device model failed: ${e.message ?: e.javaClass.simpleName}")
+                r.send(request)
+            } catch (e: Throwable) {
+                if (backend != "GPU") throw ProviderUnavailable("The on-device model failed: ${e.message ?: e.javaClass.simpleName}")
+                gpuFailed(e)
+                val cpu = openCpu(file)
+                try { cpu.send(request) } catch (e2: Throwable) { throw ProviderUnavailable("The on-device model failed: ${e2.message ?: e2.javaClass.simpleName}") }
             }
         }
     }
 
-    private suspend fun load(file: File): Engine = withContext(Dispatchers.Default) {
-        fun open(b: Backend) = Engine(EngineConfig(modelPath = file.path, backend = b, maxNumTokens = MAX_TOKENS, cacheDir = context.cacheDir.path)).also { it.initialize() }
-        try {
-            open(Backend.GPU()).also { backend = "GPU" }
-        } catch (gpu: Throwable) {
+    private fun load(file: File): ModelRunner {
+        release()
+        if (gpuProblem == null) {
             try {
-                open(Backend.CPU()).also { backend = "CPU" }
-            } catch (cpu: Throwable) {
-                throw ProviderUnavailable("Couldn't start the on-device model: ${cpu.message ?: cpu.javaClass.simpleName}")
+                return open(file, true).also { runner = it; loaded = file; backend = "GPU" }
+            } catch (e: Throwable) {
+                gpuFailed(e)
             }
+        }
+        return openCpu(file)
+    }
+
+    private fun openCpu(file: File): ModelRunner {
+        release()
+        return try {
+            open(file, false).also { runner = it; loaded = file; backend = "CPU" }
+        } catch (e: Throwable) {
+            throw ProviderUnavailable("Couldn't start the on-device model: ${e.message ?: e.javaClass.simpleName}")
         }
     }
 
-    private fun release() { runCatching { engine?.close() }; engine = null; loaded = null; backend = null }
+    private fun gpuFailed(e: Throwable) {
+        // Native errors read "Failed to call …: UNKNOWN:\n\nUNKNOWN: <reason>": keep the reason.
+        val why = (e.message ?: e.javaClass.simpleName).lineSequence().map { it.trim().removePrefix("UNKNOWN:").trim() }.filter { it.isNotEmpty() }.lastOrNull() ?: "GPU unavailable"
+        gpuProblem = why.take(160)
+        gpuMemory.remember(gpuProblem!!)
+        release()
+    }
+
+    private fun release() { runCatching { runner?.close() }; runner = null; loaded = null; backend = null }
 
     /** Free the memory the model holds (it reloads on the next message). */
     fun unload() {
@@ -365,4 +411,18 @@ class OnDeviceProvider(private val context: Context, private val store: () -> Lo
     }
 
     companion object { const val MAX_TOKENS = 4096 }
+}
+
+/** Remembers that the GPU failed, for this app version only (an update may fix it, so it's retried). */
+class GpuMemory(private val get: () -> String?, private val set: (String?) -> Unit) {
+    fun failure(): String? = get()
+    fun remember(why: String) = set(why)
+
+    companion object {
+        fun forApp(context: Context): GpuMemory {
+            val prefs = context.getSharedPreferences("jarvis_model", Context.MODE_PRIVATE)
+            val key = "gpuFailed.${ai.jarvis.mobile.BuildConfig.VERSION_CODE}"
+            return GpuMemory({ prefs.getString(key, null) }, { prefs.edit().putString(key, it).apply() })
+        }
+    }
 }
