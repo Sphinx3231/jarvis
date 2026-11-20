@@ -116,8 +116,34 @@ export function HudClock() {
         <circle cx="100" cy="100" r="82" className="hudclock__track" />
         {sec > 0 && <path d={`M100 18 A82 82 0 ${sec > 30 ? 1 : 0} 1 ${tx.toFixed(2)} ${ty.toFixed(2)}`} className="hudclock__sweep" />}
         <circle cx={tx} cy={ty} r="3" className="hudclock__tip" />
-        <circle cx="100" cy="100" r="64" className="hudclock__inner" />
-        <circle cx="100" cy="100" r="58" className="hudclock__spin" />
+        {/* minute numerals and an inner graduated ring */}
+        <g className="hudclock__nums">
+          {Array.from({ length: 12 }, (_, i) => {
+            const [x, y] = P(100, 100, 67.5, i * 30 - 90);
+            return (
+              <text key={i} x={x.toFixed(2)} y={y.toFixed(2)} textAnchor="middle" dominantBaseline="central">
+                {String(i * 5).padStart(2, '0')}
+              </text>
+            );
+          })}
+        </g>
+        <g className="hudclock__fine">
+          {Array.from({ length: 120 }, (_, i) => {
+            const [x0, y0] = P(100, 100, 85.5, i * 3 - 90);
+            const [x1, y1] = P(100, 100, i % 10 === 0 ? 89.5 : 87.5, i * 3 - 90);
+            return <line key={i} x1={x0} y1={y0} x2={x1} y2={y1} />;
+          })}
+        </g>
+        <circle cx="100" cy="100" r="61" className="hudclock__inner" />
+        <g className="hudclock__cross">
+          {[0, 90, 180, 270].map((d) => (
+            <g key={d} transform={`rotate(${d} 100 100)`}>
+              <line x1="100" y1="41" x2="100" y2="46" />
+              <path d="M96 41 h8" />
+            </g>
+          ))}
+        </g>
+        <circle cx="100" cy="100" r="56" className="hudclock__spin" />
       </svg>
       <div className="hudclock__face">
         <span className="hudclock__time">
@@ -147,7 +173,17 @@ export function RingGauge({ value, label, display, sub, tone = '#a78bfa', segmen
           const a0 = 135 + i * step + 0.8;
           return <path key={i} d={sector(50, 50, 38, 46, a0, a0 + step - 1.6)} className={i < lit ? 'is-lit' : ''} />;
         })}
+        <g className="ringg__scale">
+          {Array.from({ length: 11 }, (_, i) => {
+            const [x0, y0] = P(50, 50, 47.5, 135 + i * 27);
+            const [x1, y1] = P(50, 50, i % 5 === 0 ? 51 : 49.5, 135 + i * 27);
+            return <line key={i} x1={x0} y1={y0} x2={x1} y2={y1} />;
+          })}
+        </g>
+        <text className="ringg__end" x={P(50, 50, 51, 128)[0]} y={P(50, 50, 51, 128)[1] + 4} textAnchor="end">0</text>
+        <text className="ringg__end" x={P(50, 50, 51, 52)[0]} y={P(50, 50, 51, 52)[1] + 4} textAnchor="start">100</text>
         <circle cx="50" cy="50" r="33" className="ringg__inner" />
+        <circle cx="50" cy="50" r="29.5" className="ringg__inner2" />
       </svg>
       <div className="ringg__face">
         <span className="ringg__value">{display}</span>

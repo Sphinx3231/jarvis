@@ -4625,3 +4625,201 @@ button.chip:hover {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* =====================================================================
+   Instrument detail: chamfered panels, rulers, scales
+   ===================================================================== */
+
+/* chamfered HUD panels: top-left and bottom-right corners cut, the cut edges drawn as lines */
+.hud,
+.dash .card,
+.chathead {
+  --cut: 13px;
+  border-radius: 0;
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+}
+.hud::after,
+.dash .card::after,
+.chathead::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 0;
+  pointer-events: none;
+  opacity: 1;
+  background:
+    /* the two cut edges */
+    linear-gradient(to bottom right, transparent calc(50% - 0.8px), rgba(196, 181, 253, 0.75) 50%, transparent calc(50% + 0.8px)) top left / var(--cut) var(--cut) no-repeat,
+    linear-gradient(to bottom right, transparent calc(50% - 0.8px), rgba(196, 181, 253, 0.75) 50%, transparent calc(50% + 0.8px)) bottom right / var(--cut) var(--cut) no-repeat,
+    /* lit accents running off the cuts */
+    linear-gradient(90deg, rgba(196, 181, 253, 0.8), transparent) calc(var(--cut) - 1px) 0 / 64px 1px no-repeat,
+    linear-gradient(180deg, rgba(196, 181, 253, 0.8), transparent) 0 calc(var(--cut) - 1px) / 1px 44px no-repeat,
+    linear-gradient(270deg, rgba(196, 181, 253, 0.8), transparent) calc(100% - var(--cut) + 1px) 100% / 64px 1px no-repeat,
+    linear-gradient(0deg, rgba(196, 181, 253, 0.8), transparent) 100% calc(100% - var(--cut) + 1px) / 1px 44px no-repeat,
+    /* small marks on the other two corners */
+    linear-gradient(rgba(196, 181, 253, 0.6), rgba(196, 181, 253, 0.6)) top right / 7px 1px no-repeat,
+    linear-gradient(rgba(196, 181, 253, 0.6), rgba(196, 181, 253, 0.6)) bottom left / 7px 1px no-repeat;
+}
+.chathead {
+  position: relative;
+}
+
+/* a micro ruler under every panel title */
+.hud__head,
+.dash .card .card__head {
+  position: relative;
+  border-bottom: 0;
+  padding-bottom: 9px;
+}
+.hud__head::after,
+.dash .card .card__head::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background:
+    linear-gradient(90deg, rgba(196, 181, 253, 0.6) 0 22px, rgba(139, 92, 246, 0.18) 22px) bottom / 100% 1px no-repeat,
+    repeating-linear-gradient(90deg, rgba(167, 139, 250, 0.35) 0 1px, transparent 1px 6px) bottom / 100% 3px no-repeat;
+  -webkit-mask-image: linear-gradient(90deg, #000 60%, transparent);
+  mask-image: linear-gradient(90deg, #000 60%, transparent);
+}
+
+/* the command capsule and the agent dialog get the same angled language */
+.adetail {
+  border-radius: 0;
+  clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px);
+}
+
+/* ---------------------------------------------------------------- core instrument layers */
+
+.core__bearings text {
+  font-family: var(--mono);
+  font-size: 4.1px;
+  letter-spacing: 0.3px;
+  fill: #c4b5fd;
+  fill-opacity: 0.6;
+}
+
+/* ---------------------------------------------------------------- agent container detail */
+
+.anode__ticks line {
+  stroke: var(--c);
+  stroke-opacity: 0.35;
+  stroke-width: 0.5;
+}
+.anode__ticks line.is-major {
+  stroke-opacity: 0.75;
+  stroke-width: 0.8;
+}
+.anode__notches path {
+  fill: color-mix(in srgb, var(--c) 65%, #fff);
+  fill-opacity: 0.75;
+}
+.anode__brackets path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--c) 60%, #fff);
+  stroke-opacity: 0.6;
+  stroke-width: 0.9;
+}
+.anode:hover .anode__brackets path {
+  stroke-opacity: 1;
+}
+.anode__ring {
+  inset: -12px;
+  width: calc(100% + 24px);
+  height: calc(100% + 24px);
+}
+
+/* ---------------------------------------------------------------- link detail */
+
+.orbit__tick {
+  stroke-width: 1;
+  stroke-opacity: 0.45;
+}
+.orbit__chip {
+  fill: #09060f;
+  stroke-width: 1;
+  stroke-opacity: 0.8;
+}
+.orbit__link.is-working .orbit__chip {
+  fill: currentColor;
+}
+
+/* ---------------------------------------------------------------- gauge scales */
+
+.gauge__scale line {
+  stroke: currentColor;
+  stroke-opacity: 0.45;
+  stroke-width: 0.8;
+}
+
+/* ---------------------------------------------------------------- clock and ring-gauge detail */
+
+.hudclock__nums text {
+  font-family: var(--mono);
+  font-size: 6.5px;
+  fill: rgba(196, 181, 253, 0.6);
+  letter-spacing: 0.3px;
+}
+.hudclock__fine line {
+  stroke: rgba(196, 181, 253, 0.3);
+  stroke-width: 0.5;
+}
+.hudclock__cross line,
+.hudclock__cross path {
+  stroke: rgba(221, 214, 254, 0.55);
+  stroke-width: 0.7;
+  fill: none;
+}
+.ringg__scale line {
+  stroke: color-mix(in srgb, var(--tone) 60%, #ddd6fe);
+  stroke-opacity: 0.55;
+  stroke-width: 0.6;
+}
+.ringg__end {
+  font-family: var(--mono);
+  font-size: 5.5px;
+  fill: rgba(196, 181, 253, 0.55);
+}
+.ringg__inner2 {
+  fill: none;
+  stroke: color-mix(in srgb, var(--tone) 35%, transparent);
+  stroke-width: 0.5;
+}
+.core__static {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+.orbit__core {
+  will-change: transform;
+}
+.core > .core__svg:not(.core__static) {
+  position: relative;
+}
+
+/* Performance: no live blur behind panels. They sit over animated layers, so a backdrop blur
+   would be recomputed every frame (measured: ~half the frame rate). A slightly denser tint
+   reads the same. */
+.hud,
+.dash .card,
+.chathead,
+.dash .command__voice,
+.dash .command__bar,
+.orbit__state,
+.toast,
+.dash .msg--assistant .msg__bubble {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.hud,
+.dash .card,
+.chathead {
+  background: linear-gradient(180deg, rgba(22, 14, 46, 0.72), rgba(12, 8, 28, 0.74));
+}
+.dash .command__voice,
+.dash .command__bar {
+  background: linear-gradient(180deg, rgba(22, 14, 46, 0.94), rgba(10, 6, 24, 0.96));
+}

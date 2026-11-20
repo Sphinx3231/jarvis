@@ -60,7 +60,7 @@ try {
   const plexFrame = () => page.locator('.core--hero .core__plexus').getAttribute('data-frame');
   await page.waitForFunction(() => Number(document.querySelector('.core--hero .core__plexus')?.getAttribute('data-frame') ?? 0) > 0);
   const f1 = await plexFrame();
-  await page.waitForTimeout(500);
+  await page.waitForFunction((prev) => document.querySelector('.core--hero .core__plexus')?.getAttribute('data-frame') !== prev, f1, { timeout: 5000 });
   assert.notEqual(f1, await plexFrame(), 'the neural core keeps drawing');
   // Live HUD gauges around the core (real CPU / memory / tasks / agents).
   assert.equal(await page.locator('.orbit .gauge').count(), 4, 'four live gauges ring the core');

@@ -50,6 +50,23 @@ const ticks = (r: number, n: number, long: number) =>
   });
 const RING_TICKS = ticks(430, 120, 10);
 
+// Orthogonal traces with 45° chamfers, like a circuit board, from the window edges toward the core.
+const CIRCUITS: Array<{ d: string; nodes: Array<[number, number]>; o: number }> = [
+  { d: 'M 0 210 H 150 L 190 250 H 300 L 330 280', nodes: [[150, 210], [300, 250], [330, 280]], o: 0.16 },
+  { d: 'M 0 300 H 90 L 120 330 H 250', nodes: [[90, 300], [250, 330]], o: 0.12 },
+  { d: 'M 0 760 H 120 L 170 710 H 290 L 320 680', nodes: [[120, 760], [290, 710], [320, 680]], o: 0.14 },
+  { d: 'M 1600 240 H 1450 L 1410 280 H 1300 L 1270 310', nodes: [[1450, 240], [1300, 280], [1270, 310]], o: 0.16 },
+  { d: 'M 1600 700 H 1490 L 1450 660 H 1330', nodes: [[1490, 700], [1330, 660]], o: 0.13 },
+  { d: 'M 1600 790 H 1520 L 1480 830 H 1380 L 1350 800', nodes: [[1520, 790], [1380, 830], [1350, 800]], o: 0.11 },
+  { d: 'M 560 0 V 60 L 600 100 V 150', nodes: [[560, 60], [600, 150]], o: 0.12 },
+  { d: 'M 1040 0 V 50 L 1000 90 V 140', nodes: [[1040, 50], [1000, 140]], o: 0.12 },
+];
+const BEARINGS = Array.from({ length: 12 }, (_, i) => {
+  const deg = i * 30;
+  const a = ((deg - 90) * Math.PI) / 180;
+  return { t: String(deg).padStart(3, '0'), x: (CX + Math.cos(a) * 456).toFixed(1), y: (CY + Math.sin(a) * 456).toFixed(1) };
+});
+
 const bracket = (deg: number, r: number) => {
   const a = (deg * Math.PI) / 180;
   const span = 0.09;
@@ -139,6 +156,26 @@ export const Backdrop = memo(function Backdrop() {
         <g stroke="#a78bfa" strokeOpacity="0.14">
           {Array.from({ length: 25 }, (_, i) => (
             <line key={i} x1={CX - 330 + i * 27.5} y1={CY + 440} x2={CX - 330 + i * 27.5} y2={CY + 440 + (i % 5 === 0 ? 10 : 5)} />
+          ))}
+        </g>
+
+        {/* circuit traces running in from the edges, with junction nodes */}
+        <g className="bd-circuits" fill="none" stroke="#a78bfa">
+          {CIRCUITS.map((c, i) => (
+            <g key={i}>
+              <path d={c.d} strokeOpacity={c.o} strokeWidth="1" />
+              {c.nodes.map(([x, y], j) => (
+                <circle key={j} cx={x} cy={y} r={j === c.nodes.length - 1 ? 3 : 1.8} fill="#09060f" strokeOpacity={c.o * 1.6} />
+              ))}
+            </g>
+          ))}
+        </g>
+        {/* numbered bearings on the big ring */}
+        <g fill="#c4b5fd" fillOpacity="0.22" fontSize="11" fontFamily="ui-monospace, monospace" textAnchor="middle" dominantBaseline="middle">
+          {BEARINGS.map((b) => (
+            <text key={b.t} x={b.x} y={b.y}>
+              {b.t}
+            </text>
           ))}
         </g>
 

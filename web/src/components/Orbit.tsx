@@ -38,6 +38,17 @@ export function splitRole(role: string): { title: string; text: string } {
 // the same order as the roster (Friday, Tom, Neo, Sentinel, Echo, Trinity).
 const SLOT_DEG = [-130, -50, 180, 0, 130, 50];
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+// Agent container detail (viewBox 0 0 100 100): a fine tick ring and bracket arcs.
+const NODE_TICKS = Array.from({ length: 60 }, (_, i) => {
+  const a = (i / 60) * Math.PI * 2;
+  const major = i % 5 === 0;
+  const r0 = major ? 39.5 : 40.8;
+  return { x1: (50 + Math.cos(a) * r0).toFixed(2), y1: (50 + Math.sin(a) * r0).toFixed(2), x2: (50 + Math.cos(a) * 42.2).toFixed(2), y2: (50 + Math.sin(a) * 42.2).toFixed(2), major };
+});
+const NODE_BRACKET = (() => {
+  const p = (deg: number, r: number) => `${(50 + Math.cos(((deg - 90) * Math.PI) / 180) * r).toFixed(2)} ${(50 + Math.sin(((deg - 90) * Math.PI) / 180) * r).toFixed(2)}`;
+  return `M ${p(-9, 50.5)} L ${p(-9, 53)} A 53 53 0 0 1 ${p(9, 53)} L ${p(9, 50.5)}`;
+})();
 const ellipsePath = (cx: number, cy: number, rx: number, ry: number) => `M ${cx - rx} ${cy} a ${rx} ${ry} 0 1 0 ${2 * rx} 0 a ${rx} ${ry} 0 1 0 ${-2 * rx} 0`;
 
 
@@ -152,11 +163,12 @@ export function OrbitStage({
   const cx = w / 2;
   const cy = h * 0.47;
   // The core draws out to ~0.6 × its size (tick ring and HUD frame), so this is its visual size.
-  const core = clamp(Math.min(w * 0.46, h * 0.62), 220, 600);
-  const coreR = core * 0.6;
+  const core = clamp(Math.min(w * 0.42, h * 0.57), 210, 560);
+  // …plus its numbered bearing scale, which reaches ~0.67 × size.
+  const coreR = core * 0.67;
   const rx = clamp(w / 2 - node / 2 - 16, coreR + node * 0.6, w * 0.45);
   const ry = clamp(h * 0.47 - node / 2 - 14, coreR * 0.78, h * 0.44);
-  const anchorR = coreR + 10;
+  const anchorR = coreR + 6;
   const pts = agents.map((_, i) => {
     const deg = SLOT_DEG[i] ?? (i / agents.length) * 360;
     const a = (deg * Math.PI) / 180;
@@ -166,7 +178,7 @@ export function OrbitStage({
   const anyWorking = agents.some((a) => a.state === 'working');
   // HUD gauges in the four gaps between the agents' links — all live values.
   const readyCount = agents.filter((a) => ['ready', 'working'].includes(agentStatus(a, enabled).key)).length;
-  const gR = coreR + 26;
+  const gR = coreR + 22;
   const T = telemetry;
   const gauges: Array<{ id: string; at: number; label: string; value: string; frac: number; tone: string }> = [
     { id: 'cpu', at: 205, label: 'CPU LOAD', value: T.cpu === null ? '—' : `${Math.round(T.cpu)}%`, frac: (T.cpu ?? 0) / 100, tone: (T.cpu ?? 0) > 90 ? '#f87171' : '#a78bfa' },
@@ -234,7 +246,7 @@ export function OrbitStage({
               const a1 = g.at + SPAN / 2;
               const fillEnd = a0 + SPAN * Math.max(0.015, Math.min(1, g.frac));
               const right = Math.cos((g.at * Math.PI) / 180) > 0;
-              const lr = gR + 14;
+              const lr = gR + 19;
               const lx = cx + lr * Math.cos((g.at * Math.PI) / 180);
               const ly = cy + lr * Math.sin((g.at * Math.PI) / 180);
               const tick = (a: number) => {
@@ -252,6 +264,14 @@ export function OrbitStage({
                   <g className="gauge__ticks">
                     {tick(a0)}
                     {tick(a1)}
+                  </g>
+                  <g className="gauge__scale">
+                    {Array.from({ length: 11 }, (_, k) => {
+                      const aa = ((a0 + (SPAN * k) / 10) * Math.PI) / 180;
+                      const r0 = gR + 4;
+                      const r1 = gR + (k % 5 === 0 ? 9 : 6.5);
+                      return <line key={k} x1={cx + r0 * Math.cos(aa)} y1={cy + r0 * Math.sin(aa)} x2={cx + r1 * Math.cos(aa)} y2={cy + r1 * Math.sin(aa)} />;
+                    })}
                   </g>
                   <text className="gauge__label" x={lx} y={ly - 7} textAnchor={right ? 'start' : 'end'}>
                     {g.label}
@@ -290,6 +310,13 @@ export function OrbitStage({
                       </circle>
                     </>
                   )}
+                  {/* measurement ticks across the beam and a junction chip at its middle */}
+                  {Math.hypot(x2 - x1, y2 - y1) > 70 && [0.25, 0.4, 0.6, 0.75].map((f) => {
+                    const mx = x1 + (x2 - x1) * f;
+                    const my = y1 + (y2 - y1) * f;
+                    return <line key={f} className="orbit__tick" x1={mx - uy * 3.5} y1={my + ux * 3.5} x2={mx + uy * 3.5} y2={my - ux * 3.5} stroke={a.color} />;
+                  })}
+                  {Math.hypot(x2 - x1, y2 - y1) > 40 && <rect className="orbit__chip" x={(x1 + x2) / 2 - 4.5} y={(y1 + y2) / 2 - 2.2} width="9" height="4.4" transform={`rotate(${ang} ${(x1 + x2) / 2} ${(y1 + y2) / 2})`} stroke={a.color} />}
                   {/* plug on the anchor ring, terminal at the agent */}
                   <rect x={x1 - 3} y={y1 - 3} width="6" height="6" transform={`rotate(${ang + 45} ${x1} ${y1})`} className="orbit__plug" fill={a.color} />
                   <circle cx={x2} cy={y2} r="2.6" fill={a.color} className="orbit__term" />
@@ -328,6 +355,21 @@ export function OrbitStage({
                     <circle cx="50" cy="50" r="48.5" className="anode__ring-track" />
                     <circle cx="50" cy="50" r="48.5" className="anode__ring-arc" />
                     <circle cx="50" cy="50" r="44" className="anode__ring-inner" />
+                    <g className="anode__ticks">
+                      {NODE_TICKS.map((k, j) => (
+                        <line key={j} x1={k.x1} y1={k.y1} x2={k.x2} y2={k.y2} className={k.major ? 'is-major' : ''} />
+                      ))}
+                    </g>
+                    <g className="anode__notches">
+                      {[0, 90, 180, 270].map((d) => (
+                        <path key={d} d="M50 -4.5 l-2.2 -3.4 h4.4 Z" transform={`rotate(${d} 50 50)`} />
+                      ))}
+                    </g>
+                    <g className="anode__brackets">
+                      {[45, 135, 225, 315].map((d) => (
+                        <path key={d} d={NODE_BRACKET} transform={`rotate(${d} 50 50)`} />
+                      ))}
+                    </g>
                   </svg>
                   <span className="anode__icon">{agentIcon(a.id, node > 100 ? 23 : 20)}</span>
                   <span className="anode__name">{a.name}</span>

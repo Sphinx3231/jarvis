@@ -204,6 +204,27 @@ const HERO_TICKS = Array.from({ length: 120 }, (_, i) => {
   const r0 = major ? 114 : 116;
   return { x1: (110 + Math.cos(a) * r0).toFixed(2), y1: (110 + Math.sin(a) * r0).toFixed(2), x2: (110 + Math.cos(a) * 120).toFixed(2), y2: (110 + Math.sin(a) * 120).toFixed(2), major };
 });
+const HERO_FINE = Array.from({ length: 180 }, (_, i) => {
+  const a = (i / 180) * Math.PI * 2;
+  const major = i % 15 === 0;
+  return { x1: (110 + Math.cos(a) * 133.5).toFixed(2), y1: (110 + Math.sin(a) * 133.5).toFixed(2), x2: (110 + Math.cos(a) * (major ? 137.5 : 135.5)).toFixed(2), y2: (110 + Math.sin(a) * (major ? 137.5 : 135.5)).toFixed(2), major };
+});
+const HERO_BEARINGS = Array.from({ length: 12 }, (_, i) => {
+  const deg = i * 30;
+  const a = ((deg - 90) * Math.PI) / 180;
+  return { label: String(deg).padStart(3, '0'), x: (110 + Math.cos(a) * 143).toFixed(2), y: (110 + Math.sin(a) * 143).toFixed(2) };
+});
+const arcD = (r: number, a0: number, a1: number) => {
+  const p = (a: number) => `${(110 + Math.cos(((a - 90) * Math.PI) / 180) * r).toFixed(2)} ${(110 + Math.sin(((a - 90) * Math.PI) / 180) * r).toFixed(2)}`;
+  return `M ${p(a0)} A ${r} ${r} 0 0 1 ${p(a1)}`;
+};
+const HERO_LUG_ARC = arcD(90, -42, 42);
+const HERO_LUG_ARC_IN = arcD(87.5, -30, 30);
+const HERO_DOTS = Array.from({ length: 96 }, (_, i) => {
+  const a = (i / 96) * Math.PI * 2;
+  return { x: (110 + Math.cos(a) * 81).toFixed(2), y: (110 + Math.sin(a) * 81).toFixed(2), big: i % 8 === 0 };
+});
+const HERO_RETICLE_CORNER = `${arcD(60, -12, 12)} M ${(110 + Math.cos((-102 * Math.PI) / 180) * 60).toFixed(2)} ${(110 + Math.sin((-102 * Math.PI) / 180) * 60).toFixed(2)} l 0 3`;
 const HERO_BRACKET = (() => {
   const p = (ang: number, r: number) => `${(110 + Math.cos(ang) * r).toFixed(2)} ${(110 + Math.sin(ang) * r).toFixed(2)}`;
   const a = -Math.PI / 2;
@@ -231,7 +252,7 @@ export function Core({ state, size = 220, reduceMotion = false, agents, hero = f
       glow: $('c-glow'), ringOuter: $('c-ringOuter'), ringMid: $('c-ringMid'), ringInner: $('c-ringInner'),
       arc: $('c-arc'), spokes: $('c-spokes'), particles: $('c-particles'), core: $('c-core'), coreDot: $('c-coreDot'),
       waves: $('c-waves'), spark: $('c-spark'), bang: $('c-bang'),
-      ticks: $('c-ticks'), segs: $('c-segs'), sphere: $('c-sphere'),
+      ticks: $('c-ticks'), segs: $('c-segs'), sphere: $('c-sphere'), lugs: $('c-lugs'), dots: $('c-dots'), notch: $('c-notch'),
     };
     const ringEls = [parts.ringOuter, parts.ringMid, parts.ringInner, parts.arc].filter(Boolean) as SVGElement[];
     const set = (el: SVGElement | null, t: string) => el && el.setAttribute('transform', t);
@@ -329,6 +350,9 @@ export function Core({ state, size = 220, reduceMotion = false, agents, hero = f
       // working), and the wireframe sphere's meridians sweep like a turning globe.
       rot(parts.ticks, t * cur.spinRate * 0.35);
       rot(parts.segs, -t * cur.spinRate * 0.6);
+      rot(parts.lugs, -t * cur.spinRate * 1.1);
+      rot(parts.dots, t * cur.spinRate * 0.25);
+      rot(parts.notch, t * cur.spinRate * 0.8);
       const isHero = Boolean(plex);
       if (plex) drawPlexus(plex, t, animate, cur, stateRef.current, speech, ++frame);
       if (isHero && parts.sphere) parts.sphere.setAttribute('opacity', (0.38 + cur.glowAmp * 0.22 + (animate ? breath * 0.05 : 0) + speech * 0.15).toFixed(3));
@@ -381,6 +405,48 @@ export function Core({ state, size = 220, reduceMotion = false, agents, hero = f
 
   return (
     <div className={`core core--${state} ${hero ? 'core--hero' : ''}`} style={{ ['--size' as string]: `${size}px` }} role="img" aria-label={`Jarvis is ${CORE_LABEL[state].toLowerCase()}`}>
+      {hero && (
+        // Static instrument layers live in their own SVG (and compositing layer), painted once —
+        // only the moving parts below are redrawn each frame.
+        <svg viewBox="0 0 220 220" className="core__svg core__static" aria-hidden>
+            {/* static HUD frame: outer ring, cardinal markers and bracket arcs */}
+            <g className="core__frame" fill="none" stroke={C.soft}>
+              <circle cx="110" cy="110" r="131" strokeOpacity="0.16" strokeWidth="0.6" />
+              <circle cx="110" cy="110" r="126" strokeOpacity="0.08" strokeWidth="0.6" strokeDasharray="1 4" />
+              {[0, 90, 180, 270].map((d) => (
+                <path key={d} d="M110 -24 l-3.2 -5.5 h6.4 Z" transform={`rotate(${d} 110 110)`} fill={C.soft} fillOpacity="0.55" stroke="none" />
+              ))}
+              {[45, 135, 225, 315].map((d) => (
+                <path key={d} d={HERO_BRACKET} transform={`rotate(${d} 110 110)`} strokeOpacity="0.45" strokeWidth="0.9" />
+              ))}
+            </g>
+            {/* instrument scale: fine graduations and numbered bearings */}
+            <g className="core__scale" stroke={C.soft}>
+              {HERO_FINE.map((k, i) => (
+                <line key={i} x1={k.x1} y1={k.y1} x2={k.x2} y2={k.y2} strokeOpacity={k.major ? 0.5 : 0.18} strokeWidth="0.45" />
+              ))}
+            </g>
+            <g className="core__bearings">
+              {HERO_BEARINGS.map((b) => (
+                <text key={b.label} x={b.x} y={b.y} textAnchor="middle" dominantBaseline="middle">
+                  {b.label}
+                </text>
+              ))}
+            </g>
+            {/* targeting reticle around the sphere */}
+            <g className="core__reticle" stroke={C.bright} fill="none">
+              {[0, 90, 180, 270].map((d) => (
+                <g key={d} transform={`rotate(${d} 110 110)`}>
+                  <line x1="110" y1="50.5" x2="110" y2="57" strokeOpacity="0.75" strokeWidth="0.8" />
+                  <line x1="107" y1="57" x2="113" y2="57" strokeOpacity="0.6" strokeWidth="0.6" />
+                </g>
+              ))}
+              {[45, 135, 225, 315].map((d) => (
+                <path key={d} d={HERO_RETICLE_CORNER} transform={`rotate(${d} 110 110)`} strokeOpacity="0.55" strokeWidth="0.7" />
+              ))}
+            </g>
+        </svg>
+      )}
       <svg ref={svgRef} viewBox="0 0 220 220" className="core__svg" aria-hidden>
         <defs>
           <radialGradient id="c-grad-core" cx="50%" cy="50%" r="50%">
@@ -415,17 +481,6 @@ export function Core({ state, size = 220, reduceMotion = false, agents, hero = f
 
         {hero && (
           <>
-            {/* static HUD frame: outer ring, cardinal markers and bracket arcs */}
-            <g className="core__frame" fill="none" stroke={C.soft}>
-              <circle cx="110" cy="110" r="131" strokeOpacity="0.16" strokeWidth="0.6" />
-              <circle cx="110" cy="110" r="126" strokeOpacity="0.08" strokeWidth="0.6" strokeDasharray="1 4" />
-              {[0, 90, 180, 270].map((d) => (
-                <path key={d} d="M110 -24 l-3.2 -5.5 h6.4 Z" transform={`rotate(${d} 110 110)`} fill={C.soft} fillOpacity="0.55" stroke="none" />
-              ))}
-              {[45, 135, 225, 315].map((d) => (
-                <path key={d} d={HERO_BRACKET} transform={`rotate(${d} 110 110)`} strokeOpacity="0.45" strokeWidth="0.9" />
-              ))}
-            </g>
             {/* precision tick ring */}
             <g id="c-ticks" stroke={C.soft}>
               {HERO_TICKS.map((k, i) => (
@@ -437,6 +492,26 @@ export function Core({ state, size = 220, reduceMotion = false, agents, hero = f
               <circle cx="110" cy="110" r="108" stroke={C.soft} strokeOpacity="0.55" strokeWidth="2.2" strokeDasharray="70 14 6 14 120 22 18 22 60 300" />
               <circle cx="110" cy="110" r="102" stroke={C.accent} strokeOpacity="0.35" strokeWidth="0.8" strokeDasharray="4 6" />
             </g>
+            {/* counter-rotating ring segments with mounting lugs */}
+            <g id="c-lugs" fill="none" stroke={C.soft}>
+              {[0, 120, 240].map((d) => (
+                <g key={d} transform={`rotate(${d} 110 110)`}>
+                  <path d={HERO_LUG_ARC} strokeOpacity="0.55" strokeWidth="1.4" />
+                  <path d={HERO_LUG_ARC_IN} strokeOpacity="0.3" strokeWidth="0.6" />
+                  <rect x="108.2" y="18.5" width="3.6" height="5" fill={C.soft} fillOpacity="0.6" stroke="none" />
+                  <rect x="108.6" y="17" width="2.8" height="1" fill={C.bright} stroke="none" transform="rotate(46 110 110)" />
+                  <rect x="108.6" y="17" width="2.8" height="1" fill={C.bright} stroke="none" transform="rotate(-46 110 110)" />
+                </g>
+              ))}
+            </g>
+            {/* dot-matrix ring */}
+            <g id="c-dots" fill={C.soft}>
+              {HERO_DOTS.map((d, i) => (
+                <circle key={i} cx={d.x} cy={d.y} r={d.big ? 0.75 : 0.4} opacity={d.big ? 0.75 : 0.4} />
+              ))}
+            </g>
+            {/* notched ring */}
+            <circle id="c-notch" cx="110" cy="110" r="66" fill="none" stroke={C.soft} strokeOpacity="0.4" strokeWidth="0.7" strokeDasharray="30.5 4 2 4" />
           </>
         )}
         {/* luminous sphere (hero) */}
