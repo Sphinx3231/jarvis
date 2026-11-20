@@ -186,7 +186,7 @@ fun CapabilitiesScreen(caps: List<CapRow>, perms: List<PermRow>, onPolicy: (Stri
 // ------------------------------------------------------------------- settings
 
 @Composable
-fun SettingsScreen(mode: Mode, provider: ProviderConfig, hasKey: Boolean, speakReplies: Boolean, providerTest: String?, onDeviceInfo: String?, onMode: (Mode) -> Unit, onSave: (ProviderConfig, String?) -> Unit, onClearKey: () -> Unit, onTest: () -> Unit, onSpeak: (Boolean) -> Unit, onOpen: (String) -> Unit) {
+fun SettingsScreen(mode: Mode, provider: ProviderConfig, hasKey: Boolean, speakReplies: Boolean, providerTest: String?, models: List<ModelOption>, onMode: (Mode) -> Unit, onSave: (ProviderConfig, String?) -> Unit, onClearKey: () -> Unit, onTest: () -> Unit, onSpeak: (Boolean) -> Unit, onOpen: (String) -> Unit, onSelectModel: (String) -> Unit = {}, onDeleteModel: (String) -> Unit = {}) {
     var kind by remember(provider) { mutableStateOf(provider.kind) }
     var url by remember(provider) { mutableStateOf(provider.baseUrl) }
     var model by remember(provider) { mutableStateOf(provider.model) }
@@ -207,7 +207,21 @@ fun SettingsScreen(mode: Mode, provider: ProviderConfig, hasKey: Boolean, speakR
                     Text(label, color = if (k == kind) Color.White else J.TextDim, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, modifier = Modifier.background(if (k == kind) J.PurpleDeep else Color.Transparent).clickable { kind = k }.padding(horizontal = 10.dp, vertical = 7.dp))
                 }
             }
-            if (kind == "on_device") Text(onDeviceInfo ?: "This build doesn't include an on-device model.", color = if (onDeviceInfo != null) J.Text else J.Warn, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp))
+            if (kind == "on_device") models.forEach { m ->
+                Column(
+                    Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(chamfer(16f)).border(1.dp, if (m.selected) J.Purple else J.Line, chamfer(16f))
+                        .background(if (m.selected) J.PurpleDeep.copy(alpha = 0.25f) else Color.Transparent).clickable { onSelectModel(m.id) }.padding(10.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(m.name, color = J.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        Text("${m.sizeMb} MB", color = J.TextDim, fontSize = 11.sp)
+                    }
+                    Text(m.summary, color = J.TextDim, fontSize = 12.sp)
+                    Text(m.status, color = if (m.ready) J.Ok else J.Lavender, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp))
+                    if (m.deletable) Text("Delete download", color = J.Bad, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp).clickable { onDeleteModel(m.id) })
+                }
+            }
+            if (kind == "on_device" && models.isNotEmpty()) Text("Runs fully offline; nothing you say to it leaves the phone. ${models.first().license}.", color = J.TextFaint, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp, bottom = 6.dp))
             if (kind == "openai_compatible") OutlinedTextField(url, { url = it.trim() }, Modifier.fillMaxWidth(), label = { Text("Base URL (e.g. https://api.openai.com/v1)") }, singleLine = true, colors = fieldColors())
             if (kind == "anthropic" || kind == "openai_compatible") {
                 OutlinedTextField(model, { model = it.trim() }, Modifier.fillMaxWidth(), label = { Text("Model id") }, singleLine = true, colors = fieldColors())
@@ -233,7 +247,7 @@ fun SettingsScreen(mode: Mode, provider: ProviderConfig, hasKey: Boolean, speakR
         }
         Spacer(Modifier.height(10.dp))
         HudPanel(title = "More") {
-            listOf("capabilities" to "Capabilities & permissions", "activity" to "Activity log", "devices" to "Devices & pairing", "history" to "Conversation history").forEach { (route, label) ->
+            listOf("brain" to "Brain (notes vault / Obsidian)", "capabilities" to "Capabilities & permissions", "activity" to "Activity log", "devices" to "Devices & pairing", "history" to "Conversation history").forEach { (route, label) ->
                 Text("› $label", color = J.Lavender, fontSize = 14.sp, modifier = Modifier.fillMaxWidth().clickable { onOpen(route) }.padding(vertical = 8.dp))
             }
         }
@@ -242,3 +256,6 @@ fun SettingsScreen(mode: Mode, provider: ProviderConfig, hasKey: Boolean, speakR
 
 @Composable
 fun fieldColors() = OutlinedTextFieldDefaults.colors(focusedBorderColor = J.Purple, unfocusedBorderColor = J.Line, focusedTextColor = J.Text, unfocusedTextColor = J.Text, focusedLabelColor = J.Lavender, unfocusedLabelColor = J.TextDim, cursorColor = J.Lavender)
+
+/** One on-device model choice in Settings. */
+data class ModelOption(val id: String, val name: String, val summary: String, val sizeMb: Long, val status: String, val selected: Boolean, val ready: Boolean, val deletable: Boolean, val license: String)

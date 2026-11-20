@@ -25,7 +25,7 @@ class ActivityLog(private val dao: ActivityDao) {
 }
 
 /** Mobile Jarvis's own memory, on the phone (Room + FTS). Never uploaded unless the user turns on sync. */
-class MobileMemoryManager(private val dao: MemoryDao, private val activity: ActivityLog) {
+class MobileMemoryManager(private val dao: MemoryDao, private val activity: ActivityLog, private val onRemembered: (suspend (kind: String, content: String) -> Unit)? = null) {
     /** Store a memory; an identical one is refreshed instead of duplicated. Returns (memory, merged). */
     suspend fun remember(content: String, kind: String, source: String): Pair<MemoryEntity, Boolean> {
         val text = content.trim().take(1000)
@@ -38,6 +38,7 @@ class MobileMemoryManager(private val dao: MemoryDao, private val activity: Acti
         }
         val id = dao.insert(MemoryEntity(kind = kind, content = text, source = source, createdAt = now, updatedAt = now))
         activity.log("info", "memory", "Remembered ($kind): ${text.take(80)}")
+        onRemembered?.let { runCatching { it(kind, text) } }
         return MemoryEntity(id, kind, text, source, now, now) to false
     }
 
@@ -73,6 +74,7 @@ class MobileConversationManager(private val dao: ConversationDao) {
     suspend fun history(conversationId: String, limit: Int = 16): List<MessageEntity> = dao.lastMessages(conversationId, limit).reversed()
     fun messages(conversationId: String) = dao.messages(conversationId)
     fun recent() = dao.recent()
+    suspend fun title(id: String): String? = dao.get(id)?.title
 }
 
 /**

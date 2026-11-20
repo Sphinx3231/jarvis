@@ -83,7 +83,7 @@ class ScreenshotTest {
         ),
     )
     private val mobileView = mobileHome(
-        MobileExecutionRouter.Status(), false, ai.jarvis.mobile.ui.modelConnection("on_device", ai.jarvis.mobile.runtime.local.LocalModelStore.State.Ready(java.io.File("m")), "Qwen2.5 1.5B Instruct", null),
+        MobileExecutionRouter.Status(), false, ai.jarvis.mobile.ui.modelConnection("on_device", ai.jarvis.mobile.runtime.local.LocalModelStore.State.Ready(java.io.File("m")), "Gemma 4 E2B", null),
         mapOf("neo" to "Watching 1 phone task(s). Next: “stretch” at 10:30"),
         listOf(MobileTaskEntity("m1", "Stretch", "reminder", "scheduled", now + 600_000, now, now)),
         emptyList(),
@@ -106,8 +106,8 @@ class ScreenshotTest {
     @Test fun homeMobile() = shot("03-home-mobile") { HomeScreen(mobileView, false, "", {}, {}, {}, {}, { _, _ -> }, {}, {}, null) }
     @Test fun homeModelDownload() = shot("03b-home-model-download") {
         val st = ai.jarvis.mobile.runtime.local.LocalModelStore.State.Downloading(0.42f)
-        HomeScreen(mobileView.copy(connection = ai.jarvis.mobile.ui.modelConnection("on_device", st, "Qwen2.5 1.5B Instruct", null)), false, "", {}, {}, {}, {}, { _, _ -> }, {}, {}, null,
-            model = ai.jarvis.mobile.ui.modelCard(st, ai.jarvis.mobile.runtime.local.QWEN_1_5B))
+        HomeScreen(mobileView.copy(connection = ai.jarvis.mobile.ui.modelConnection("on_device", st, "Gemma 4 E2B", null)), false, "", {}, {}, {}, {}, { _, _ -> }, {}, {}, null,
+            model = ai.jarvis.mobile.ui.modelCard(st, ai.jarvis.mobile.runtime.local.LocalModels.GEMMA4_E2B))
     }
     @Test fun homeOffline() = shot("04-home-pc-offline") { HomeScreen(remoteHome(remoteState.copy(pcOnline = false, approvals = emptyList(), tasks = emptyList())), false, "", {}, {}, {}, {}, { _, _ -> }, {}, {}, {}) }
     @Test fun chatRemote() = shot("05-chat-remote") { ChatScreen(remoteHome(remoteState), false, "", {}, {}, {}, {}, null) }
@@ -128,7 +128,18 @@ class ScreenshotTest {
     }
     @Test fun devicesUnpaired() = shot("11-devices-unpaired") { DevicesScreen(DevicesView(null, remoteConnection(RemoteSession.State()), null, false, null, null), {}, {}, {}, {}, {}) }
     @Test fun devicesPaired() = shot("12-devices-paired") { DevicesScreen(DevicesView(pc, remoteConnection(remoteState), "f00dfacecafe1234beef", false, null, "PC stopped: 2 task(s) cancelled, Computer Access stopped."), {}, {}, {}, {}, {}) }
-    @Test fun settings() = shot("13-settings") { SettingsScreen(Mode.MOBILE, ProviderConfig("on_device"), false, true, "OK — the model replied: “OK”", "Qwen2.5 1.5B Instruct — ready · runs on the GPU\nRuns fully offline; nothing you say to it leaves the phone.\nLicense: Apache-2.0 (Qwen team, Alibaba Cloud); on-device packaging by Google litert-community. Source: huggingface.co/litert-community/Qwen2.5-1.5B-Instruct.", {}, { _, _ -> }, {}, {}, {}, {}) }
+    @Test fun settings() = shot("13-settings") { SettingsScreen(Mode.MOBILE, ProviderConfig("on_device"), false, true, "OK — the model replied: “OK”", listOf(
+            ai.jarvis.mobile.ui.screens.ModelOption("gemma4_e2b", "Gemma 4 E2B", "Recommended: fast, light on memory — fine next to a game", 2588, "Ready · runs on the GPU", true, true, true, "Apache-2.0 (Google)"),
+            ai.jarvis.mobile.ui.screens.ModelOption("gemma4_e4b", "Gemma 4 E4B", "Highest quality that fits a 12 GB phone; about twice as slow and memory-hungry", 3660, "Not downloaded — tap to choose", false, false, false, "Apache-2.0 (Google)"),
+        ), {}, { _, _ -> }, {}, {}, {}, {}) }
+    @Test fun brain() = shot("15-brain") {
+        ai.jarvis.mobile.ui.screens.BrainScreen("Obsidian vault: Second Brain", true, true, listOf(
+            ai.jarvis.mobile.runtime.brain.NoteRef("Gym plan.md", now - 3_600_000, 120),
+            ai.jarvis.mobile.runtime.brain.NoteRef("Jarvis/Memory.md", now - 60_000, 300),
+            ai.jarvis.mobile.runtime.brain.NoteRef("Jarvis/Conversations/2026-11-20 Remind me to stretch a1b2.md", now - 30_000, 400),
+            ai.jarvis.mobile.runtime.brain.NoteRef("Projects/Garden.md", now - 86_400_000, 900),
+        ), null, {}, {}, {}, {}, {})
+    }
     @Test fun activity() = shot("14-activity") {
         ActivityScreen(listOf(
             ActivityEntity(3, now, "success", "approval", "Approved: Open https://example.com"),

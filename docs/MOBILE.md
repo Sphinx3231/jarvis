@@ -82,36 +82,44 @@ seen id are dropped.
 
 ## On-device model (Mobile mode default)
 
-The APK can ship its own model, so Mobile mode works offline with no account: **Qwen2.5-1.5B-Instruct**
-(Apache-2.0, int8, 1.6 GB, packaged for on-device inference by Google's litert-community), run with
-MediaPipe LLM Inference (GPU when available, otherwise CPU). On first launch it's copied out of the
-APK into app storage once (needs ~1.7 GB free on top of the app); it is released when Android asks
-for memory.
+Mobile mode runs **Google's Gemma 4** on the phone with **LiteRT-LM** (GPU when available,
+otherwise CPU), using the model's own chat template and **native function calling**. Automatic
+tool calling is off: the calls the model proposes come back to the router, which validates and
+authorizes each one like any other call.
 
-- **Direct commands first.** A 1.5B model is unreliable at choosing tools, so clear commands
-  (alarms, timers, reminders, search, open app/site, call, copy, battery, network, remember/recall,
-  time, date) are understood by `LocalIntents` and never reach the model. They still go through
-  validation and approvals.
-- **The model handles the rest**: conversation, questions, and paraphrased actions via a
-  `CALL tool {json}` line that the router validates and authorizes like any other call. A reply that
-  claims an action or reading without a tool gets a visible note that nothing was done.
-- **Why not DeepSeek-R1-Distill-1.5B?** It was tested first, on the same file format and prompts. It
-  ignored instructions, gave canned "I'm DeepSeek-R1" replies, produced malformed or dangerous tool
-  calls (it tried to dial a made-up number) and in reasoning mode looped for thousands of tokens.
-  Qwen2.5-1.5B-Instruct was clearly better on every case.
-- **Measured.** `mobile/scripts/local-model-check.sh` sends the app's exact prompts through the real
-  model (LiteRT-LM on a computer) and parses the replies with the app's parser: 9 of 10 scenarios
-  behave as expected and the remaining bad call is refused by validation. The one miss ("how charged is my phone" → an
-  invented percentage) is a direct command in the app, and is flagged by the honesty note otherwise.
+| Model | Download | Notes (Google's benchmarks, Galaxy S26 Ultra) |
+|---|---|---|
+| **Gemma 4 E2B** (default) | 2.6 GB | ~1.4–1.7 GB RAM on CPU / ~0.7 GB on GPU; 41–52 tok/s |
+| Gemma 4 E4B | 3.7 GB | ~2.8–3.3 GB RAM on CPU / ~0.8 GB on GPU; 17–22 tok/s |
 
-**Getting the model onto the phone.** The default APK is small (~90 MB) and the phone downloads the
-model itself on the user's tap: Android's DownloadManager (background, resumable, own
-notification; Wi-Fi only unless the user allows mobile data) fetches a pinned revision from Hugging
-Face into the app's own storage, and it is checked against the pinned SHA-256 before it is ever
-loaded (a bad or partial file is deleted). Until then, direct commands work. Alternatively, build
-with the model inside: `mobile/scripts/fetch-model.sh`, then
-`./gradlew assembleDebug -Pjarvis.bundleModel=true` (APK ≈ 1.7 GB; copied out of the APK once on
-first launch).
+Both are Apache-2.0, pinned to an exact Hugging Face revision and checked against SHA-256 before
+first use. The phone downloads the chosen model itself on the user's tap (Android DownloadManager:
+background, resumable, Wi-Fi only unless the user allows mobile data); custom builds can bundle E2B
+(`mobile/scripts/fetch-model.sh`, then `-Pjarvis.bundleModel=true`, APK ≈ 2.7 GB).
+
+- **Direct commands first.** Clear commands (alarms, timers, reminders, search, open app/site, call,
+  copy, battery, network, remember/recall, time, date) are understood by `LocalIntents` without the
+  model (faster, deterministic), still with validation and approvals.
+- **Guards for a small model:** unknown extra arguments are dropped; a lone `speak` call for an
+  ordinary reply is shown as text; a reply that claims an action without a tool gets a visible note.
+- **Measured.** `MODEL=… mobile/scripts/local-model-check.sh` sends the app's exact requests (the
+  router's own system prompt, all 23 tool descriptions) through the real model with LiteRT-LM on a
+  computer and checks the replies with the app's conversion and validation: **13 of 13** behave as
+  expected (12 correct; one invented `calculator` tool refused by validation).
+- **History.** 0.2.0 shipped Qwen2.5-1.5B (MediaPipe); DeepSeek-R1-Distill-1.5B was evaluated
+  first and rejected. 0.3.0 removes the Qwen files from the phone to free space.
+
+## Live brain (notes vault / Obsidian)
+
+Jarvis's brain is a folder of Markdown notes — the built-in one in app storage, or the user's
+**Obsidian vault**, connected in System → Brain through the Android folder picker (access to that
+folder only; no storage permission).
+
+- Relevant notes (keyword search, titles weighted) are put in front of the model for each request.
+- Tools: `brain_search` and `brain_read` (read-only, free) and `brain_write` (asks first).
+- Each Mobile-mode conversation is filed as `Jarvis/Conversations/<date> <title>.md` (can be turned
+  off), and remembered facts are mirrored to `Jarvis/Memory.md`.
+- Note paths can't leave the vault; Obsidian's own `.obsidian/` folder is never read.
 
 ## Build and install the app
 
@@ -150,4 +158,4 @@ manager).
 - Cross-network use needs a relay you deploy with TLS (see `relay/README.md`).
 - Streaming replies (`jarvis.response.delta`) are defined in the protocol but the PC currently
   sends the complete reply.
-- The on-device model is small: good for chat and simple requests, not for complex multi-step work. It has been validated on a computer with the same model file, not yet on a phone (speed and GPU support vary by device).
+- The on-device model is small: good for chat, notes and simple phone actions, not for long multi-step work. It has been validated on a computer with the same model file and runtime, not yet on a phone (speed and GPU support vary by device). The Obsidian-vault connection (Storage Access Framework) is compile-checked but only tested with the built-in vault.

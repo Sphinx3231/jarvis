@@ -6,10 +6,13 @@ import ai.jarvis.mobile.runtime.ModelResponse
 import ai.jarvis.mobile.runtime.ProviderUnavailable
 import android.content.Context
 import android.os.StatFs
-import com.google.mediapipe.tasks.genai.llminference.LlmInference
-import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
-import com.google.mediapipe.tasks.genai.llminference.PromptTemplates
-import kotlinx.coroutines.CompletableDeferred
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.tool
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,10 +29,12 @@ import java.io.File
 import java.io.InputStream
 import java.security.MessageDigest
 
-/** The on-device model: where it comes from and how to check it. */
+/** An on-device model: where it comes from and how to check it. */
 data class LocalModelSpec(
+    val id: String,
     val file: String,
     val name: String,
+    val summary: String,
     val license: String,
     val source: String,
     /** Pinned download (an exact revision, so the checksum below always applies). */
@@ -38,15 +43,44 @@ data class LocalModelSpec(
     val sizeBytes: Long,
 )
 
-val QWEN_1_5B = LocalModelSpec(
-    file = "qwen2.5-1.5b-instruct-q8.task",
-    name = "Qwen2.5 1.5B Instruct",
-    license = "Apache-2.0 (Qwen team, Alibaba Cloud); on-device packaging by Google litert-community",
-    source = "huggingface.co/litert-community/Qwen2.5-1.5B-Instruct",
-    url = "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/60257f9f1d00ca1f24cc5ce3b829b4139be1ca2b/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.task",
-    sha256 = "82968d0a6c3872cf016fdbcfc591571605f4c7fd2b0f64d2533df502cc6596b3",
-    sizeBytes = 1_598_556_720L,
-)
+/**
+ * Google's Gemma 4 for phones (LiteRT-LM format; text, images and native function calling).
+ * Sizes and memory from Google's model cards (Galaxy S26 Ultra): E2B ≈ 1.4–1.7 GB of RAM on the
+ * CPU / ~0.7 GB on the GPU; E4B ≈ 2.8–3.3 GB / ~0.8 GB.
+ */
+object LocalModels {
+    val GEMMA4_E2B = LocalModelSpec(
+        id = "gemma4_e2b",
+        file = "gemma-4-E2B-it.litertlm",
+        name = "Gemma 4 E2B",
+        summary = "Recommended: fast, light on memory — fine next to a game",
+        license = "Apache-2.0 (Google)",
+        source = "huggingface.co/litert-community/gemma-4-E2B-it-litert-lm",
+        url = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/2e12bfd869b2962984f97a1f2a26807316d534cc/gemma-4-E2B-it.litertlm",
+        sha256 = "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+        sizeBytes = 2_588_147_712L,
+    )
+    val GEMMA4_E4B = LocalModelSpec(
+        id = "gemma4_e4b",
+        file = "gemma-4-E4B-it.litertlm",
+        name = "Gemma 4 E4B",
+        summary = "Highest quality that fits a 12 GB phone; about twice as slow and memory-hungry",
+        license = "Apache-2.0 (Google)",
+        source = "huggingface.co/litert-community/gemma-4-E4B-it-litert-lm",
+        url = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/f254b5ba6e36f7d89cc7892e268e9877bc20f0a0/gemma-4-E4B-it.litertlm",
+        sha256 = "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
+        sizeBytes = 3_659_530_240L,
+    )
+    val ALL = listOf(GEMMA4_E2B, GEMMA4_E4B)
+    fun byId(id: String?) = ALL.firstOrNull { it.id == id } ?: GEMMA4_E2B
+
+    /** Files of models this version no longer uses (Qwen2.5 from 0.2.0): removed to free space. */
+    fun removeRetired(context: Context) {
+        val retired = listOf("qwen2.5-1.5b-instruct-q8.task")
+        for (dir in listOfNotNull(File(context.filesDir, "models"), context.getExternalFilesDir("models")))
+            dir.listFiles()?.filter { f -> retired.any { f.name.startsWith(it) } }?.forEach { it.delete() }
+    }
+}
 
 /**
  * Where the on-device model lives and whether it's usable. Two sources:
@@ -164,14 +198,14 @@ class LocalModelStore(
     }
 
     companion object {
-        fun forApp(context: Context, bundledFile: String): LocalModelStore = LocalModelStore(
-            spec = QWEN_1_5B,
+        fun forApp(context: Context, spec: LocalModelSpec, bundledFile: String): LocalModelStore = LocalModelStore(
+            spec = spec,
             bundled = {
-                if (bundledFile.isBlank()) null
+                if (bundledFile != spec.file) null
                 else runCatching { context.assets.openFd(bundledFile).let { fd -> fd.createInputStream() to fd.length } }.getOrNull()
             },
             unpackDir = File(context.filesDir, "models"),
-            downloadFile = context.getExternalFilesDir("models")?.let { File(it, QWEN_1_5B.file) },
+            downloadFile = context.getExternalFilesDir("models")?.let { File(it, spec.file) },
         )
     }
 }
@@ -201,7 +235,7 @@ class ModelDownloader(
     private var watcher: Job? = null
 
     /** Resume watching a download started before the app was closed. */
-    fun resume() { if (prefs.getLong(KEY, -1) >= 0) watch() }
+    fun resume() { if (prefs.getLong(key, -1) >= 0) watch() }
 
     fun start(allowMobileData: Boolean) {
         val target = store.downloadFile ?: return store.setFailed("This phone has no app storage available for the model")
@@ -217,31 +251,31 @@ class ModelDownloader(
             .setDestinationInExternalFilesDir(context, "models", target.name)
             .setAllowedOverMetered(allowMobileData)
             .setAllowedOverRoaming(false)
-        prefs.edit().putLong(KEY, dm.enqueue(req)).apply()
+        prefs.edit().putLong(key, dm.enqueue(req)).apply()
         store.setDownloading(0f)
         watch()
     }
 
     fun cancel() {
         watcher?.cancel()
-        prefs.getLong(KEY, -1).takeIf { it >= 0 }?.let { runCatching { dm.remove(it) } }
-        prefs.edit().remove(KEY).apply()
+        prefs.getLong(key, -1).takeIf { it >= 0 }?.let { runCatching { dm.remove(it) } }
+        prefs.edit().remove(key).apply()
     }
 
     private fun watch() {
         watcher?.cancel()
         watcher = scope.launch(Dispatchers.IO) {
             while (true) {
-                val id = prefs.getLong(KEY, -1).takeIf { it >= 0 } ?: return@launch
+                val id = prefs.getLong(key, -1).takeIf { it >= 0 } ?: return@launch
                 val row = dm.query(DownloadManager.Query().setFilterById(id))?.use { c ->
                     if (!c.moveToFirst()) null
                     else Triple(c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)), c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)), c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON)))
                 }
                 when (row?.first) {
-                    null -> { prefs.edit().remove(KEY).apply(); store.refresh(); return@launch }
-                    DownloadManager.STATUS_SUCCESSFUL -> { prefs.edit().remove(KEY).apply(); store.refresh(); return@launch }
+                    null -> { prefs.edit().remove(key).apply(); store.refresh(); return@launch }
+                    DownloadManager.STATUS_SUCCESSFUL -> { prefs.edit().remove(key).apply(); store.refresh(); return@launch }
                     DownloadManager.STATUS_FAILED -> {
-                        prefs.edit().remove(KEY).apply()
+                        prefs.edit().remove(key).apply()
                         runCatching { dm.remove(id) }
                         store.setFailed("The download failed (${reason(row.third)}); tap Download to try again")
                         return@launch
@@ -261,89 +295,73 @@ class ModelDownloader(
         else -> "error $code"
     }
 
-    companion object { private const val KEY = "downloadId" }
+    /** One download per model. */
+    private val key = "downloadId.${store.spec.id}"
+
+    /** Delete the downloaded model (frees its storage). */
+    fun delete() {
+        cancel()
+        store.downloadFile?.let { File(it.path + ".verified").delete(); it.delete() }
+        scope.launch { store.refresh() }
+    }
 }
 
 /**
- * Runs the bundled model on the phone (MediaPipe LLM Inference: GPU when available, else CPU).
- * Nothing leaves the phone. Loaded on first use, kept while the app runs, released under memory pressure.
+ * Runs the selected on-device model with Google's LiteRT-LM (GPU when available, else CPU).
+ * Nothing leaves the phone. The model's own chat template and native function calling are used;
+ * the calls it proposes come back to the router (automatic tool calling is off), which validates
+ * and authorizes each one. Loaded on first use, released under memory pressure or on model change.
  */
-class OnDeviceProvider(private val context: Context, private val store: LocalModelStore) : ModelProvider {
+class OnDeviceProvider(private val context: Context, private val store: () -> LocalModelStore) : ModelProvider {
     override val id = "on_device"
-    override val displayName = "${store.spec.name} (on this phone)"
+    override val displayName get() = "${store().spec.name} (on this phone)"
     override val onDevice = true
 
     private val lock = Mutex()
-    private var engine: LlmInference? = null
+    private var engine: Engine? = null
+    private var loaded: File? = null
     @Volatile var backend: String? = null
         private set
 
-    /** Live token count of the reply being generated (for the "thinking" indicator). */
-    val generating = MutableStateFlow<Int?>(null)
-
     override suspend fun complete(request: ModelRequest): ModelResponse = lock.withLock {
-        val file = store.ensureReady()
-        val llm = engine ?: load(file).also { engine = it }
-        val prompt = LocalPrompt.build(request.system, request.turns, request.tools)
-        val raw = withContext(Dispatchers.Default) { generate(llm, prompt) }
-        LocalPrompt.parse(raw)
+        val file = store().ensureReady()
+        val eng = engine?.takeIf { loaded == file } ?: run { release(); load(file).also { engine = it; loaded = file } }
+        withContext(Dispatchers.Default) {
+            val messages = LocalFormat.toMessages(request.turns)
+            val config = ConversationConfig(
+                systemInstruction = Contents.of(request.system),
+                initialMessages = messages.dropLast(1),
+                tools = request.tools.map { tool(LocalFormat.openApiTool(it)) },
+                samplerConfig = SamplerConfig(topK = 40, topP = 0.95, temperature = 0.6),
+                automaticToolCalling = false,
+            )
+            try {
+                eng.createConversation(config).use { conv -> LocalFormat.fromMessage(conv.sendMessage(messages.last())) }
+            } catch (e: Exception) {
+                throw ProviderUnavailable("The on-device model failed: ${e.message ?: e.javaClass.simpleName}")
+            }
+        }
     }
 
-    private suspend fun load(file: File): LlmInference = withContext(Dispatchers.Default) {
-        fun open(b: LlmInference.Backend) = LlmInference.createFromOptions(
-            context,
-            LlmInference.LlmInferenceOptions.builder().setModelPath(file.path).setMaxTokens(MAX_TOKENS).setMaxTopK(40).setPreferredBackend(b).build(),
-        )
+    private suspend fun load(file: File): Engine = withContext(Dispatchers.Default) {
+        fun open(b: Backend) = Engine(EngineConfig(modelPath = file.path, backend = b, maxNumTokens = MAX_TOKENS, cacheDir = context.cacheDir.path)).also { it.initialize() }
         try {
-            open(LlmInference.Backend.GPU).also { backend = "GPU" }
+            open(Backend.GPU()).also { backend = "GPU" }
         } catch (gpu: Throwable) {
             try {
-                open(LlmInference.Backend.CPU).also { backend = "CPU" }
+                open(Backend.CPU()).also { backend = "CPU" }
             } catch (cpu: Throwable) {
                 throw ProviderUnavailable("Couldn't start the on-device model: ${cpu.message ?: cpu.javaClass.simpleName}")
             }
         }
     }
 
-    private suspend fun generate(llm: LlmInference, prompt: String): String {
-        // Empty templates: the prompt above is already fully formatted, so nothing is wrapped around it.
-        val session = LlmInferenceSession.createFromOptions(
-            llm,
-            LlmInferenceSession.LlmInferenceSessionOptions.builder().setTopK(40).setTopP(0.9f).setTemperature(0.4f)
-                .setPromptTemplates(PromptTemplates.builder().setUserPrefix("").setUserSuffix("").setModelPrefix("").setModelSuffix("").setSystemPrefix("").setSystemSuffix("").build())
-                .build(),
-        )
-        try {
-            val budget = MAX_TOKENS - session.sizeInTokens(prompt) - 8
-            if (budget < 64) throw ProviderUnavailable("This conversation is too long for the on-device model; start a new one")
-            session.addQueryChunk(prompt)
-            val done = CompletableDeferred<String>()
-            val out = StringBuilder()
-            var pieces = 0
-            generating.value = 0
-            val future = session.generateResponseAsync { partial, finished ->
-                if (partial != null) { out.append(partial); generating.value = ++pieces }
-                if (finished) done.complete(out.toString())
-            }
-            future.addListener({ runCatching { future.get() }.onFailure { done.completeExceptionally(it.cause ?: it) } }, Runnable::run)
-            return try {
-                done.await()
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                runCatching { session.cancelGenerateResponseAsync() }
-                throw e
-            } catch (e: Throwable) {
-                throw ProviderUnavailable("The on-device model failed: ${e.message ?: e.javaClass.simpleName}")
-            }
-        } finally {
-            generating.value = null
-            runCatching { session.close() }
-        }
-    }
+    private fun release() { runCatching { engine?.close() }; engine = null; loaded = null; backend = null }
 
-    /** Free the ~2 GB the model holds (it reloads on the next message). */
+    /** Free the memory the model holds (it reloads on the next message). */
     fun unload() {
         if (!lock.tryLock()) return
-        try { engine?.close(); engine = null } finally { lock.unlock() }
+        try { release() } finally { lock.unlock() }
     }
 
     companion object { const val MAX_TOKENS = 4096 }

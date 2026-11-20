@@ -18,8 +18,8 @@ import ai.jarvis.mobile.runtime.ToolOutcome
 import ai.jarvis.mobile.runtime.ToolSpec
 import ai.jarvis.mobile.runtime.Turn
 import ai.jarvis.mobile.runtime.local.LocalModelStore
-import ai.jarvis.mobile.runtime.local.LocalPrompt
-import ai.jarvis.mobile.runtime.local.QWEN_1_5B
+import ai.jarvis.mobile.runtime.local.LocalFormat
+import ai.jarvis.mobile.runtime.local.LocalModels
 import ai.jarvis.mobile.runtime.tools.androidTools
 import ai.jarvis.mobile.voice.Speaker
 import android.app.Application
@@ -87,7 +87,8 @@ class LocalModelTest {
         val real = androidTools(memory, MobileTaskManager(ctx, db.tasks(), activity), Speaker(ctx))
         val replies = mapOf("device_battery" to """{"levelPercent":64,"charging":true}""", "device_network" to """{"online":true,"transport":"wifi","metered":false}""")
         spies = real.associate { it.name to SpyTool(it, replies[it.name] ?: "ok") }
-        registry = MobileToolRegistry(spies.values.toList())
+        val testBrain = ai.jarvis.mobile.runtime.brain.Brain { ai.jarvis.mobile.runtime.brain.FileNoteStore(java.io.File(ctx.cacheDir, "brain-test"), "test") }
+        registry = MobileToolRegistry(spies.values.toList() + ai.jarvis.mobile.runtime.brain.brainTools(testBrain))
         approver.launch { permissions.pending.collect { l -> l.forEach { asked += it.tool; permissions.resolve(it.id, true) } } }
     }
 
@@ -151,27 +152,39 @@ class LocalModelTest {
 
     // ------------------------------------------------------------------ prompt + parser
 
-    @Test fun promptIsChatMlWithToolsAndResults() {
-        val p = LocalPrompt.build("SYS", listOf(Turn.User("battery?"), Turn.Assistant("", listOf(ToolCall("1", "device_battery", JsonObject(emptyMap())))), Turn.ToolResult("1", "device_battery", "{\"levelPercent\":64}", false)), registry.specs(ctx).take(2))
-        assertTrue(p, p.startsWith("<|im_start|>system\nSYS\n\nPhone tools you can use:\n- device_battery(): Battery level and whether the phone is charging.\n"))
-        assertTrue(p.contains("<|im_start|>assistant\nCALL device_battery {}<|im_end|>"))
-        assertTrue(p.contains("[Tool result for device_battery: {\"levelPercent\":64}]\nAnswer my question using this result.<|im_end|>"))
-        assertTrue(p.endsWith("<|im_start|>assistant\n"))
+    @Test fun toolsAndMessagesMapToTheRuntimeFormat() {
         val alarm = registry.specs(ctx).first { it.name == "set_alarm" }
-        assertTrue(LocalPrompt.toolBlock(listOf(alarm)).contains("- set_alarm(hour, minute, label?): "))
+        val desc = Json.parseToJsonElement(LocalFormat.toolDescription(alarm)).jsonObject
+        assertEquals("set_alarm", desc["name"]!!.jsonPrimitive.content)
+        assertEquals(alarm.parameters, desc["parameters"])
+        val msgs = LocalFormat.toMessages(listOf(
+            Turn.User("battery?"),
+            Turn.Assistant("", listOf(ToolCall("1", "device_battery", JsonObject(emptyMap())))),
+            Turn.ToolResult("1", "device_battery", "{\"levelPercent\":64}", false),
+            Turn.ToolResult("2", "device_network", "offline", true),
+        ))
+        assertEquals(listOf(com.google.ai.edge.litertlm.Role.USER, com.google.ai.edge.litertlm.Role.MODEL, com.google.ai.edge.litertlm.Role.TOOL), msgs.map { it.role })
+        assertEquals("device_battery", msgs[1].toolCalls.single().name)
+        val responses = msgs[2].contents.contents.filterIsInstance<com.google.ai.edge.litertlm.Content.ToolResponse>()
+        assertEquals("consecutive results go in one tool message", 2, responses.size)
+        assertEquals(mapOf("levelPercent" to 64L), responses[0].response)
+        assertEquals(mapOf("error" to "offline"), responses[1].response)
     }
 
-    @Test fun parserHandlesRealWorldOutputs() {
-        LocalPrompt.parse("CALL set_alarm {\"hour\": 7, \"minute\": 30}").let { assertEquals("set_alarm", it.toolCalls.single().name); assertEquals(7, it.toolCalls.single().arguments["hour"]!!.jsonPrimitive.int) }
-        LocalPrompt.parse("Sure! CALL web_search {\"query\": \"a {b} \\\"c\\\"\"} thanks").let { assertEquals("a {b} \"c\"", it.toolCalls.single().arguments["query"]!!.jsonPrimitive.content); assertEquals("Sure!", it.text) }
-        LocalPrompt.parse("CALL device_battery").let { assertEquals("device_battery", it.toolCalls.single().name); assertTrue(it.toolCalls.single().arguments.isEmpty()) }
-        // The placeholder some models echo becomes an (unknown) call the router refuses.
-        assertEquals("tool_name", LocalPrompt.parse("CALL tool_name {JSON arguments}").toolCalls.single().name)
-        LocalPrompt.parse("Paris is the capital.<|im_end|>").let { assertTrue(it.toolCalls.isEmpty()); assertEquals("Paris is the capital.", it.text) }
-        assertEquals("Answer.", LocalPrompt.clean("<think>hmm</think>\n\nAnswer."))
-        assertEquals("Answer.", LocalPrompt.clean("reasoning…</think>Answer."))
-        assertEquals("Lights, camera 🎥", LocalPrompt.clean("Lights, cameraĠðŁİ¥"))
-        assertEquals("Café ð", LocalPrompt.clean("Café ð"))
+    @Test fun runtimeRepliesBecomeValidatedCalls() {
+        // The runtime hands numbers back as doubles; tools need whole numbers to be integers.
+        val reply = com.google.ai.edge.litertlm.Message.model(
+            com.google.ai.edge.litertlm.Contents.of(emptyList<com.google.ai.edge.litertlm.Content>()),
+            listOf(com.google.ai.edge.litertlm.ToolCall("set_alarm", mapOf("hour" to 7.0, "minute" to 30.0, "label" to "gym"))), emptyMap(),
+        )
+        val r = LocalFormat.fromMessage(reply)
+        val call = r.toolCalls.single()
+        assertEquals("set_alarm", call.name)
+        assertEquals("{\"hour\":7,\"minute\":30,\"label\":\"gym\"}", call.arguments.toString())
+        assertNull(registry.validate(registry.get("set_alarm")!!, call.arguments))
+        assertEquals(1.5, LocalFormat.normalizeArgs(mapOf("x" to 1.5))["x"]!!.jsonPrimitive.content.toDouble(), 0.0)
+        assertEquals("Paris.", LocalFormat.fromMessage(com.google.ai.edge.litertlm.Message.model("Paris.<end_of_turn>")).text)
+        assertEquals("Answer.", LocalFormat.clean("<think>hmm</think>\n\nAnswer."))
     }
 
     // ------------------------------------------------------------------ the on-device path in the router
@@ -198,7 +211,7 @@ class LocalModelTest {
         val dir = File(ctx.cacheDir, "models-test").apply { deleteRecursively() }
         val bytes = ByteArray(10 * 1024 * 1024) { (it % 251).toByte() }
         var opened = 0
-        val store = LocalModelStore(QWEN_1_5B, { opened++; ByteArrayInputStream(bytes) to bytes.size.toLong() }, dir, null, freeBytes = { Long.MAX_VALUE })
+        val store = LocalModelStore(LocalModels.GEMMA4_E2B, { opened++; ByteArrayInputStream(bytes) to bytes.size.toLong() }, dir, null, freeBytes = { Long.MAX_VALUE })
         val progress = mutableListOf<Float>()
         val watch = launch(Dispatchers.Default) { store.state.collect { (it as? LocalModelStore.State.Preparing)?.let { p -> progress += p.fraction } } }
         val f = store.ensureReady()
@@ -209,20 +222,20 @@ class LocalModelTest {
         assertEquals(f, store.ensureReady())
         assertEquals("not copied twice", 1, opened)
         // A fresh start with the file present only checks its size.
-        val again = LocalModelStore(QWEN_1_5B, { ByteArrayInputStream(ByteArray(0)) to bytes.size.toLong() }, dir, null, freeBytes = { Long.MAX_VALUE })
+        val again = LocalModelStore(LocalModels.GEMMA4_E2B, { ByteArrayInputStream(ByteArray(0)) to bytes.size.toLong() }, dir, null, freeBytes = { Long.MAX_VALUE })
         assertEquals(bytes.size.toLong(), again.ensureReady().length())
         // Not enough space: a clear failure, no partial file left behind.
-        val full = LocalModelStore(QWEN_1_5B, { ByteArrayInputStream(bytes) to bytes.size.toLong() }, File(ctx.cacheDir, "models-full"), null, freeBytes = { 1000L })
+        val full = LocalModelStore(LocalModels.GEMMA4_E2B, { ByteArrayInputStream(bytes) to bytes.size.toLong() }, File(ctx.cacheDir, "models-full"), null, freeBytes = { 1000L })
         assertTrue(runCatching { full.ensureReady() }.exceptionOrNull()!!.message!!.contains("Not enough free storage"))
         assertTrue(full.state.value is LocalModelStore.State.Failed)
-        assertFalse(File(ctx.cacheDir, "models-full/${QWEN_1_5B.file}.part").exists())
+        assertFalse(File(ctx.cacheDir, "models-full/${LocalModels.GEMMA4_E2B.file}.part").exists())
     }
 
     @Test fun downloadedModelIsVerifiedAgainstThePinnedChecksum() = runBlocking {
         val dir = File(ctx.cacheDir, "dl-test").apply { deleteRecursively(); mkdirs() }
         val bytes = "the model".toByteArray()
         val goodSha = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
-        val spec = QWEN_1_5B.copy(sha256 = goodSha, sizeBytes = bytes.size.toLong())
+        val spec = LocalModels.GEMMA4_E2B.copy(sha256 = goodSha, sizeBytes = bytes.size.toLong())
         val file = File(dir, spec.file)
         var hashed = 0
         fun store() = LocalModelStore(spec, { null }, dir, file, sha256Of = { hashed++; ai.jarvis.mobile.runtime.local.sha256Hex(it) })
@@ -255,7 +268,7 @@ class LocalModelTest {
     @Test fun phoneDownloadsWithTheSystemDownloadManager() = runBlocking {
         val bytes = "the model".toByteArray()
         val sha = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
-        val spec = QWEN_1_5B.copy(sha256 = sha, sizeBytes = bytes.size.toLong())
+        val spec = LocalModels.GEMMA4_E2B.copy(sha256 = sha, sizeBytes = bytes.size.toLong())
         val target = File(ctx.getExternalFilesDir("models"), spec.file).apply { delete() }
         val store = LocalModelStore(spec, { null }, File(ctx.cacheDir, "unused"), target)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -271,7 +284,7 @@ class LocalModelTest {
             val dl = ai.jarvis.mobile.runtime.local.ModelDownloader(ctx, store, scope, freeBytes = { Long.MAX_VALUE })
             dl.start(allowMobileData = false)
             assertEquals(1, shadowDm.requestCount)
-            val id = ctx.getSharedPreferences("jarvis_model_download", Context.MODE_PRIVATE).getLong("downloadId", -1)
+            val id = ctx.getSharedPreferences("jarvis_model_download", Context.MODE_PRIVATE).getLong("downloadId.${spec.id}", -1)
             val req = org.robolectric.shadow.api.Shadow.extract<org.robolectric.shadows.ShadowDownloadManager.ShadowRequest>(shadowDm.getRequest(id))
             assertEquals(spec.url, req.uri.toString())
             assertTrue(req.destination.toString(), req.destination.toString().endsWith("/models/${spec.file}"))
@@ -290,7 +303,7 @@ class LocalModelTest {
             // A failed download is reported with a retry hint.
             target.delete(); File(target.path + ".verified").delete()
             dl.start(allowMobileData = true)
-            val id2 = ctx.getSharedPreferences("jarvis_model_download", Context.MODE_PRIVATE).getLong("downloadId", -1)
+            val id2 = ctx.getSharedPreferences("jarvis_model_download", Context.MODE_PRIVATE).getLong("downloadId.${spec.id}", -1)
             val req2 = org.robolectric.shadow.api.Shadow.extract<org.robolectric.shadows.ShadowDownloadManager.ShadowRequest>(shadowDm.getRequest(id2))
             assertTrue(req2.allowedOverMetered)
             req2.status = android.app.DownloadManager.STATUS_FAILED
@@ -301,9 +314,11 @@ class LocalModelTest {
         }
     }
 
-    @Test fun pinnedModelMatchesTheTestedFile() {
-        assertTrue(QWEN_1_5B.url.contains("/resolve/60257f9f1d00ca1f24cc5ce3b829b4139be1ca2b/"))
-        assertEquals("82968d0a6c3872cf016fdbcfc591571605f4c7fd2b0f64d2533df502cc6596b3", QWEN_1_5B.sha256)
+    @Test fun pinnedModelsMatchTheTestedFiles() {
+        assertTrue(LocalModels.GEMMA4_E2B.url.contains("/resolve/2e12bfd869b2962984f97a1f2a26807316d534cc/"))
+        assertEquals("181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c", LocalModels.GEMMA4_E2B.sha256)
+        assertTrue(LocalModels.GEMMA4_E4B.url.contains("/resolve/f254b5ba6e36f7d89cc7892e268e9877bc20f0a0/"))
+        assertEquals(LocalModels.GEMMA4_E2B, LocalModels.byId("nonsense"))
     }
 
     // ------------------------------------------------------------------ real-model round trip (opt-in)
@@ -315,41 +330,68 @@ class LocalModelTest {
         "Look up the weather in Cairo online" to "web_search",
         "Please ring 555 0134" to "phone_dial",
         "Start a countdown of 3 minutes" to "set_timer",
+        "Open Spotify" to "apps_list|app_launch",
+        "What did I write in my notes about the gym plan?" to "brain_search",
+        "Save a note called Groceries with milk, eggs and bread" to "brain_write",
         "Tell me a short joke" to "",
         "What is 15% of 80?" to "",
-        "Text Alex that I'm running late" to "",
+        "Text Alex that I'm running late" to "share_text|-",
     )
+    /** The router's own prompt builder, so the harness tests exactly what the phone sends. */
+    private val harnessSystem = MobileExecutionRouter.systemPrompt(onDevice = true, now = java.time.ZonedDateTime.parse("2026-11-20T09:00:00Z"), known = listOf("my name is Sam"), notes = null)
 
-    /** Writes the exact prompts the app sends, for mobile/scripts/local-model-check.py. */
+    /** Writes the exact system prompt, tools and messages the app sends, for mobile/scripts/local-model-check.py. */
     @Test fun dumpPromptsForTheRealModel() {
         val out = System.getenv("JARVIS_PROMPT_DUMP"); assumeTrue("set by mobile/scripts/local-model-check.sh", !out.isNullOrBlank())
-        val system = "You are Jarvis, the user's personal assistant, running on their Android phone (not their PC). Be brief and friendly.\nCurrent time: 2026-11-20 09:00 (Friday).\nWhat you know about the user:\n- my name is Sam\n"
+        val tools = buildJsonArray { registry.specs(ctx).forEach { add(Json.parseToJsonElement(LocalFormat.toolDescription(it))) } }
+        fun user(q: String) = buildJsonObject { put("role", "user"); put("content", q) }
         val arr = buildJsonArray {
-            scenarios.forEach { (q, expect) -> add(buildJsonObject { put("question", q); put("expect", expect); put("prompt", LocalPrompt.build(system, listOf(Turn.User(q)), registry.specs(ctx))) }) }
-            add(buildJsonObject { put("question", "follow-up"); put("expect", ""); put("prompt", LocalPrompt.build(system, listOf(Turn.User("How charged is my phone?"), Turn.Assistant("", listOf(ToolCall("1", "device_battery", JsonObject(emptyMap())))), Turn.ToolResult("1", "device_battery", "{\"levelPercent\":64,\"charging\":false}", false)), registry.specs(ctx))) })
+            scenarios.forEach { (q, expect) -> add(buildJsonObject { put("question", q); put("expect", expect); put("system", harnessSystem); put("tools", tools); put("messages", buildJsonArray { add(user(q)) }) }) }
+            add(buildJsonObject {
+                put("question", "follow-up (battery result)"); put("expect", ""); put("system", harnessSystem); put("tools", tools)
+                put("messages", Json.parseToJsonElement("""[{"role":"user","content":"How charged is my phone?"},{"role":"assistant","content":[],"tool_calls":[{"type":"function","function":{"name":"device_battery","arguments":{}}}]},{"role":"tool","content":[{"type":"tool_response","name":"device_battery","response":{"levelPercent":64,"charging":false}}]}]"""))
+            })
         }
         File(out!!).writeText(arr.toString())
     }
 
-    /** Parses what the real model answered with the app's own parser and checks each scenario. */
+    /** Converts what the real model answered the way the app does, validates the calls, and checks each scenario. */
     @Test fun realModelOutputsParseIntoTheRightCalls() {
         val path = System.getenv("JARVIS_MODEL_OUTPUTS"); assumeTrue("set by mobile/scripts/local-model-check.sh", !path.isNullOrBlank())
         val results = Json.parseToJsonElement(File(path!!).readText()).jsonArray.map { it.jsonObject }
         val report = StringBuilder()
         var ok = 0
         for (r in results) {
-            val parsed = LocalPrompt.parse(r["output"]!!.jsonPrimitive.content)
+            val reply = r["reply"]!!.jsonObject
+            val text0 = LocalFormat.clean((reply["content"] as? JsonArray).orEmpty().joinToString("") { (it as? JsonObject)?.get("text")?.jsonPrimitive?.content ?: "" })
+            val calls = (reply["tool_calls"] as? JsonArray).orEmpty().map { it.jsonObject }.map { tc ->
+                val f = tc["function"]?.jsonObject ?: tc
+                ToolCall("x", f["name"]!!.jsonPrimitive.content, LocalFormat.normalizeArgs((f["arguments"] as? JsonObject).orEmpty().mapValues { (_, v) -> plain(v) }))
+            }
+            // What the router does next: a lone "speak" for an ordinary reply becomes text; extra arguments are dropped.
+            val spoken = MobileExecutionRouter.speakAsReply(calls, r["question"]!!.jsonPrimitive.content)
+            val text = spoken ?: text0
+            val got = if (spoken != null) null else calls.firstOrNull()?.let { c -> registry.get(c.name)?.let { c.copy(arguments = registry.sanitize(it, c.arguments)) } ?: c }
             val expect = r["expect"]!!.jsonPrimitive.content
-            val got = parsed.toolCalls.firstOrNull()
+            val answerOk = expect.isEmpty() || "-" in expect.split('|')
             val valid = got?.let { c -> registry.get(c.name)?.let { registry.validate(it, c.arguments) == null } ?: false }
+            val risky = got?.let { registry.get(it.name)?.risk == ai.jarvis.mobile.runtime.Risk.ACT } ?: false
             // A wrong call that validation refuses never runs: safe, but reported as such.
-            val refused = expect.isEmpty() && got != null && valid != true
-            val pass = if (expect.isEmpty()) (got == null && parsed.text.isNotBlank()) || refused else got?.name == expect && valid == true
+            val refused = answerOk && got != null && valid != true
+            val pass = (answerOk && got == null && text.isNotBlank()) || refused || (got != null && got.name in expect.split('|') && valid == true)
             if (pass) ok++
-            report.append("${if (refused) "SAFE (bad call refused by validation)" else if (pass) "PASS" else "FAIL"}  ${r["question"]!!.jsonPrimitive.content}  →  ${got?.let { "${it.name} ${it.arguments}" } ?: parsed.text.take(90)}\n")
+            val label = when { refused -> "SAFE (bad call refused by validation)"; pass -> "PASS"; got != null && valid == true && risky -> "MISS (would ask you first)"; else -> "MISS" }
+            report.append("$label  ${r["question"]!!.jsonPrimitive.content}  →  ${got?.let { "${it.name} ${it.arguments}" } ?: text.take(90)}  [${r["seconds"]?.jsonPrimitive?.content}s]\n")
         }
         println(report)
         File(path).resolveSibling("local-model-report.txt").writeText(report.toString() + "\n$ok/${results.size} as expected\n")
-        assertTrue("at least 8 of ${results.size} scenarios behave as expected:\n$report", ok >= 8)
+        assertTrue("at least 10 of ${results.size} scenarios behave as expected:\n$report", ok >= 10)
+    }
+
+    private fun plain(e: kotlinx.serialization.json.JsonElement): Any? = when (e) {
+        is JsonObject -> e.mapValues { plain(it.value) }
+        is JsonArray -> e.map { plain(it) }
+        is kotlinx.serialization.json.JsonNull -> null
+        is JsonPrimitive -> if (e.isString) e.content else e.content.toBooleanStrictOrNull() ?: e.content.toDoubleOrNull()
     }
 }

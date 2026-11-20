@@ -23,6 +23,9 @@ class MobileExecutionRouter(
     private val memory: MobileMemoryManager,
     private val activity: ActivityLog,
     private val maxSteps: Int = 6,
+    /** The user's notes vault: relevant notes go to the model; exchanges are filed there. */
+    private val brain: ai.jarvis.mobile.runtime.brain.Brain? = null,
+    private val logToBrain: () -> Boolean = { false },
 ) {
     enum class Phase { IDLE, THINKING, WORKING, WAITING_FOR_APPROVAL, DONE, ERROR }
     data class Status(val phase: Phase = Phase.IDLE, val detail: String = "Ready")
@@ -53,6 +56,9 @@ class MobileExecutionRouter(
                     ?: Result(conv, if (model.onDevice) "The on-device model isn't available right now (${e.message?.take(160)}). Direct commands still work: “battery”, “set an alarm for 7:30”, “remind me in 10 minutes to …”, “remember that …”." else "I couldn't reach your model (${e.message?.take(160)}). Check your connection or the model settings, or switch to Remote PC mode.", emptyList(), "none")
             }
         }
+        val b = brain
+        if (b != null && logToBrain()) runCatching { b.logExchange(conv, conversations.title(conv) ?: text, text, r.text, r.handledBy) }
+            .onFailure { activity.log("warning", "brain", "Couldn't save the conversation to the brain: ${it.message}") }
         conversations.add(conv, "assistant", r.text, """{"handledBy":"${r.handledBy}","tools":${r.toolsUsed.joinToString(prefix = "[", postfix = "]") { "\"$it\"" }}}""")
         setPhase(Phase.DONE, "Done")
         return r
@@ -75,14 +81,8 @@ class MobileExecutionRouter(
         setPhase(Phase.THINKING, "Thinking with ${model.displayName}")
         val standing = memory.standing()
         val relevant = memory.search(text, 6).filter { m -> standing.none { it.id == m.id } }
-        val system = buildString {
-            append("You are Jarvis, the user's personal assistant, running on their Android phone (not their PC). Be brief and friendly.\n")
-            val now = java.time.ZonedDateTime.now()
-            append("Current time: ${now.toLocalDate()} ${"%02d:%02d".format(now.hour, now.minute)} (${now.dayOfWeek.name.lowercase().replaceFirstChar { it.uppercase() }}).\n")
-            val known = standing + relevant
-            if (known.isNotEmpty()) append("What you know about the user:\n" + known.joinToString("\n") { "- ${it.content}" } + "\n")
-            if (!model.onDevice) append("Act only through the tools provided; actions that change something may wait for the user's approval on screen, and you cannot approve anything yourself. Never say something happened unless its tool result says so.\n")
-        }
+        val notes = brain?.let { bn -> runCatching { bn.contextFor(text) }.getOrNull() }
+        val system = systemPrompt(model.onDevice, java.time.ZonedDateTime.now(), (standing + relevant).map { it.content }, notes)
         val history = conversations.history(conv, 16).dropLast(1).mapNotNull { m ->
             when (m.role) { "user" -> Turn.User(m.content); "assistant" -> Turn.Assistant(m.content); else -> null }
         }.dropWhile { it !is Turn.User }
@@ -90,6 +90,8 @@ class MobileExecutionRouter(
         val used = mutableListOf<String>()
         repeat(maxSteps) {
             val resp = model.complete(ModelRequest(system, turns, registry.specs(context)))
+            // A small model sometimes "speaks" an ordinary reply; unless the user asked for it out loud, show it as text.
+            if (model.onDevice) speakAsReply(resp.toolCalls, text)?.let { return Result(conv, it, used, model.displayName) }
             if (resp.toolCalls.isEmpty()) return Result(conv, honest(resp.text.ifBlank { if (used.isEmpty()) "I'm not sure how to help with that." else "Done." }, used, model), used, model.displayName)
             turns += Turn.Assistant(resp.text, resp.toolCalls)
             for (call in resp.toolCalls) {
@@ -105,20 +107,46 @@ class MobileExecutionRouter(
     /** Validate → check availability → authorize → execute. Every outcome is logged. */
     suspend fun execute(call: ToolCall): ToolOutcome {
         val tool = registry.get(call.name) ?: return ToolOutcome.fail("Unknown capability \"${call.name}\" — it doesn't exist on this phone").also { activity.log("warning", "tool", "Refused unknown capability ${call.name}") }
-        registry.validate(tool, call.arguments)?.let { err -> activity.log("warning", "tool", "Invalid arguments for ${tool.name}: $err"); return ToolOutcome.fail("Invalid arguments: $err") }
+        val args = registry.sanitize(tool, call.arguments)
+        registry.validate(tool, args)?.let { err -> activity.log("warning", "tool", "Invalid arguments for ${tool.name}: $err"); return ToolOutcome.fail("Invalid arguments: $err") }
         val avail = tool.availability(context)
         if (!avail.available) return ToolOutcome.fail("${tool.title} is unavailable: ${avail.reason}")
-        setPhase(Phase.WAITING_FOR_APPROVAL, tool.summarize(call.arguments))
-        when (val d = permissions.authorize(tool, call.arguments)) {
+        setPhase(Phase.WAITING_FOR_APPROVAL, tool.summarize(args))
+        when (val d = permissions.authorize(tool, args)) {
             is MobilePermissionManager.Decision.Denied -> return ToolOutcome.fail("Not done: ${d.reason}")
             MobilePermissionManager.Decision.Allowed -> {}
         }
-        setPhase(Phase.WORKING, tool.summarize(call.arguments))
+        setPhase(Phase.WORKING, tool.summarize(args))
         return try {
-            tool.execute(context, call.arguments).also { activity.log(if (it.ok) "success" else "warning", "tool", "${tool.summarize(call.arguments)} → ${it.content.take(120)}") }
+            tool.execute(context, args).also { activity.log(if (it.ok) "success" else "warning", "tool", "${tool.summarize(args)} → ${it.content.take(120)}") }
         } catch (e: Exception) {
             activity.log("error", "tool", "${tool.name} failed: ${e.message}")
             ToolOutcome.fail("${tool.title} failed: ${e.message}")
+        }
+    }
+
+    companion object {
+        /** The text of a lone `speak` call when the user didn't ask for anything to be said aloud. */
+        fun speakAsReply(calls: List<ToolCall>, userText: String): String? {
+            val c = calls.singleOrNull()?.takeIf { it.name == "speak" } ?: return null
+            if (Regex("\\b(say|speak|read|aloud|out loud|tell me out loud|announce)\\b", RegexOption.IGNORE_CASE).containsMatchIn(userText)) return null
+            return (c.arguments["text"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
+        }
+
+        /** The instructions every model gets. The on-device wording was tuned against Gemma 4 E2B (mobile/scripts/local-model-check.sh). */
+        fun systemPrompt(onDevice: Boolean, now: java.time.ZonedDateTime, known: List<String>, notes: String?): String = buildString {
+            append("You are Jarvis, the user's personal assistant, running on their Android phone (not their PC). Be brief and friendly.\n")
+            append("Current time: ${now.toLocalDate()} ${"%02d:%02d".format(now.hour, now.minute)} (${now.dayOfWeek.name.lowercase().replaceFirstChar { it.uppercase() }}).\n")
+            if (known.isNotEmpty()) append("What you know about the user:\n" + known.joinToString("\n") { "- $it" } + "\n")
+            if (notes != null) append("From the user's notes (their brain), possibly relevant:\n$notes\n")
+            if (onDevice) {
+                append("Answer questions, jokes, maths, advice and chat directly in text, without any tool. ")
+                append("Use a tool only when the user asks you to do something on the phone, or asks about the phone, their notes or what you remember. ")
+                append("\"Notes\" means the user's notes vault: use the brain_ tools for notes, and the memory_ tools only for short facts. ")
+                append("If no tool fits a request, say you can't do that on the phone yet. Never say something happened unless a tool result says so.\n")
+            } else {
+                append("Act only through the tools provided; actions that change something may wait for the user's approval on screen, and you cannot approve anything yourself. Never say something happened unless its tool result says so.\n")
+            }
         }
     }
 }

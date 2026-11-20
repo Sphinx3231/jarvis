@@ -59,6 +59,12 @@ class MobileToolRegistry(tools: List<MobileTool>) {
      * Validate a model's arguments against the tool's JSON schema (types, required, enums, ranges).
      * Returns an error message, or null when valid. Unknown arguments are rejected.
      */
+    /** Drop arguments the tool doesn't define (small models sometimes add extras; they're never used). */
+    fun sanitize(tool: MobileTool, args: JsonObject): JsonObject {
+        val props = tool.parameters["properties"]?.jsonObject ?: return JsonObject(emptyMap())
+        return JsonObject(args.filterKeys { it in props })
+    }
+
     fun validate(tool: MobileTool, args: JsonObject): String? {
         val props = tool.parameters["properties"]?.jsonObject ?: JsonObject(emptyMap())
         val required = tool.parameters["required"]?.jsonArray?.map { it.jsonPrimitive.content }.orEmpty()

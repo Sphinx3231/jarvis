@@ -7,7 +7,7 @@ plugins {
     alias(libs.plugins.roborazzi)
 }
 
-val bundledModelFile = "qwen2.5-1.5b-instruct-q8.task"
+val bundledModelFile = "gemma-4-E2B-it.litertlm"
 val bundleModel = (findProperty("jarvis.bundleModel") as String?) == "true"
 if (bundleModel) {
     require(rootProject.file("model-assets/$bundledModelFile").isFile) {
@@ -27,9 +27,9 @@ android {
         // Android 12+: hardware-backed key agreement (KeyProperties.PURPOSE_AGREE_KEY) for E2E pairing.
         minSdk = 31
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.2.0"
-        // The on-device model runtime ships native code for 64-bit ARM (every Android 12+ phone).
+        versionCode = 3
+        versionName = "0.3.0"
+        // The on-device model runtime (LiteRT-LM) ships native code for 64-bit ARM (every Android 12+ phone).
         ndk { abiFilters += listOf("arm64-v8a") }
         // On-device model bundled into the APK (see mobile/scripts/fetch-model.sh). Only with
         // -Pjarvis.bundleModel=true, so ordinary builds and tests don't pack 1.6 GB.
@@ -38,8 +38,8 @@ android {
     if (bundleModel) {
         sourceSets["main"].assets.srcDir(rootProject.file("model-assets"))
     }
-    // The model must stay uncompressed in the APK so it can be copied out quickly.
-    androidResources { noCompress += listOf("task") }
+    // A bundled model must stay uncompressed in the APK so it can be copied out quickly.
+    androidResources { noCompress += listOf("litertlm") }
 
     buildTypes {
         release {
@@ -53,9 +53,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-    kotlinOptions {
-        jvmTarget = "17"
     }
     buildFeatures {
         compose = true
@@ -100,7 +97,8 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.zxing.android.embedded)
-    implementation(libs.mediapipe.genai)
+    implementation(libs.litertlm.android)
+    implementation(libs.androidx.documentfile)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
 
@@ -112,4 +110,8 @@ dependencies {
     testImplementation(libs.roborazzi)
     testImplementation(libs.roborazzi.compose)
     testImplementation(libs.roborazzi.junit)
+}
+
+kotlin {
+    compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
 }

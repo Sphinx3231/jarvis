@@ -24,6 +24,8 @@ import ai.jarvis.mobile.ui.screens.OnboardingScreen
 import ai.jarvis.mobile.ui.screens.PermRow
 import ai.jarvis.mobile.ui.screens.SettingsScreen
 import ai.jarvis.mobile.ui.screens.TasksScreen
+import ai.jarvis.mobile.ui.screens.BrainScreen
+import ai.jarvis.mobile.ui.screens.NoteScreen
 import ai.jarvis.mobile.ui.theme.J
 import android.Manifest
 import android.content.Intent
@@ -124,7 +126,9 @@ private fun Main(c: AppContainer, mode: Mode, deepLink: String?, onDeepLinkHandl
     val activity by remember { c.db.activity().recent() }.collectAsState(emptyList())
     val history by remember { c.conversations.recent() }.collectAsState(emptyList())
     val pendingMobile by c.permissions.pending.collectAsState()
-    val localModelState by c.localModel.state.collectAsState()
+    val localModelState by remember { c.selectedModel.flatMapLatest { c.modelStores.getValue(it).state } }.collectAsState(ai.jarvis.mobile.runtime.local.LocalModelStore.State.Checking)
+    val selectedModelId by c.selectedModel.collectAsState()
+    val brainVersion by c.brain.version.collectAsState()
     val messages by remember { c.mobile.state.map { it.conversationId }.flatMapLatest { id -> if (id == null) flowOf(emptyList()) else c.conversations.messages(id) } }.collectAsState(emptyList())
     val agentResults = remember { mutableStateMapOf<String, String>() }
     var keyTick by remember { mutableIntStateOf(0) }
@@ -286,19 +290,21 @@ private fun Main(c: AppContainer, mode: Mode, deepLink: String?, onDeepLinkHandl
                     }
                 }
                 composable("settings") {
-                    val onDeviceInfo = c.localModel.spec.let { spec ->
-                        val st = when (val m = localModelState) {
-                            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Ready -> "ready${c.onDevice.backend?.let { b -> " · runs on the $b" } ?: ""}"
-                            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Preparing -> "unpacking ${(m.fraction * 100).toInt()}% (first launch only)"
-                            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Downloading -> "downloading ${(m.fraction * 100).toInt()}%"
-                            ai.jarvis.mobile.runtime.local.LocalModelStore.State.NotDownloaded -> "not downloaded yet (tap Download on the Core screen, ${spec.sizeBytes / 1_000_000} MB)"
-                            ai.jarvis.mobile.runtime.local.LocalModelStore.State.Verifying -> "checking the download"
-                            ai.jarvis.mobile.runtime.local.LocalModelStore.State.Checking -> "checking"
-                            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Failed -> "unavailable: ${m.reason}"
+                    val models = ai.jarvis.mobile.runtime.local.LocalModels.ALL.map { spec ->
+                        val st by c.modelStores.getValue(spec.id).state.collectAsState()
+                        val status = when (val m = st) {
+                            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Ready -> "Ready${if (spec.id == selectedModelId) c.onDevice.backend?.let { b -> " · runs on the $b" } ?: "" else ""}"
+                            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Preparing -> "Unpacking ${(m.fraction * 100).toInt()}%"
+                            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Downloading -> "Downloading ${(m.fraction * 100).toInt()}%"
+                            ai.jarvis.mobile.runtime.local.LocalModelStore.State.NotDownloaded -> if (spec.id == selectedModelId) "Not downloaded — tap Download on the Core screen" else "Not downloaded — tap to choose"
+                            ai.jarvis.mobile.runtime.local.LocalModelStore.State.Verifying -> "Checking the download"
+                            ai.jarvis.mobile.runtime.local.LocalModelStore.State.Checking -> "Checking"
+                            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Failed -> "Unavailable: ${m.reason}"
                         }
-                        "${spec.name} — $st\nRuns fully offline; nothing you say to it leaves the phone.\nLicense: ${spec.license}. Source: ${spec.source}."
+                        ai.jarvis.mobile.ui.screens.ModelOption(spec.id, spec.name, spec.summary, spec.sizeBytes / 1_000_000, status, spec.id == selectedModelId,
+                            st is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Ready, st is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Ready && c.modelStores.getValue(spec.id).downloadFile?.isFile == true, "${spec.license}; ${spec.source}")
                     }
-                    SettingsScreen(mode, provider, hasKey, speakReplies, providerTest, onDeviceInfo, setMode,
+                    SettingsScreen(mode, provider, hasKey, speakReplies, providerTest, models, setMode,
                         onSave = { cfg, key -> scope.launch { c.prefs.setProvider(cfg); if (key != null) c.secrets.set(AppContainer.API_KEY, key); keyTick++; providerTest = "Saved." } },
                         onClearKey = { c.secrets.set(AppContainer.API_KEY, null); keyTick++ },
                         onTest = {
@@ -311,7 +317,43 @@ private fun Main(c: AppContainer, mode: Mode, deepLink: String?, onDeepLinkHandl
                             }
                         },
                         onSpeak = { on -> scope.launch { c.prefs.setSpeakReplies(on) } },
-                        onOpen = { nav.navigate(it) })
+                        onOpen = { nav.navigate(it) },
+                        onSelectModel = { id -> scope.launch { c.prefs.setLocalModel(id) } },
+                        onDeleteModel = { id -> if (id == selectedModelId) c.onDevice.unload(); c.modelDownloaders.getValue(id).delete() })
+                }
+                composable("brain") {
+                    var notes by remember { mutableStateOf<List<ai.jarvis.mobile.runtime.brain.NoteRef>?>(null) }
+                    var brainError by remember { mutableStateOf<String?>(null) }
+                    var save by remember { mutableStateOf(c.brainSettings.saveConversations) }
+                    var vaultTick by remember { mutableIntStateOf(0) }
+                    LaunchedEffect(brainVersion, vaultTick) {
+                        notes = null
+                        runCatching { c.brain.notes() }.onSuccess { notes = it; brainError = null }.onFailure { notes = emptyList(); brainError = "Can't read the vault: ${it.message}" }
+                    }
+                    val pickVault = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+                        if (uri != null) runCatching { c.setVault(uri) }.onFailure { brainError = "Couldn't connect that folder: ${it.message}" }
+                        vaultTick++
+                    }
+                    BrainScreen(
+                        label = runCatching { c.brain.label }.getOrDefault("Vault"), isVault = c.brainSettings.vaultUri != null, saveConversations = save, notes = notes, error = brainError,
+                        onConnect = { pickVault.launch(null) },
+                        onUseBuiltIn = { c.setVault(null); vaultTick++ },
+                        onToggleSave = { save = it; c.brainSettings.saveConversations = it },
+                        onOpen = { nav.navigate("note?path=" + Uri.encode(it)) },
+                        onNew = { nav.navigate("note?path=") },
+                    )
+                }
+                composable("note?path={path}", arguments = listOf(androidx.navigation.navArgument("path") { defaultValue = "" })) { entry ->
+                    val path = entry.arguments?.getString("path").orEmpty()
+                    var text by remember(path) { mutableStateOf<String?>(if (path.isEmpty()) "" else null) }
+                    LaunchedEffect(path) { if (path.isNotEmpty()) text = runCatching { c.brain.read(path) }.getOrNull() ?: "" }
+                    NoteScreen(path, text, isNew = path.isEmpty(), onSave = { title, body ->
+                        scope.launch {
+                            runCatching { if (path.isEmpty()) c.brain.write(title, body, append = false) else { c.brain.write(path, body, append = false) } }
+                                .onSuccess { Toast.makeText(ctx, "Saved", Toast.LENGTH_SHORT).show(); nav.popBackStack() }
+                                .onFailure { Toast.makeText(ctx, "Couldn't save: ${it.message}", Toast.LENGTH_LONG).show() }
+                        }
+                    }, onBack = { nav.popBackStack() })
                 }
             }
         }

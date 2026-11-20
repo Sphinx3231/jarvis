@@ -257,7 +257,7 @@ fun androidTools(memory: MobileMemoryManager, tasks: MobileTaskManager, speaker:
     object : MobileTool {
         override val name = "memory_remember"
         override val title = "Remember"
-        override val description = "Save something durable about the user on this phone (preference, fact, plan, rule…)."
+        override val description = "Remember a short fact, preference or rule about the user (one sentence). For notes or lists, use brain_write instead."
         override val parameters = schema(listOf("content", "kind"), "content" to str("One self-contained statement", 1000), "kind" to str("Kind", 20, listOf("rule", "preference", "fact", "plan", "schedule", "idea")))
         override val risk = Risk.READ // internal: writes only to Mobile Jarvis's own memory
         override fun summarize(args: JsonObject) = "Remember: ${args.s("content")}"
@@ -269,7 +269,7 @@ fun androidTools(memory: MobileMemoryManager, tasks: MobileTaskManager, speaker:
     object : MobileTool {
         override val name = "memory_search"
         override val title = "Search memory"
-        override val description = "Search what Mobile Jarvis remembers on this phone."
+        override val description = "Search the short facts Jarvis has remembered about the user. For the user's notes, use brain_search instead."
         override val parameters = schema(listOf("query"), "query" to str("What to look for", 300))
         override val risk = Risk.READ
         override fun summarize(args: JsonObject) = "Search memory for “${args.s("query")}”"

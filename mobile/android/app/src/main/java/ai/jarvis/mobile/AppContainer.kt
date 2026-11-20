@@ -19,7 +19,16 @@ import ai.jarvis.mobile.runtime.MobileTaskManager
 import ai.jarvis.mobile.runtime.MobileToolRegistry
 import ai.jarvis.mobile.runtime.ModelProvider
 import ai.jarvis.mobile.runtime.OpenAiCompatibleProvider
+import ai.jarvis.mobile.runtime.brain.Brain
+import ai.jarvis.mobile.runtime.brain.BrainSettings
+import ai.jarvis.mobile.runtime.brain.FileNoteStore
+import ai.jarvis.mobile.runtime.brain.NoteStore
+import ai.jarvis.mobile.runtime.brain.SafNoteStore
+import ai.jarvis.mobile.runtime.brain.brainTools
 import ai.jarvis.mobile.runtime.local.LocalModelStore
+import ai.jarvis.mobile.runtime.local.LocalModels
+import kotlinx.coroutines.flow.MutableStateFlow
+import java.io.File
 import ai.jarvis.mobile.runtime.local.ModelDownloader
 import ai.jarvis.mobile.runtime.local.OnDeviceProvider
 import ai.jarvis.mobile.runtime.tools.androidTools
@@ -53,36 +62,49 @@ class AppContainer(val context: Context) {
     val remote by lazy { RemoteSession(identity, relay, prefs, scope, BuildConfig.VERSION_NAME, "${Build.MANUFACTURER} ${Build.MODEL}".trim()) }
 
     // ---------------------------------------------------------------- Mobile mode (independent of the PC)
-    val memory = MobileMemoryManager(db.memories(), activity)
+    // The live brain: the user's Obsidian vault (once connected) or a built-in notes folder.
+    val brainSettings = BrainSettings(context)
+    private val internalBrain = FileNoteStore(File(context.filesDir, "brain"), "Jarvis Brain (on this phone)")
+    @Volatile private var vaultStore: NoteStore? = brainSettings.vaultUri?.let { SafNoteStore(context, it) }
+    val brain = Brain { vaultStore ?: internalBrain }
+    val memory = MobileMemoryManager(db.memories(), activity) { kind, content -> brain.logMemory(kind, content) }
     val conversations = MobileConversationManager(db.conversations())
     val tasks = MobileTaskManager(context, db.tasks(), activity)
-    val registry = MobileToolRegistry(androidTools(memory, tasks, speaker))
+    val registry = MobileToolRegistry(androidTools(memory, tasks, speaker) + brainTools(brain))
     @Volatile private var policies: Map<String, String> = emptyMap()
     val permissions = MobilePermissionManager(db.activity()) { policies }
     @Volatile private var providerConfig = ProviderConfig()
-    /** The model bundled in the APK (Qwen2.5 1.5B), unpacked to app storage on first use. */
-    val localModel = LocalModelStore.forApp(context, BuildConfig.BUNDLED_MODEL)
-    val modelBundled = BuildConfig.BUNDLED_MODEL.isNotBlank()
-    /** Fetches the model on the phone when this APK doesn't bundle it (only on the user's tap). */
-    val modelDownloader = ModelDownloader(context, localModel, scope)
-    val onDevice = OnDeviceProvider(context, localModel)
-    val router = MobileExecutionRouter(context, ::provider, registry, permissions, conversations, memory, activity)
+    /** On-device models (Gemma 4 E2B / E4B): downloaded on the phone, or bundled in custom builds. */
+    val modelStores: Map<String, LocalModelStore> = LocalModels.ALL.associate { it.id to LocalModelStore.forApp(context, it, BuildConfig.BUNDLED_MODEL) }
+    val modelDownloaders: Map<String, ModelDownloader> = modelStores.mapValues { (_, s) -> ModelDownloader(context, s, scope) }
+    val selectedModel = MutableStateFlow(LocalModels.GEMMA4_E2B.id)
+    val localModel: LocalModelStore get() = modelStores.getValue(selectedModel.value)
+    val modelDownloader: ModelDownloader get() = modelDownloaders.getValue(selectedModel.value)
+    val onDevice = OnDeviceProvider(context) { localModel }
+    val router = MobileExecutionRouter(context, ::provider, registry, permissions, conversations, memory, activity, brain = brain, logToBrain = { brainSettings.saveConversations })
     val agents = MobileAgents(context, db.tasks(), db.activity(), registry, permissions, activity)
     @Volatile private var speakReplies = true
     val mobile = MobileSession(scope, router, activity, speaker) { speakReplies }
 
     init {
         scope.launch { prefs.policies.collect { policies = it } }
+        scope.launch { prefs.provider.collect { providerConfig = it } }
         scope.launch {
-            prefs.provider.collect {
-                providerConfig = it
-                // Unpack (bundled) or verify (downloaded) in the background, so the first message doesn't wait.
-                if (it.kind == "on_device") launch { localModel.refresh() }
+            prefs.localModel.collect { id ->
+                val changed = selectedModel.value != LocalModels.byId(id).id
+                selectedModel.value = LocalModels.byId(id).id
+                if (changed) onDevice.unload()
             }
+        }
+        scope.launch {
+            LocalModels.removeRetired(context)
+            seedBrain()
+            // Know each model's state (unpack a bundled one / verify a downloaded one) before the first message.
+            modelStores.values.forEach { launch { it.refresh() } }
         }
         scope.launch { prefs.speakReplies.collect { speakReplies = it } }
         watchNetwork()
-        modelDownloader.resume()
+        modelDownloaders.values.forEach { it.resume() }
     }
 
     /**
@@ -100,6 +122,30 @@ class AppContainer(val context: Context) {
                 override fun onAvailable(network: android.net.Network) = reconnectNow()
             })
         }
+    }
+
+    /** Point the brain at an Obsidian vault folder the user picked (null = the built-in brain). */
+    fun setVault(uri: android.net.Uri?) {
+        val old = brainSettings.vaultUri
+        if (old != null && old != uri) runCatching { context.contentResolver.releasePersistableUriPermission(old, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
+        if (uri != null) context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        brainSettings.vaultUri = uri
+        vaultStore = uri?.let { SafNoteStore(context, it) }
+        brain.reset()
+    }
+
+    private suspend fun seedBrain() {
+        if (internalBrain.read("Welcome.md") != null) return
+        internalBrain.write("Welcome.md", """
+            # Jarvis Brain
+
+            This is Jarvis's notes vault on your phone. Jarvis reads relevant notes here when it answers, and files
+            your conversations (Jarvis/Conversations) and the things you ask it to remember (Jarvis/Memory.md).
+
+            Add notes about anything you want Jarvis to know: your routines, projects, preferences, people.
+
+            Use Obsidian? In Jarvis → System → Brain, connect your vault folder and Jarvis will use that instead.
+        """.trimIndent() + "\n")
     }
 
     /** The configured model provider, or null (Mobile Jarvis then handles direct commands only). */
