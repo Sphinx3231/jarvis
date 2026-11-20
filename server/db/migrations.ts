@@ -383,4 +383,43 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_conversation_digests_created ON conversation_digests (created_at);
     `,
   },
+  {
+    version: 9,
+    sql: `
+      -- Jarvis Mobile: phones paired with this PC (public keys only — private keys never leave the
+      -- phone's Android Keystore), what each may do, and revocation.
+      CREATE TABLE mobile_devices (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        app_version TEXT NOT NULL,
+        pub_sign TEXT NOT NULL,
+        pub_agree TEXT NOT NULL,
+        scopes TEXT NOT NULL,
+        paired_at INTEGER NOT NULL,
+        last_seen INTEGER,
+        revoked_at INTEGER
+      );
+      -- Idempotency ledger: a command retried after a reconnect is answered from here, never run twice.
+      CREATE TABLE mobile_commands (
+        device_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        response TEXT,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (device_id, idempotency_key)
+      );
+      -- Audit trail of everything a phone asked this PC to do, and what happened.
+      CREATE TABLE mobile_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        device_id TEXT,
+        type TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        detail TEXT NOT NULL
+      );
+      CREATE INDEX idx_mobile_audit_ts ON mobile_audit (ts);
+    `,
+  },
 ];

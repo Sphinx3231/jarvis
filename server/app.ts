@@ -9,6 +9,7 @@ import { StateTracker } from './core/state.ts';
 import { Database } from './db/database.ts';
 import { MemoryAgent } from './agents/memory-agent.ts';
 import { ConversationDigester } from './agents/digest.ts';
+import { MobileGateway } from './mobile/gateway.ts';
 import { AGENTS } from './agents/agents.ts';
 import { Planner } from './agents/planner.ts';
 import { McpManager } from './integrations/mcp.ts';
@@ -79,6 +80,7 @@ export class JarvisApp {
   readonly engine: TaskEngine;
   readonly memoryAgent: MemoryAgent;
   readonly digester: ConversationDigester;
+  readonly mobile: MobileGateway;
   readonly state: StateTracker;
   readonly mcp: McpManager;
   readonly email: EmailService;
@@ -154,6 +156,7 @@ export class JarvisApp {
     this.planner = new Planner(this.registry, this.llm, this.permissions, this.activity);
     this.orchestrator = new BountyOrchestrator({ pipeline: this.pipeline, llm: this.llm, settings: this.settings, activity: this.activity, memory: this.memory, bus: this.bus, runner: this.runner });
     this.digester = new ConversationDigester({ db: this.db, conversations: this.conversations, memory: this.memory, llm: this.llm, settings: this.settings, activity: this.activity, bus: this.bus });
+    this.mobile = new MobileGateway(this);
     this.memoryAgent = new MemoryAgent({ memory: this.memory, conversations: this.conversations, llm: this.llm, settings: this.settings, activity: this.activity, registry: this.registry, digester: this.digester });
     this.engine = new TaskEngine({
       store: this.tasks,
@@ -284,6 +287,7 @@ export class JarvisApp {
       this.ensureWorkspace();
       this.computer.handleSettingsChanged();
       if (this.running) {
+        this.mobile.sync();
         void this.mcp.sync();
         this.prepareSemanticSearch();
       }
@@ -401,6 +405,7 @@ export class JarvisApp {
     // Every conversation gets digested once it goes quiet; anything left from before this start is
     // caught up shortly after (and by the memory job).
     this.digester.start();
+    this.mobile.sync();
     const catchUp = setTimeout(() => void this.digester.catchUp().catch(() => {}), 20_000);
     catchUp.unref?.();
     // Create or update Jarvis's vault shortly after start.
@@ -426,6 +431,7 @@ export class JarvisApp {
     }
     this.running = false;
     this.scheduler.stop();
+    this.mobile.stop();
     await this.digester.stop();
     this.subAgents.stop();
     this.obsidian.cancelScheduled();

@@ -15,6 +15,6 @@
     "skipLibCheck": true,
     "resolveJsonModule": true
   },
-  "include": ["server/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts"],
+  "include": ["server/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts", "shared/**/*.ts", "relay/**/*.ts"],
   "exclude": ["tests/e2e"]
 }

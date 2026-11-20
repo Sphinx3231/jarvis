@@ -14,6 +14,7 @@ import { EMAIL_SECRET } from '../integrations/email.ts';
 import { CALDAV_SECRET } from '../integrations/calendar.ts';
 import { MEMORY_KINDS } from '../memory/store.ts';
 import { hostMetrics } from '../core/metrics.ts';
+import { DeviceScope } from '../../shared/protocol/protocol.ts';
 import { TASK_STATUSES } from '../tasks/store.ts';
 import { parse, type Router } from './http.ts';
 
@@ -83,6 +84,19 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
   }));
 
   // ------------------------------------------------------------------ status
+  // ------------------------------------------------------------------ Jarvis Mobile
+  router.get('/api/mobile', () => ({ mobile: app.mobile.status() }));
+  router.post('/api/mobile/pair', () => asUserError(async () => app.mobile.startPairing()));
+  router.delete('/api/mobile/pair', () => {
+    app.mobile.cancelPairing();
+    return { ok: true };
+  });
+  router.post('/api/mobile/devices/:id/revoke', ({ params }) => asUserError(async () => (app.mobile.revoke(params.id), { ok: true })));
+  router.put('/api/mobile/devices/:id/scopes', ({ params, body }) =>
+    asUserError(async () => (app.mobile.setScopes(params.id, parse(z.object({ scopes: z.array(DeviceScope).max(4) }), body).scopes), { ok: true })),
+  );
+  router.get('/api/mobile/audit', ({ query }) => ({ audit: app.mobile.auditLog(Math.min(500, Number(query.get('limit') ?? 100))) }));
+
   // Live CPU/RAM for the dashboard; cheap enough to poll every few seconds.
   router.get('/api/metrics', () => hostMetrics());
   router.get('/api/status', () => ({

@@ -130,6 +130,12 @@ export const SettingsSchema = z.object({
     /** Ask the user before critical actions (send, pay, delete, install, enter a password…). Off = Jarvis does them and logs them. */
     confirmCritical: z.boolean(),
   }),
+  /** Jarvis Mobile: reach this PC from a paired Android phone through an end-to-end-encrypted relay. */
+  mobile: z.object({
+    enabled: z.boolean(),
+    /** wss:// URL of the relay (ws:// only for loopback/private-network development). */
+    relayUrl: z.string().max(300),
+  }),
   voice: z.object({
     enabled: z.boolean(),
     autoSpeak: z.boolean(),
@@ -309,6 +315,7 @@ export const DEFAULT_SETTINGS: Settings = {
   permissions: { policies: {}, followRequests: true, fullAccess: false },
   brain: { backend: BRAIN_DEFAULT, openjarvisUrl: 'http://127.0.0.1:8000', model: '', engineUrl: 'http://127.0.0.1:11434', via: 'openjarvis', toolMode: 'auto', localOnly: true },
   computerAccess: { enabled: false, level: 'observe', screenshotRetentionMin: 0, browserEndpoint: 'http://127.0.0.1:9222', watchIntervalSec: 4, confirmCritical: true },
+  mobile: { enabled: false, relayUrl: process.env.JARVIS_RELAY_URL ?? '' },
   voice: {
     enabled: true,
     autoSpeak: false,
