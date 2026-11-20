@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, ArrowRight, Brain, Bug, CircleCheck, Clock, Cpu, Crosshair, Keyboard, ListChecks, MessageSquarePlus, Mic, Radio, SendHorizontal, ShieldCheck, Sparkles, Square, TrendingUp, TriangleAlert, Volume2, Wrench, Zap } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { ArrowRight, Brain, ChevronRight, CircleCheck, Clock, Cpu, Globe, Keyboard, ListChecks, Maximize2, MemoryStick, MessageSquarePlus, Mic, Play, SendHorizontal, Sparkles, Square, SquareTerminal, FolderOpen, Network, TriangleAlert, Volume2, Wrench, Zap, BookmarkPlus } from 'lucide-react';
 import { ApprovalsCard } from '../components/Approvals';
 import { Core, CORE_LABEL, type OrbAgent } from '../components/Core';
-import { Card, Progress } from '../components/ui';
+import { AgentDetail, agentIcon, agentStatus, OrbitStage } from '../components/Orbit';
+import { Sparkline } from '../components/Sparkline';
+import { Progress } from '../components/ui';
 import { api, type ActivityEntry, type AgentsResponse, type ChatMessage, type ChatResult, type CoreState, type StatusResponse, type Task } from '../lib/api';
 import { bytes, clock, timeAgo, uptime } from '../lib/format';
 import { useAction, useLive, useResource } from '../lib/live';
+import { useMetrics } from '../lib/metrics';
 import { navigate } from '../lib/router';
 import { useVoice } from '../lib/voice';
 
@@ -34,85 +37,6 @@ function useCoreState(): CoreState {
   if (voice.transcribing) return 'thinking';
   if (voice.speaking) return 'speaking';
   return state.state;
-}
-
-function AgentsCard() {
-  const act = useAction();
-  const { data } = useResource<AgentsResponse>('/api/subagents', ['agents.changed', 'settings.changed']);
-  if (!data) return null;
-  return (
-    <Card title="Agents" icon={<Sparkles size={18} />}>
-      <ul className="agents">
-        {data.agents.map((a) => (
-          <li key={a.id} className="agents__row">
-            <span className="agents__dot" style={{ background: a.color, boxShadow: `0 0 8px ${a.color}` }} />
-            <div className="agents__text">
-              <div className="agents__name">
-                {a.name}
-                {a.state === 'working' && <span className="agents__busy"> · working…</span>}
-              </div>
-              <div className="muted small agents__summary" title={a.role}>{a.lastSummary}</div>
-            </div>
-            <button className="agents__run" onClick={() => act(() => api.post(`/api/subagents/${a.id}/run`), `${a.name} ran`)} aria-label={`Run ${a.name} now`} title={`Run ${a.name} now`}>
-              <ArrowRight size={14} />
-            </button>
-          </li>
-        ))}
-      </ul>
-      {!data.enabled && <p className="muted small">Agents are paused (Settings → turn them on).</p>}
-    </Card>
-  );
-}
-
-const AGENT_ICON: Record<string, ReactNode> = {
-  friday: <TrendingUp size={20} />,
-  tom: <Crosshair size={20} />,
-  neo: <Activity size={20} />,
-  sentinel: <ShieldCheck size={20} />,
-  echo: <Radio size={20} />,
-  trinity: <Bug size={20} />,
-};
-// Fixed slots around the core so the ring reads like the reference. `tx` anchors the pill
-// (left edge / right edge / centered) so side nodes never clip in the narrower windowed layout.
-const ANCHOR = { l: 'translate(0, -50%)', r: 'translate(-100%, -50%)', c: 'translate(-50%, -50%)' };
-const AGENT_SLOTS = [
-  { left: '8%', top: '19%', a: 'l' as const }, // Friday — top-left
-  { left: '92%', top: '19%', a: 'r' as const }, // Tom — top-right
-  { left: '2%', top: '49%', a: 'l' as const }, // Neo — mid-left
-  { left: '98%', top: '49%', a: 'r' as const }, // Sentinel — mid-right
-  { left: '16%', top: '79%', a: 'l' as const }, // Echo — bottom-left
-  { left: '84%', top: '79%', a: 'r' as const }, // Trinity — bottom-right
-];
-
-/** The agents as labeled satellite nodes ringing Jarvis — click one to run it now. */
-function AgentNodes({ agents }: { agents: AgentsResponse['agents'] }) {
-  const act = useAction();
-  return (
-    <div className="stage__agents">
-      {agents.map((a, i) => {
-        const slot = AGENT_SLOTS[i] ?? { left: `${50 + 44 * Math.cos((i / agents.length) * 2 * Math.PI - Math.PI / 2)}%`, top: `${46 + 40 * Math.sin((i / agents.length) * 2 * Math.PI - Math.PI / 2)}%`, a: 'c' as const };
-        const working = a.state === 'working';
-        return (
-          <button
-            key={a.id}
-            className={`anode ${working ? 'is-working' : ''}`}
-            style={{ left: slot.left, top: slot.top, transform: ANCHOR[slot.a], ['--c' as string]: a.color }}
-            onClick={() => act(() => api.post(`/api/subagents/${a.id}/run`), `${a.name} ran`)}
-            title={`${a.role}\n${a.lastSummary}`}
-            aria-label={`${a.name} — ${working ? 'working' : 'online'}. Run now.`}
-          >
-            <span className="anode__icon">{AGENT_ICON[a.id] ?? <Sparkles size={20} />}</span>
-            <span className="anode__body">
-              <span className="anode__name">{a.name}</span>
-              <span className="anode__status">
-                <i className="anode__dot" /> {working ? 'Working' : 'Online'}
-              </span>
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
 }
 
 function Actions({ message }: { message: ChatMessage }) {
@@ -184,13 +108,35 @@ function Conversation({ messages, sending }: { messages: ChatMessage[]; sending:
   );
 }
 
-function CommandBar({ onSend, sending }: { onSend: (text: string, via: 'text' | 'voice') => void; sending: boolean }) {
+export interface Draft {
+  text: string;
+  /** Where to put the cursor (defaults to the end). */
+  caret?: number;
+  n: number;
+}
+
+function CommandBar({ onSend, sending, draft }: { onSend: (text: string, via: 'text' | 'voice') => void; sending: boolean; draft: Draft | null }) {
   const [text, setText] = useState('');
   const [typing, setTyping] = useState(false);
   const voice = useVoice();
   const { settings } = useLive();
   const voiceOn = Boolean(settings?.voice.enabled);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // A quick action fills the box (switching to typing) and puts the cursor where the user types next.
+  useEffect(() => {
+    if (!draft) return;
+    setTyping(true);
+    setText(draft.text);
+    const t = setTimeout(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      const at = draft.caret ?? draft.text.length;
+      el.setSelectionRange(at, at);
+    }, 0);
+    return () => clearTimeout(t);
+  }, [draft]);
 
   const submit = () => {
     const t = text.trim();
@@ -266,23 +212,66 @@ function CommandBar({ onSend, sending }: { onSend: (text: string, via: 'text' | 
   );
 }
 
-function ActiveTasksCard() {
+
+// ---------------------------------------------------------------- panels
+
+function Panel({ title, icon, action, children, className = '' }: { title: string; icon?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
+  return (
+    <section className={`hud ${className}`}>
+      <header className="hud__head">
+        {icon && <span className="hud__icon">{icon}</span>}
+        <h2 className="hud__title">{title}</h2>
+        {action && <div className="hud__action">{action}</div>}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+function SystemPanel() {
+  const m = useMetrics();
+  const l = m.latest;
+  const rows: Array<{ id: string; label: string; icon: ReactNode; value: string; sub: string; values: number[]; max?: number; tone: string }> = [
+    { id: 'cpu', label: 'CPU', icon: <Cpu size={14} />, value: l ? `${Math.round(l.cpuPercent)}%` : '—', sub: l ? `${l.cores} threads` : '', values: m.cpu, max: 100, tone: l && l.cpuPercent > 90 ? 'bad' : 'ok' },
+    { id: 'mem', label: 'Memory', icon: <MemoryStick size={14} />, value: l ? `${Math.round(l.memUsedPercent)}%` : '—', sub: l ? `${bytes(l.memUsedBytes)} of ${bytes(l.memTotalBytes)}` : '', values: m.mem, max: 100, tone: l && l.memUsedPercent > 92 ? 'bad' : 'ok' },
+    { id: 'rss', label: 'Jarvis', icon: <Zap size={14} />, value: l ? bytes(l.rssBytes) : '—', sub: 'harness RAM', values: m.rss.map((b) => b / 1048576), tone: 'ok' },
+  ];
+  return (
+    <Panel title="System overview" icon={<Cpu size={15} />}>
+      <ul className="sysm">
+        {rows.map((r) => (
+          <li key={r.id} className={`sysm__row sysm__row--${r.id} is-${r.tone}`}>
+            <div className="sysm__text">
+              <span className="sysm__label">
+                {r.icon} {r.label}
+              </span>
+              <span className="sysm__value">{r.value}</span>
+              <span className="sysm__sub">{r.sub}</span>
+            </div>
+            <Sparkline values={r.values} max={r.max} label={r.label} width={112} height={38} />
+          </li>
+        ))}
+      </ul>
+    </Panel>
+  );
+}
+
+function TasksPanel() {
   const { data } = useResource<{ tasks: Task[] }>('/api/tasks?status=active&limit=6', ['task.updated']);
   const tasks = data?.tasks ?? [];
   return (
-    <Card
-      title="Active Tasks"
-      icon={<ListChecks size={18} />}
+    <Panel
+      title="Active tasks"
+      icon={<ListChecks size={15} />}
       action={
-        <button className="link link--accent" onClick={() => navigate({ page: 'tasks' })}>
-          View all <ArrowRight size={14} />
+        <button className="hud__count" onClick={() => navigate({ page: 'tasks' })} title="Open Tasks" aria-label={`${tasks.length} active tasks — open Tasks`}>
+          {tasks.length}
         </button>
       }
     >
       {tasks.length === 0 ? (
-        <div className="empty empty--compact">
-          <CircleCheck size={34} strokeWidth={1.5} className="empty__icon" />
-          <div className="muted">No active tasks</div>
+        <div className="hud__empty">
+          <CircleCheck size={18} /> No active tasks
         </div>
       ) : (
         <ul className="mini-tasks">
@@ -292,70 +281,132 @@ function ActiveTasksCard() {
                 <span className={`dot dot--${t.status}`} />
                 <span className="mini-tasks__title">{t.title}</span>
                 <span className="mini-tasks__meta">{t.status === 'queued' && t.scheduledFor && t.scheduledFor > Date.now() ? clock(t.scheduledFor) : t.status.replace('_', ' ')}</span>
+                <ChevronRight size={14} className="mini-tasks__chev" />
               </button>
               {t.status === 'running' && t.plan && <Progress value={t.progress} />}
             </li>
           ))}
         </ul>
       )}
-    </Card>
+    </Panel>
   );
 }
 
-function StatusCard({ status }: { status: StatusResponse | null }) {
-  if (!status) return <Card title="System Status" icon={<Cpu size={18} />}>…</Card>;
-  const s = status.status;
-  const used = 1 - s.host.freeMemBytes / s.host.totalMemBytes;
+function ActivityPanel() {
+  const { data } = useResource<{ activity: ActivityEntry[] }>('/api/activity?limit=7', ['activity']);
   return (
-    <Card title="System Status" icon={<Cpu size={18} />}>
-      <dl className="stats">
-        <div className="stats__row">
-          <dt>
-            <Cpu size={16} /> Memory
-          </dt>
-          <dd className="stats__bar" title={`Host RAM in use: ${bytes(s.host.totalMemBytes - s.host.freeMemBytes)} of ${bytes(s.host.totalMemBytes)} · Jarvis uses ${bytes(s.process.rssBytes)}`}>
-            <Progress value={used} tone={used > 0.9 ? 'danger' : 'accent'} />
-            <span>{Math.round(used * 100)}%</span>
+    <Panel
+      title="Recent activity"
+      icon={<Clock size={15} />}
+      action={
+        <button className="link link--accent" onClick={() => navigate({ page: 'activity' })}>
+          All <ArrowRight size={13} />
+        </button>
+      }
+    >
+      <ul className="feed">
+        {(data?.activity ?? []).map((a) => (
+          <li key={a.id} className={`feed__item lvl-${a.level}`}>
+            <span className="feed__dot" />
+            <span className="feed__msg" title={a.message}>
+              {a.message}
+            </span>
+            <span className="feed__time">{timeAgo(a.ts)}</span>
+          </li>
+        ))}
+        {data && data.activity.length === 0 && <li className="hud__empty">Nothing yet.</li>}
+      </ul>
+    </Panel>
+  );
+}
+
+function CorePanel({ status, coreState, detail, agents }: { status: StatusResponse | null; coreState: CoreState; detail: string; agents: AgentsResponse | null }) {
+  const s = status?.status;
+  const list = agents?.agents ?? [];
+  const ready = list.filter((a) => ['ready', 'working'].includes(agentStatus(a, agents?.enabled ?? false).key)).length;
+  const working = list.filter((a) => a.state === 'working').length;
+  const model = s?.model;
+  return (
+    <Panel title="Jarvis core" icon={<Sparkles size={15} />} className="hud--core">
+      <div className={`corestat corestat--${coreState}`}>
+        <span className="corestat__dot" />
+        <div>
+          <div className="corestat__state">{CORE_LABEL[coreState]}</div>
+          <div className="corestat__detail" title={detail}>
+            {detail}
+          </div>
+        </div>
+      </div>
+      <dl className="kv">
+        <div className="kv__row">
+          <dt>Brain</dt>
+          <dd className={model ? (model.healthy === false ? 'bad' : 'ok') : 'warn'} title={model ? `${model.model} via ${model.provider}` : 'No model configured'}>
+            {model ? (model.healthy === false ? 'Unreachable' : model.model) : 'No model'}
           </dd>
         </div>
-        <div className="stats__row">
-          <dt>
-            <Clock size={16} /> Uptime
-          </dt>
-          <dd className="accent">{uptime(s.uptimeSec)}</dd>
+        <div className="kv__row kv__row--bar">
+          <dt>Agent network</dt>
+          <dd className={!agents?.enabled ? 'warn' : ready === list.length ? 'ok' : 'warn'}>
+            {agents ? (agents.enabled ? `${ready}/${list.length} ready${working ? ` · ${working} working` : ''}` : 'Paused') : '…'}
+          </dd>
+          <Progress value={list.length ? ready / list.length : 0} tone={agents?.enabled && ready === list.length ? 'accent' : 'warning'} />
         </div>
-        <div className="stats__row">
-          <dt>
-            <Wrench size={16} /> Tools
-          </dt>
-          <dd className={s.skills.available === s.skills.total ? 'ok' : 'warn'}>
-            {s.skills.available}/{s.skills.total} ready
+        <div className="kv__row">
+          <dt>Memory</dt>
+          <dd>
+            <button className="link link--accent" onClick={() => navigate({ page: 'memory' })}>
+              {s ? `${s.memory.total - (s.memory.byKind.tool_doc ?? 0)} items${s.memory.unverified ? ` · ${s.memory.unverified} to confirm` : ''}` : '…'}
+            </button>
           </dd>
         </div>
-        <div className="stats__row">
-          <dt>
-            <Sparkles size={16} /> Model
-          </dt>
-          <dd className={s.model ? (s.model.healthy === false ? 'bad' : 'ok') : 'warn'} title={s.model ? `${s.model.model} via ${s.model.provider}` : undefined}>
-            {s.model ? (s.model.healthy === false ? 'Unreachable' : s.model.model) : 'Not configured'}
-          </dd>
+        <div className="kv__row">
+          <dt>Tools</dt>
+          <dd className={s && s.skills.available === s.skills.total ? 'ok' : 'warn'}>{s ? `${s.skills.available}/${s.skills.total} ready` : '…'}</dd>
         </div>
-        <div className="stats__row">
-          <dt>
-            <Zap size={16} /> Background
-          </dt>
-          <dd className={s.background.enabled ? 'ok' : 'warn'}>{s.background.enabled ? 'Monitoring' : 'Paused'}</dd>
+        <div className="kv__row">
+          <dt>Background</dt>
+          <dd className={s?.background.enabled ? 'ok' : 'warn'}>{s ? (s.background.enabled ? 'Monitoring' : 'Paused') : '…'}</dd>
+        </div>
+        <div className="kv__row">
+          <dt>Uptime</dt>
+          <dd>{s ? uptime(s.uptimeSec) : '…'}</dd>
         </div>
       </dl>
-    </Card>
+    </Panel>
   );
 }
 
-function InsightsCard({ status }: { status: StatusResponse | null }) {
+function AgentsPanel({ agents, onSelect }: { agents: AgentsResponse | null; onSelect: (id: string) => void }) {
+  if (!agents) return null;
+  return (
+    <Panel title="Agents" icon={<Network size={15} />}>
+      <ul className="agentlist">
+        {agents.agents.map((a) => {
+          const st = agentStatus(a, agents.enabled);
+          return (
+            <li key={a.id} className={`agents__row agents__row--${st.key}`} style={{ ['--c' as string]: a.color }}>
+              <button onClick={() => onSelect(a.id)} title={a.role} aria-label={`${a.name} — ${st.label}. Open details.`}>
+                <span className="agents__icon">{agentIcon(a.id, 14)}</span>
+                <span className="agents__text">
+                  <span className="agents__name">{a.name}</span>
+                  <span className="agents__summary">{a.lastSummary || 'Has not run yet'}</span>
+                </span>
+                <span className={`agents__state agents__state--${st.key}`}>{st.label}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      {!agents.enabled && <p className="hud__note">Agents are paused — turn them on in Settings → Sub-agents.</p>}
+    </Panel>
+  );
+}
+
+function InsightsPanel({ status }: { status: StatusResponse | null }) {
   const items = (status?.insights ?? []).filter((i) => i.id !== 'approvals');
   if (!items.length) return null;
   return (
-    <Card title="Jarvis noticed" icon={<TriangleAlert size={18} />}>
+    <Panel title="Jarvis noticed" icon={<TriangleAlert size={15} />}>
       <ul className="insights">
         {items.map((i) => (
           <li key={i.id} className={`insight insight--${i.level}`}>
@@ -365,37 +416,60 @@ function InsightsCard({ status }: { status: StatusResponse | null }) {
           </li>
         ))}
       </ul>
-    </Card>
+    </Panel>
   );
 }
 
-function ActivityCard() {
-  const { data } = useResource<{ activity: ActivityEntry[] }>('/api/activity?limit=6', ['activity']);
+function QuickActions({ onDraft, onNewChat, onImmersive, agents, hasConversation }: { onDraft: (text: string, caret?: number) => void; onNewChat: () => void; onImmersive: () => void; agents: AgentsResponse | null; hasConversation: boolean }) {
+  const act = useAction();
+  const [running, setRunning] = useState(false);
+  const runAll = async () => {
+    if (!agents) return;
+    setRunning(true);
+    await act(async () => {
+      for (const a of agents.agents) await api.post(`/api/subagents/${a.id}/run`);
+    }, 'All agents ran');
+    setRunning(false);
+  };
+  const items: Array<{ id: string; label: string; icon: ReactNode; run: () => void; disabled?: boolean; title: string }> = [
+    { id: 'cmd', label: 'Run command', icon: <SquareTerminal size={16} />, run: () => onDraft('run ``', 5), title: 'Run a shell command (you type it)' },
+    { id: 'web', label: 'Search web', icon: <Globe size={16} />, run: () => onDraft('Search the web for '), title: 'Ask Jarvis to search the web' },
+    { id: 'files', label: 'Browse files', icon: <FolderOpen size={16} />, run: () => onDraft('list files'), title: 'List the files in your workspace' },
+    { id: 'remember', label: 'Remember', icon: <BookmarkPlus size={16} />, run: () => onDraft('remember that '), title: 'Tell Jarvis something to remember' },
+    { id: 'agents', label: running ? 'Running…' : 'Run agents', icon: <Play size={16} />, run: () => void runAll(), disabled: running || !agents, title: 'Run all six agents now' },
+    hasConversation
+      ? { id: 'new', label: 'New chat', icon: <MessageSquarePlus size={16} />, run: onNewChat, title: 'Start a new conversation' }
+      : { id: 'immersive', label: 'Immersive', icon: <Maximize2 size={16} />, run: onImmersive, title: 'Make Jarvis the whole screen (\\)' },
+  ];
   return (
-    <Card title="Recent Activity" icon={<Clock size={18} />}>
-      <ul className="feed">
-        {(data?.activity ?? []).map((a) => (
-          <li key={a.id} className={`feed__item lvl-${a.level}`}>
-            <span className="feed__dot" />
-            <span className="feed__msg">{a.message}</span>
-            <span className="feed__time">{timeAgo(a.ts)}</span>
-          </li>
+    <Panel title="Quick actions" icon={<Zap size={15} />}>
+      <div className="qa">
+        {items.map((q) => (
+          <button key={q.id} className="qa__btn" onClick={q.run} disabled={q.disabled} title={q.title}>
+            {q.icon}
+            <span>{q.label}</span>
+          </button>
         ))}
-        {data && data.activity.length === 0 && <li className="muted">Nothing yet.</li>}
-      </ul>
-    </Card>
+      </div>
+    </Panel>
   );
 }
 
-export function HomePage({ status }: { status: StatusResponse | null }) {
+// ---------------------------------------------------------------- page
+
+export function HomePage({ status, onImmersive }: { status: StatusResponse | null; onImmersive: () => void }) {
   const { state, settings } = useLive();
   const voice = useVoice();
   const coreState = useCoreState();
   const agentsRes = useResource<AgentsResponse>('/api/subagents', ['agents.changed', 'settings.changed']);
-  const orbAgents: OrbAgent[] = (agentsRes.data?.agents ?? []).map((a) => ({ id: a.id, name: a.name, color: a.color, summary: a.lastSummary, working: a.state === 'working' }));
+  const agents = agentsRes.data;
+  const orbAgents: OrbAgent[] = (agents?.agents ?? []).map((a) => ({ id: a.id, name: a.name, color: a.color, summary: a.lastSummary, working: a.state === 'working' }));
   const [conversationId, setConversationId] = useState<string | null>(readConv);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const reduceMotion = Boolean(settings?.appearance.reduceMotion) || (typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches));
 
   useEffect(() => {
     if (!conversationId) return;
@@ -445,70 +519,63 @@ export function HomePage({ status }: { status: StatusResponse | null }) {
     setMessages([]);
     voice.stopSpeaking();
   };
+  const onDraft = useCallback((text: string, caret?: number) => setDraft((d) => ({ text, caret, n: (d?.n ?? 0) + 1 })), []);
+  const closeDetail = useCallback(() => setSelected(null), []);
 
   const hasConversation = messages.length > 0;
   const name = settings?.assistant.userName;
   const statusLine = coreState === 'listening' ? voice.interim || 'Listening…' : coreState === 'speaking' ? 'Speaking…' : state.detail;
+  const selectedAgent = useMemo(() => agents?.agents.find((a) => a.id === selected) ?? null, [agents, selected]);
 
   return (
-    <div className="home">
-      <div className={`home__main ${hasConversation ? 'has-conversation' : ''}`}>
-        {hasConversation ? (
-          <div className="hero hero--compact">
-            <Core state={coreState} size={140} reduceMotion={settings?.appearance.reduceMotion} agents={orbAgents} />
-            <div className="hero__text">
-              <h1 className="hero__title">
-                Hello{name ? `, ${name}` : ''}. I’m <span className="accent">Jarvis.</span>
-              </h1>
-              <div className={`state-pill state-pill--${coreState}`}>
-                <span className="state-pill__dot" />
-                {CORE_LABEL[coreState]}
-                <span className="state-pill__detail">· {statusLine}</span>
-                {voice.wakeActive && (
-                  <span className="state-pill__detail" title="Wake word is on: say “Hey Jarvis…”">
-                    · <Volume2 size={12} /> wake word on
-                  </span>
-                )}
-              </div>
-            </div>
-            <button className="btn btn--ghost btn--sm hero__new" onClick={newConversation} title="Start a new conversation">
-              <MessageSquarePlus size={15} /> <span>New chat</span>
-            </button>
-          </div>
-        ) : (
-          <div className="stage">
-            <AgentNodes agents={agentsRes.data?.agents ?? []} />
-            <div className="stage__core">
-              <Core state={coreState} size={440} reduceMotion={settings?.appearance.reduceMotion} wordmark />
-            </div>
-            <div className="stage__portal" aria-hidden>
-              <i />
-              <i />
-              <i />
-            </div>
-            <div className={`state-pill state-pill--${coreState} stage__state`}>
-              <span className="state-pill__dot" />
-              {CORE_LABEL[coreState]}
-              <span className="state-pill__detail">· {statusLine}</span>
-              {voice.wakeActive && (
-                <span className="state-pill__detail" title="Wake word is on: say “Hey Jarvis…”">
-                  · <Volume2 size={12} /> wake word on
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-        {hasConversation && <Conversation messages={messages} sending={sending} />}
-        <CommandBar onSend={send} sending={sending} />
-      </div>
-      <aside className="home__side">
-        <AgentsCard />
-        <ApprovalsCard compact hideWhenEmpty />
-        <ActiveTasksCard />
-        <StatusCard status={status} />
-        <InsightsCard status={status} />
-        <ActivityCard />
+    <div className={`dash ${hasConversation ? 'dash--chat' : ''}`}>
+      <aside className="dash__col dash__left" aria-label="System">
+        <SystemPanel />
+        <TasksPanel />
+        <ActivityPanel />
       </aside>
+
+      <section className="dash__center" aria-label="Jarvis">
+        {hasConversation ? (
+          <>
+            <div className="chathead">
+              <Core state={coreState} size={92} reduceMotion={reduceMotion} agents={orbAgents} />
+              <div className="chathead__text">
+                <h1 className="chathead__title">
+                  Hello{name ? `, ${name}` : ''}. I’m <span className="accent">Jarvis.</span>
+                </h1>
+                <div className={`state-pill state-pill--${coreState}`}>
+                  <span className="state-pill__dot" />
+                  {CORE_LABEL[coreState]}
+                  <span className="state-pill__detail">· {statusLine}</span>
+                  {voice.wakeActive && (
+                    <span className="state-pill__detail" title="Wake word is on: say “Hey Jarvis…”">
+                      · <Volume2 size={12} /> wake word on
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button className="btn btn--ghost btn--sm" onClick={newConversation} title="Start a new conversation">
+                <MessageSquarePlus size={15} /> <span>New chat</span>
+              </button>
+            </div>
+            <Conversation messages={messages} sending={sending} />
+          </>
+        ) : (
+          <OrbitStage agents={agents?.agents ?? []} enabled={agents?.enabled ?? false} state={coreState} detail={statusLine} wakeActive={voice.wakeActive} reduceMotion={reduceMotion} onSelect={setSelected} />
+        )}
+        <CommandBar onSend={send} sending={sending} draft={draft} />
+      </section>
+
+      <aside className="dash__col dash__right" aria-label="Jarvis status">
+        <CorePanel status={status} coreState={coreState} detail={statusLine} agents={agents} />
+        <ApprovalsCard compact hideWhenEmpty />
+        <QuickActions onDraft={onDraft} onNewChat={newConversation} onImmersive={onImmersive} agents={agents} hasConversation={hasConversation} />
+        <AgentsPanel agents={agents} onSelect={setSelected} />
+        <InsightsPanel status={status} />
+      </aside>
+
+      {selectedAgent && <AgentDetail agent={selectedAgent} enabled={agents?.enabled ?? false} onClose={closeDetail} />}
     </div>
   );
 }

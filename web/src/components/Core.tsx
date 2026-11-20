@@ -75,7 +75,7 @@ const NUM_KEYS = ['spinRate', 'arcRate', 'arcLen', 'coreBase', 'pulseAmp', 'puls
 
 export interface OrbAgent { id: string; name: string; color: string; summary: string; working: boolean; }
 
-export function Core({ state, size = 220, reduceMotion = false, agents, wordmark = false }: { state: CoreState; size?: number; reduceMotion?: boolean; agents?: OrbAgent[]; wordmark?: boolean }) {
+export function Core({ state, size = 220, reduceMotion = false, agents, wordmark = false, tag }: { state: CoreState; size?: number; reduceMotion?: boolean; agents?: OrbAgent[]; wordmark?: boolean; tag?: string }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const stateRef = useRef<State>(state);
   const osReduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -337,8 +337,10 @@ export function Core({ state, size = 220, reduceMotion = false, agents, wordmark
         {/* JARVIS wordmark (hero mode) — in-SVG so it scales with the core */}
         {wordmark && (
           <g id="c-wordmark" style={{ pointerEvents: 'none' }}>
-            <text x="108" y="106" textAnchor="middle" className="core__name">JARVIS</text>
-            <text x="110" y="126" textAnchor="middle" className="core__tag">AI&#160;&#160;PERSONAL&#160;&#160;ASSISTANT</text>
+            <text x="110" y="110" textAnchor="middle" className="core__name">JARVIS</text>
+            <text x="110" y="128" textAnchor="middle" className="core__tag">
+              {tag ? `●\u00a0\u00a0${tag}` : 'AI\u00a0\u00a0PERSONAL\u00a0\u00a0ASSISTANT'}
+            </text>
           </g>
         )}
       </svg>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ComputerIndicator } from './ComputerAccess';
-import { Activity, Bell, Brain, Crown, House, ListChecks, Plug, Settings, Target, Wrench, X } from 'lucide-react';
+import { Activity, Bell, Brain, House, ListChecks, Maximize2, Minimize2, Plug, Settings, Target, Wrench, X } from 'lucide-react';
 import { api, type NotificationEntry, type StatusResponse } from '../lib/api';
 import { timeAgo } from '../lib/format';
 import { useLive, useResource } from '../lib/live';
@@ -22,10 +22,6 @@ export function Sidebar({ page, status }: { page: Route['page']; status: StatusR
   const unverified = status?.status.memory.unverified ?? 0;
   return (
     <nav className="sidebar" aria-label="Main">
-      <a className="brand" href="#/" onClick={(e) => (e.preventDefault(), navigate({ page: 'home' }))}>
-        <img src="/icon-64.png" alt="" className="brand__icon" />
-        <span className="brand__name">Jarvis</span>
-      </a>
       <ul className="nav">
         {NAV.map((item) => {
           const Icon = item.icon;
@@ -40,7 +36,6 @@ export function Sidebar({ page, status }: { page: Route['page']; status: StatusR
                   e.preventDefault();
                   navigate({ page: item.id });
                 }}
-                title={item.label}
               >
                 <Icon size={19} />
                 <span className="nav__label">{item.label}</span>
@@ -54,12 +49,8 @@ export function Sidebar({ page, status }: { page: Route['page']; status: StatusR
           );
         })}
       </ul>
-      <div className="sidebar__foot">
-        <Crown size={18} className="sidebar__crown" />
-        <div>
-          <div className="sidebar__os">Jarvis OS</div>
-          <div className="sidebar__ver">v{status?.status.version ?? '…'}</div>
-        </div>
+      <div className="sidebar__foot" title={`Jarvis OS v${status?.status.version ?? '…'}`}>
+        v{status?.status.version ?? '…'}
       </div>
     </nav>
   );
@@ -74,7 +65,16 @@ function useClock(): string {
   return now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-export function TopBar() {
+/** A miniature of the core, for the app's identity in the top bar. */
+function BrandOrb() {
+  return (
+    <span className="brand__orb" aria-hidden>
+      <i />
+    </span>
+  );
+}
+
+export function TopBar({ immersive, onToggleImmersive }: { immersive: boolean; onToggleImmersive: () => void }) {
   const { connected } = useLive();
   const time = useClock();
   const [open, setOpen] = useState(false);
@@ -82,13 +82,21 @@ export function TopBar() {
   const unread = notes.data?.unread ?? 0;
   return (
     <header className="topbar">
-      <div className="topbar__spacer" />
-      <ComputerIndicator />
-      <span className="topbar__sep" />
+      <div className="brand">
+        <BrandOrb />
+        <div className="brand__text">
+          <span className="brand__name">JARVIS</span>
+          <span className="brand__sub">AI Operating System</span>
+        </div>
+      </div>
       <div className={`conn ${connected ? 'conn--on' : 'conn--off'}`} title={connected ? 'Connected to the Jarvis service' : 'Reconnecting to the Jarvis service…'}>
         <span className="conn__dot" />
         {connected ? 'Online' : 'Offline'}
       </div>
+      <div className="topbar__tagline" aria-hidden>
+        Always here. Always evolving.
+      </div>
+      <ComputerIndicator />
       <span className="topbar__sep" />
       <div className="topbar__time">{time}</div>
       <span className="topbar__sep" />
@@ -129,6 +137,12 @@ export function TopBar() {
           </div>
         )}
       </div>
+      <button className="icon-btn" aria-label="Settings" title="Settings" onClick={() => navigate({ page: 'settings' })}>
+        <Settings size={18} />
+      </button>
+      <button className="icon-btn" onClick={onToggleImmersive} aria-label={immersive ? 'Exit immersive mode (backslash)' : 'Immersive mode (backslash)'} title={immersive ? 'Exit immersive (\\)' : 'Make Jarvis the whole screen (\\)'}>
+        {immersive ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+      </button>
     </header>
   );
 }

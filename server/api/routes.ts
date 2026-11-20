@@ -13,6 +13,7 @@ import { ROAMIES_REPO_URL } from '../roamies/detect.ts';
 import { EMAIL_SECRET } from '../integrations/email.ts';
 import { CALDAV_SECRET } from '../integrations/calendar.ts';
 import { MEMORY_KINDS } from '../memory/store.ts';
+import { hostMetrics } from '../core/metrics.ts';
 import { TASK_STATUSES } from '../tasks/store.ts';
 import { parse, type Router } from './http.ts';
 
@@ -82,6 +83,8 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
   }));
 
   // ------------------------------------------------------------------ status
+  // Live CPU/RAM for the dashboard; cheap enough to poll every few seconds.
+  router.get('/api/metrics', () => hostMetrics());
   router.get('/api/status', () => ({
     status: app.statusSnapshot(),
     state: app.state.get(),

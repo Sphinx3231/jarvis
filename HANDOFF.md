@@ -81,17 +81,35 @@ built web UI and a JSON+SSE API on localhost. The UI is token-gated to that loca
 
 ---
 
-## 3. The UI (immersive "whole-app Jarvis")
+## 3. The UI (command center)
 
-- Press **`\`** (backslash) to toggle **immersive mode**: sidebar/topbar/aside hide and Jarvis fills the
-  screen. State persists in `localStorage`. There's also a corner toggle button.
-- The home **stage**: a luminous **JARVIS planet** with a precessing **Saturn ring** and an in-SVG
-  wordmark; **six agent satellite nodes** ringing it (labeled pills with colored icons + status);
-  a pulsing **portal** beneath; a **voice-first command bar** ("Say 'Hey Jarvis', or tap to talk")
-  with a keyboard fallback; and a live state pill (Idle/Listening/Working · wake word).
-- In a conversation the hero collapses to a small core with the agent colors as orbs.
-- Core is a real inline-SVG vector rig (`Core.tsx`), one `requestAnimationFrame` loop with eased
-  per-state params; holds a static pose under `prefers-reduced-motion`.
+- **Shell** (`components/Shell.tsx`):
+  - The top bar spans the window: identity (orb + JARVIS / AI Operating System), the connection status
+    (the only "Online" text in the app; the e2e tests wait on it), Computer Access, clock,
+    notifications, Settings and the immersive toggle.
+  - A slim icon rail (`.sidebar`, labelled links) replaces the old sidebar.
+  - The window keeps its native frame, so there are no fake window controls.
+- **Home** (`pages/Home.tsx`), a 3-column dashboard:
+  - **Left:** System overview, with real CPU, RAM and Jarvis RSS from `/api/metrics`
+    (`server/core/metrics.ts`) and sparklines of the samples; active tasks; recent activity.
+  - **Centre:** the orbit stage (`components/Orbit.tsx`): the core with JARVIS and its live state,
+    and the six agents as glass discs on an ellipse. Geometry comes from the stage's measured size,
+    so links and orbits always line up. Links pulse while an agent works. The voice-first command
+    bar sits below.
+  - **Right:** Jarvis core status, approvals, quick actions, the agents list (`.agents__row`, pinned
+    by e2e) and insights.
+  - Clicking an agent (disc or row) opens `AgentDetail`: role, latest result, last run, runs,
+    errors and **Run now**.
+  - Quick actions are real: they prefill commands, run every agent, start a new chat or go immersive.
+- **Agent discs:** the `<button class="anode">` stays still and only its inner `.anode__disc`
+  floats, so clicks (and Playwright) see a stable target. Agent status labels are
+  Ready/Working/Paused/Error; never "Online" (see above).
+- **Chat mode:** in a conversation the centre becomes a compact core (agent orbs) plus the
+  transcript.
+- **Immersive mode:** press **`\`**; the rail, top bar and side columns hide.
+- **Motion:** reduced motion (OS setting or Settings → Appearance) stops every animation.
+- **Core:** a real inline-SVG vector rig (`Core.tsx`): one `requestAnimationFrame` loop with eased
+  per-state parameters, and a static pose under reduced motion.
 
 **Voice:** wake word ("Hey Jarvis"), browser STT + optional Whisper transcription, and **Fish Audio**
 TTS replies (`integrations/fishaudio.ts`). Keys load from `.env` (see §6).

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Maximize2, Minimize2 } from 'lucide-react';
+import { Minimize2 } from 'lucide-react';
 import { Sidebar, Toasts, TopBar } from './components/Shell';
 import type { StatusResponse } from './lib/api';
 import { api } from './lib/api';
@@ -79,23 +79,23 @@ export function App() {
 
   return (
     <div className="app">
-      <button className="immersive-toggle" onClick={toggleImmersive} aria-label={immersive ? 'Exit immersive mode (backslash)' : 'Immersive mode (backslash)'} title={immersive ? 'Exit immersive (\\)' : 'Make Jarvis the whole screen (\\)'}>
-        {immersive ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-      </button>
+      {immersive && (
+        <button className="immersive-toggle" onClick={toggleImmersive} aria-label="Exit immersive mode (backslash)" title="Exit immersive (\\)">
+          <Minimize2 size={16} />
+        </button>
+      )}
+      <TopBar immersive={immersive} onToggleImmersive={toggleImmersive} />
       <Sidebar page={route.page} status={status} />
-      <div className="main">
-        <TopBar />
-        <main className="content" id="content">
-          {route.page === 'home' && <HomePage status={status} />}
-          {route.page === 'tasks' && <TasksPage selectedId={route.id} />}
-          {route.page === 'pipeline' && <PipelinePage />}
-          {route.page === 'memory' && <MemoryPage />}
-          {route.page === 'skills' && <SkillsPage />}
-          {route.page === 'integrations' && <IntegrationsPage />}
-          {route.page === 'activity' && <ActivityPage />}
-          {route.page === 'settings' && <SettingsPage />}
-        </main>
-      </div>
+      <main className={`content content--${route.page}`} id="content">
+        {route.page === 'home' && <HomePage status={status} onImmersive={toggleImmersive} />}
+        {route.page === 'tasks' && <TasksPage selectedId={route.id} />}
+        {route.page === 'pipeline' && <PipelinePage />}
+        {route.page === 'memory' && <MemoryPage />}
+        {route.page === 'skills' && <SkillsPage />}
+        {route.page === 'integrations' && <IntegrationsPage />}
+        {route.page === 'activity' && <ActivityPage />}
+        {route.page === 'settings' && <SettingsPage />}
+      </main>
       {immersive && <div className="immersive-hint">Press \ to exit</div>}
       <Toasts />
     </div>
