@@ -205,7 +205,7 @@ fun androidTools(memory: MobileMemoryManager, tasks: MobileTaskManager, speaker:
         override val name = "phone_dial"
         override val title = "Dial a number"
         override val description = "Open the dialer with a number filled in (the user presses call)."
-        override val parameters = schema(listOf("number"), "number" to str("Phone number", 40))
+        override val parameters = schema(listOf("number"), "number" to str("a phone number: digits, spaces, + - ( ) only", 40, pattern = "^\\+?[0-9(][0-9 ()\\-.]{2,}$"))
         override val risk = Risk.ACT
         override fun summarize(args: JsonObject) = "Open the dialer with ${args.s("number")}"
         override suspend fun execute(context: Context, args: JsonObject) = startActivity(context, Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(args.s("number")))))

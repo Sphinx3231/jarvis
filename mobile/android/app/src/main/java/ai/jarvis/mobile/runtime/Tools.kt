@@ -72,6 +72,7 @@ class MobileToolRegistry(tools: List<MobileTool>) {
                     if (prim == null || !prim.isString) return "\"$k\" must be a string"
                     p["maxLength"]?.jsonPrimitive?.content?.toIntOrNull()?.let { if (prim.content.length > it) return "\"$k\" is too long" }
                     p["enum"]?.jsonArray?.map { it.jsonPrimitive.content }?.let { if (prim.content !in it) return "\"$k\" must be one of $it" }
+                    p["pattern"]?.jsonPrimitive?.content?.let { if (!Regex(it).containsMatchIn(prim.content)) return "\"$k\" isn't valid (${p["description"]?.jsonPrimitive?.content ?: "wrong format"})" }
                 }
                 "integer", "number" -> {
                     val d = prim?.takeIf { !it.isString }?.doubleOrNull ?: return "\"$k\" must be a number"
@@ -94,9 +95,10 @@ fun schema(required: List<String>, vararg props: Pair<String, JsonObject>): Json
     ),
 )
 
-fun str(description: String, maxLength: Int = 2000, enum: List<String>? = null) = JsonObject(
+fun str(description: String, maxLength: Int = 2000, enum: List<String>? = null, pattern: String? = null) = JsonObject(
     buildMap {
         put("type", JsonPrimitive("string")); put("description", JsonPrimitive(description)); put("maxLength", JsonPrimitive(maxLength))
+        pattern?.let { put("pattern", JsonPrimitive(it)) }
         enum?.let { put("enum", kotlinx.serialization.json.JsonArray(it.map { v -> JsonPrimitive(v) })) }
     },
 )

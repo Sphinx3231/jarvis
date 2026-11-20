@@ -18,7 +18,8 @@ private val Context.store by preferencesDataStore("jarvis_prefs")
 /** Which device executes commands right now. */
 enum class Mode { REMOTE_PC, MOBILE }
 
-data class ProviderConfig(val kind: String = "none", val baseUrl: String = "", val model: String = "")
+/** kind: on_device (the model bundled in the app — default) | anthropic | openai_compatible | none */
+data class ProviderConfig(val kind: String = "on_device", val baseUrl: String = "", val model: String = "")
 
 /** App preferences (DataStore). Secrets are not here — see SecretStore. */
 class Prefs(private val context: Context) : PairingStore {
@@ -35,7 +36,7 @@ class Prefs(private val context: Context) : PairingStore {
 
     val mode: Flow<Mode?> = context.store.data.map { p -> p[K.MODE]?.let { runCatching { Mode.valueOf(it) }.getOrNull() } }
     val onboarded: Flow<Boolean> = context.store.data.map { it[K.ONBOARDED] ?: false }
-    val provider: Flow<ProviderConfig> = context.store.data.map { ProviderConfig(it[K.PROVIDER_KIND] ?: "none", it[K.PROVIDER_URL] ?: "", it[K.PROVIDER_MODEL] ?: "") }
+    val provider: Flow<ProviderConfig> = context.store.data.map { ProviderConfig(it[K.PROVIDER_KIND] ?: "on_device", it[K.PROVIDER_URL] ?: "", it[K.PROVIDER_MODEL] ?: "") }
     val speakReplies: Flow<Boolean> = context.store.data.map { it[K.SPEAK_REPLIES] ?: true }
     val policies: Flow<Map<String, String>> = context.store.data.map { p -> p.asMap().filterKeys { it.name.startsWith("policy.") }.map { (k, v) -> k.name.removePrefix("policy.") to v.toString() }.toMap() }
 

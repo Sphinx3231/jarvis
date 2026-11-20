@@ -83,7 +83,7 @@ class ScreenshotTest {
         ),
     )
     private val mobileView = mobileHome(
-        MobileExecutionRouter.Status(), false, "Anthropic · claude-sonnet-5-5",
+        MobileExecutionRouter.Status(), false, ai.jarvis.mobile.ui.modelConnection("on_device", ai.jarvis.mobile.runtime.local.LocalModelStore.State.Idle, "Qwen2.5 1.5B Instruct", null),
         mapOf("neo" to "Watching 1 phone task(s). Next: “stretch” at 10:30"),
         listOf(MobileTaskEntity("m1", "Stretch", "reminder", "scheduled", now + 600_000, now, now)),
         emptyList(),
@@ -123,7 +123,7 @@ class ScreenshotTest {
     }
     @Test fun devicesUnpaired() = shot("11-devices-unpaired") { DevicesScreen(DevicesView(null, remoteConnection(RemoteSession.State()), null, false, null, null), {}, {}, {}, {}, {}) }
     @Test fun devicesPaired() = shot("12-devices-paired") { DevicesScreen(DevicesView(pc, remoteConnection(remoteState), "f00dfacecafe1234beef", false, null, "PC stopped: 2 task(s) cancelled, Computer Access stopped."), {}, {}, {}, {}, {}) }
-    @Test fun settings() = shot("13-settings") { SettingsScreen(Mode.MOBILE, ProviderConfig("anthropic", "", "claude-sonnet-5-5"), true, true, "OK — the model replied: “OK”", {}, { _, _ -> }, {}, {}, {}, {}) }
+    @Test fun settings() = shot("13-settings") { SettingsScreen(Mode.MOBILE, ProviderConfig("on_device"), false, true, "OK — the model replied: “OK”", "Qwen2.5 1.5B Instruct — ready · runs on the GPU\nRuns fully offline; nothing you say to it leaves the phone.\nLicense: Apache-2.0 (Qwen team, Alibaba Cloud); on-device packaging by Google litert-community. Source: huggingface.co/litert-community/Qwen2.5-1.5B-Instruct.", {}, { _, _ -> }, {}, {}, {}, {}) }
     @Test fun activity() = shot("14-activity") {
         ActivityScreen(listOf(
             ActivityEntity(3, now, "success", "approval", "Approved: Open https://example.com"),

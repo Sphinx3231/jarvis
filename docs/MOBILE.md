@@ -80,6 +80,34 @@ seen id are dropped.
   no always-on wake word (push-to-talk only), no silent uploads: nothing leaves the phone except
   requests to the model provider the user configured.
 
+## On-device model (Mobile mode default)
+
+The APK can ship its own model, so Mobile mode works offline with no account: **Qwen2.5-1.5B-Instruct**
+(Apache-2.0, int8, 1.6 GB, packaged for on-device inference by Google's litert-community), run with
+MediaPipe LLM Inference (GPU when available, otherwise CPU). On first launch it's copied out of the
+APK into app storage once (needs ~1.7 GB free on top of the app); it is released when Android asks
+for memory.
+
+- **Direct commands first.** A 1.5B model is unreliable at choosing tools, so clear commands
+  (alarms, timers, reminders, search, open app/site, call, copy, battery, network, remember/recall,
+  time, date) are understood by `LocalIntents` and never reach the model. They still go through
+  validation and approvals.
+- **The model handles the rest**: conversation, questions, and paraphrased actions via a
+  `CALL tool {json}` line that the router validates and authorizes like any other call. A reply that
+  claims an action or reading without a tool gets a visible note that nothing was done.
+- **Why not DeepSeek-R1-Distill-1.5B?** It was tested first, on the same file format and prompts. It
+  ignored instructions, gave canned "I'm DeepSeek-R1" replies, produced malformed or dangerous tool
+  calls (it tried to dial a made-up number) and in reasoning mode looped for thousands of tokens.
+  Qwen2.5-1.5B-Instruct was clearly better on every case.
+- **Measured.** `mobile/scripts/local-model-check.sh` sends the app's exact prompts through the real
+  model (LiteRT-LM on a computer) and parses the replies with the app's parser: 9 of 10 scenarios
+  behave as expected and the tenth bad call is refused by validation. The one miss ("how charged is my phone" → an
+  invented percentage) is a direct command in the app, and is flagged by the honesty note otherwise.
+
+Build with the model: `mobile/scripts/fetch-model.sh`, then
+`./gradlew assembleDebug -Pjarvis.bundleModel=true` (APK ≈ 1.7 GB). Without the flag the APK has
+no model and Mobile mode offers cloud models or direct commands.
+
 ## Build and install the app
 
 Needs JDK 17+ and the Android SDK (platform 35). From `mobile/android/`:
@@ -117,4 +145,4 @@ manager).
 - Cross-network use needs a relay you deploy with TLS (see `relay/README.md`).
 - Streaming replies (`jarvis.response.delta`) are defined in the protocol but the PC currently
   sends the complete reply.
-- On-device models are not implemented; `ModelProvider` is the seam for them.
+- The on-device model is small: good for chat and simple requests, not for complex multi-step work. It has been validated on a computer with the same model file, not yet on a phone (speed and GPU support vary by device).

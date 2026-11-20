@@ -186,7 +186,7 @@ fun CapabilitiesScreen(caps: List<CapRow>, perms: List<PermRow>, onPolicy: (Stri
 // ------------------------------------------------------------------- settings
 
 @Composable
-fun SettingsScreen(mode: Mode, provider: ProviderConfig, hasKey: Boolean, speakReplies: Boolean, providerTest: String?, onMode: (Mode) -> Unit, onSave: (ProviderConfig, String?) -> Unit, onClearKey: () -> Unit, onTest: () -> Unit, onSpeak: (Boolean) -> Unit, onOpen: (String) -> Unit) {
+fun SettingsScreen(mode: Mode, provider: ProviderConfig, hasKey: Boolean, speakReplies: Boolean, providerTest: String?, onDeviceInfo: String?, onMode: (Mode) -> Unit, onSave: (ProviderConfig, String?) -> Unit, onClearKey: () -> Unit, onTest: () -> Unit, onSpeak: (Boolean) -> Unit, onOpen: (String) -> Unit) {
     var kind by remember(provider) { mutableStateOf(provider.kind) }
     var url by remember(provider) { mutableStateOf(provider.baseUrl) }
     var model by remember(provider) { mutableStateOf(provider.model) }
@@ -201,21 +201,22 @@ fun SettingsScreen(mode: Mode, provider: ProviderConfig, hasKey: Boolean, speakR
         }
         Spacer(Modifier.height(10.dp))
         HudPanel(title = "Mobile model") {
-            Text("Mobile mode sends your messages (and the tool results it needs) to the model you choose. Nothing is sent anywhere until you set one up.", color = J.TextFaint, fontSize = 11.sp)
+            Text(if (kind == "on_device") "The built-in model runs entirely on this phone — no internet, no account, nothing leaves the device. Larger cloud models are smarter; with one of those, your messages go to that provider." else "With a cloud model, Mobile mode sends your messages (and the tool results it needs) to the provider you choose.", color = J.TextFaint, fontSize = 11.sp)
             Row(Modifier.padding(vertical = 8.dp).clip(chamfer(14f)).border(1.dp, J.Line, chamfer(14f))) {
-                listOf("none" to "NONE", "anthropic" to "ANTHROPIC", "openai_compatible" to "OPENAI-COMPATIBLE").forEach { (k, label) ->
+                listOf("on_device" to "ON-DEVICE", "anthropic" to "ANTHROPIC", "openai_compatible" to "OPENAI-COMPAT.", "none" to "NONE").forEach { (k, label) ->
                     Text(label, color = if (k == kind) Color.White else J.TextDim, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, modifier = Modifier.background(if (k == kind) J.PurpleDeep else Color.Transparent).clickable { kind = k }.padding(horizontal = 10.dp, vertical = 7.dp))
                 }
             }
+            if (kind == "on_device") Text(onDeviceInfo ?: "This build doesn't include an on-device model.", color = if (onDeviceInfo != null) J.Text else J.Warn, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp))
             if (kind == "openai_compatible") OutlinedTextField(url, { url = it.trim() }, Modifier.fillMaxWidth(), label = { Text("Base URL (e.g. https://api.openai.com/v1)") }, singleLine = true, colors = fieldColors())
-            if (kind != "none") {
+            if (kind == "anthropic" || kind == "openai_compatible") {
                 OutlinedTextField(model, { model = it.trim() }, Modifier.fillMaxWidth(), label = { Text("Model id") }, singleLine = true, colors = fieldColors())
                 OutlinedTextField(key, { key = it.trim() }, Modifier.fillMaxWidth(), label = { Text(if (hasKey) "API key (saved — type to replace)" else "API key") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), colors = fieldColors())
                 Text("The key is encrypted with an Android Keystore key and never shown again.", color = J.TextFaint, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
             }
             Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 HudButton("Save", { onSave(ProviderConfig(kind, url, model), key.ifBlank { null }); key = "" }, color = J.Purple)
-                if (kind != "none") HudButton("Test", onTest)
+                if (kind != "none") HudButton(if (kind == "on_device") "Try it" else "Test", onTest)
                 if (hasKey) HudButton("Forget key", onClearKey, color = J.Bad)
             }
             providerTest?.let { Text(it, color = if (it.startsWith("OK")) J.Ok else J.Warn, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp)) }

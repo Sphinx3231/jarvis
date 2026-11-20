@@ -7,6 +7,14 @@ plugins {
     alias(libs.plugins.roborazzi)
 }
 
+val bundledModelFile = "qwen2.5-1.5b-instruct-q8.task"
+val bundleModel = (findProperty("jarvis.bundleModel") as String?) == "true"
+if (bundleModel) {
+    require(rootProject.file("model-assets/$bundledModelFile").isFile) {
+        "model-assets/$bundledModelFile is missing: run mobile/scripts/fetch-model.sh first"
+    }
+}
+
 android {
     namespace = "ai.jarvis.mobile"
     compileSdk = 35
@@ -17,8 +25,18 @@ android {
         minSdk = 31
         targetSdk = 35
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.2.0"
+        // The on-device model runtime ships native code for 64-bit ARM (every Android 12+ phone).
+        ndk { abiFilters += listOf("arm64-v8a") }
+        // On-device model bundled into the APK (see mobile/scripts/fetch-model.sh). Only with
+        // -Pjarvis.bundleModel=true, so ordinary builds and tests don't pack 1.6 GB.
+        buildConfigField("String", "BUNDLED_MODEL", "\"${if (bundleModel) bundledModelFile else ""}\"")
     }
+    if (bundleModel) {
+        sourceSets["main"].assets.srcDir(rootProject.file("model-assets"))
+    }
+    // The model must stay uncompressed in the APK so it can be copied out quickly.
+    androidResources { noCompress += listOf("task") }
 
     buildTypes {
         release {
@@ -45,7 +63,7 @@ android {
             isIncludeAndroidResources = true
             all { test ->
                 // Cross-language integration tests read these (see mobile/scripts/remote-e2e.sh).
-                listOf("JARVIS_E2E_PAIRING", "JARVIS_E2E_RELAY", "JARVIS_PROTOCOL_FIXTURES").forEach { k ->
+                listOf("JARVIS_E2E_PAIRING", "JARVIS_E2E_RELAY", "JARVIS_PROTOCOL_FIXTURES", "JARVIS_PROMPT_DUMP", "JARVIS_MODEL_OUTPUTS").forEach { k ->
                     System.getenv(k)?.let { test.environment(k, it) }
                 }
             }
@@ -79,6 +97,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.zxing.android.embedded)
+    implementation(libs.mediapipe.genai)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
 

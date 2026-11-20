@@ -27,6 +27,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 interface ModelProvider {
     val id: String
     val displayName: String
+    /** True for a model running on the phone itself (small: direct commands are handled before it). */
+    val onDevice: Boolean get() = false
     suspend fun complete(request: ModelRequest): ModelResponse
 }
 

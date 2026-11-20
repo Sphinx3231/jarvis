@@ -123,6 +123,7 @@ private fun Main(c: AppContainer, mode: Mode, deepLink: String?, onDeepLinkHandl
     val activity by remember { c.db.activity().recent() }.collectAsState(emptyList())
     val history by remember { c.conversations.recent() }.collectAsState(emptyList())
     val pendingMobile by c.permissions.pending.collectAsState()
+    val localModelState by c.localModel.state.collectAsState()
     val messages by remember { c.mobile.state.map { it.conversationId }.flatMapLatest { id -> if (id == null) flowOf(emptyList()) else c.conversations.messages(id) } }.collectAsState(emptyList())
     val agentResults = remember { mutableStateMapOf<String, String>() }
     var keyTick by remember { mutableIntStateOf(0) }
@@ -137,7 +138,7 @@ private fun Main(c: AppContainer, mode: Mode, deepLink: String?, onDeepLinkHandl
         else -> null
     }
     val view = if (mode == Mode.REMOTE_PC) remoteHome(remoteState)
-    else mobileHome(routerStatus, mobileState.busy, providerLabel, agentResults, mobileTasks, pendingMobile.map { ApprovalView(it.id, it.title, it.summary, null) }, messages, speech.listening)
+    else mobileHome(routerStatus, mobileState.busy, modelConnection(provider.kind, localModelState, c.localModel.spec?.name, providerLabel), agentResults, mobileTasks, pendingMobile.map { ApprovalView(it.id, it.title, it.summary, null) }, messages, speech.listening)
 
     // ---- actions ---------------------------------------------------------------------------
     val submit: (String, String) -> Unit = { text, via -> if (mode == Mode.REMOTE_PC) remote?.submit(text, via) else c.mobile.submit(text, via) }
@@ -268,7 +269,16 @@ private fun Main(c: AppContainer, mode: Mode, deepLink: String?, onDeepLinkHandl
                     }
                 }
                 composable("settings") {
-                    SettingsScreen(mode, provider, hasKey, speakReplies, providerTest, setMode,
+                    val onDeviceInfo = c.localModel.spec?.let { spec ->
+                        val st = when (val m = localModelState) {
+                            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Ready -> "ready${c.onDevice.backend?.let { b -> " · runs on the $b" } ?: ""}"
+                            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Preparing -> "unpacking ${(m.fraction * 100).toInt()}% (first launch only)"
+                            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Failed -> "unavailable: ${m.reason}"
+                            else -> "ready to unpack"
+                        }
+                        "${spec.name} — $st\nRuns fully offline; nothing you say to it leaves the phone.\nLicense: ${spec.license}. Source: ${spec.source}."
+                    }
+                    SettingsScreen(mode, provider, hasKey, speakReplies, providerTest, onDeviceInfo, setMode,
                         onSave = { cfg, key -> scope.launch { c.prefs.setProvider(cfg); if (key != null) c.secrets.set(AppContainer.API_KEY, key); keyTick++; providerTest = "Saved." } },
                         onClearKey = { c.secrets.set(AppContainer.API_KEY, null); keyTick++ },
                         onTest = {

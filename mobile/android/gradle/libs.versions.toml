@@ -17,8 +17,10 @@ zxing = "4.3.0"
 junit = "4.13.2"
 robolectric = "4.14.1"
 roborazzi = "1.39.0"
+mediapipeGenai = "0.10.35"
 
 [libraries]
+mediapipe-genai = { module = "com.google.mediapipe:tasks-genai", version.ref = "mediapipeGenai" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
 androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }

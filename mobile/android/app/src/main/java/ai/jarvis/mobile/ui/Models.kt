@@ -106,7 +106,7 @@ fun remoteHome(s: RemoteSession.State): HomeView {
 fun mobileHome(
     status: MobileExecutionRouter.Status,
     busy: Boolean,
-    providerLabel: String?,
+    connection: Connection,
     agentSummaries: Map<String, String>,
     tasks: List<MobileTaskEntity>,
     approvals: List<ApprovalView>,
@@ -124,7 +124,7 @@ fun mobileHome(
     return HomeView(
         Mode.MOBILE,
         executingOn = "Executing on: this phone",
-        connection = if (providerLabel != null) Connection("MODEL READY", providerLabel, J.Ok, true) else Connection("NO MODEL", "Direct commands only — add a model in Settings", J.Warn, true),
+        connection = connection,
         core = core,
         coreDetail = if (busy) status.detail else "Ready",
         agents = AgentCatalog.ALL.map { a ->
@@ -146,4 +146,17 @@ fun fmtTime(ms: Long): String {
     val today = java.time.LocalDate.now()
     val hm = "%02d:%02d".format(t.hour, t.minute)
     return if (t.toLocalDate() == today) hm else "${t.toLocalDate()} $hm"
+}
+
+/** The Mobile-mode model as the header strip shows it. */
+fun modelConnection(kind: String, onDevice: ai.jarvis.mobile.runtime.local.LocalModelStore.State, onDeviceName: String?, cloudLabel: String?): Connection {
+    if (kind == "on_device") {
+        return when (onDevice) {
+            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Ready, ai.jarvis.mobile.runtime.local.LocalModelStore.State.Idle -> Connection("ON-DEVICE MODEL", "${onDeviceName ?: "Local model"} · runs offline on this phone", J.Ok, true)
+            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Preparing -> Connection("UNPACKING MODEL ${(onDevice.fraction * 100).toInt()}%", "First launch only — direct commands already work", J.Lavender, true)
+            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Failed -> Connection("MODEL UNAVAILABLE", onDevice.reason, J.Bad, true)
+            ai.jarvis.mobile.runtime.local.LocalModelStore.State.NotBundled -> Connection("NO MODEL", "This build has no on-device model — add one in Settings", J.Warn, true)
+        }
+    }
+    return if (cloudLabel != null) Connection("MODEL READY", cloudLabel, J.Ok, true) else Connection("NO MODEL", "Direct commands only — add a model in Settings", J.Warn, true)
 }
