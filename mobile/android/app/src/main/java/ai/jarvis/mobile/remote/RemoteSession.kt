@@ -122,7 +122,14 @@ class RemoteSession(
     /** Outbox: idempotency key → the command, re-sent on reconnect until the PC answers. */
     private data class Pending(val type: String, val payload: JsonElement, val itemId: String?, var lastMsgId: String? = null)
     private val outbox = java.util.LinkedHashMap<String, Pending>()
-    private val byMsgId = ConcurrentHashMap<String, String>() // message id → idempotency key
+    /**
+     * message id → idempotency key, for every send of a command (originals and re-sends), so a reply
+     * to any of them is matched — including a late duplicate, which is then recognised and not shown
+     * twice. Bounded: the oldest ids are dropped.
+     */
+    private val byMsgId: MutableMap<String, String> = java.util.Collections.synchronizedMap(object : java.util.LinkedHashMap<String, String>() {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?) = size > 2000
+    })
     private var pairing: Pair<PairingUri, CompletableDeferred<Result<PairedPc>>>? = null
 
     init {
@@ -214,7 +221,8 @@ class RemoteSession(
         for ((idem, p) in items) {
             val env = Envelope(1, E2E.randomId("ph_"), sessionId, identity.deviceId, pc.pcId, System.currentTimeMillis(), p.type, p.payload, null, idem)
             if (relay.send(seal(pc, env))) {
-                p.lastMsgId?.let { byMsgId.remove(it) }
+                // Keep earlier ids mapped: the PC may still answer the ORIGINAL send (e.g. it was
+                // in flight when the connection dropped). All are forgotten once the command is answered.
                 p.lastMsgId = env.id
                 byMsgId[env.id] = idem
                 p.itemId?.let { id -> setItem(id) { if (it.status == ItemStatus.SENDING || it.status == ItemStatus.WAITING_FOR_PC) it.copy(status = ItemStatus.SENDING) else it } }
@@ -311,11 +319,12 @@ class RemoteSession(
             }
             "jarvis.response.complete" -> {
                 val r = env.payloadAs<ResponseComplete>()
-                itemId?.let { id -> setItem(id) { it.copy(status = if (r.error != null) ItemStatus.FAILED else ItemStatus.COMPLETED) } }
-                if (idem != null && _state.value.chat.any { it.role == "assistant" && it.idempotencyKey == idem }) {
-                    _state.update { it.copy(duplicatesAnswered = it.duplicatesAnswered + 1) }
-                } else {
-                    _state.update { it.copy(conversationId = r.conversationId, chat = it.chat + ChatItem(E2E.randomId("item_", 6), "assistant", r.text, if (r.error != null) ItemStatus.FAILED else ItemStatus.COMPLETED, now, actions = r.actions, idempotencyKey = idem)) }
+                val status = if (r.error != null) ItemStatus.FAILED else ItemStatus.COMPLETED
+                // One atomic update: the command never shows COMPLETED without its reply beside it.
+                _state.update { st ->
+                    val chat = if (itemId != null) st.chat.map { if (it.id == itemId) it.copy(status = status) else it } else st.chat
+                    if (idem != null && st.chat.any { it.role == "assistant" && it.idempotencyKey == idem }) st.copy(chat = chat, duplicatesAnswered = st.duplicatesAnswered + 1)
+                    else st.copy(conversationId = r.conversationId, chat = chat + ChatItem(E2E.randomId("item_", 6), "assistant", r.text, status, now, actions = r.actions, idempotencyKey = idem))
                 }
                 done()
             }

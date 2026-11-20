@@ -45,7 +45,8 @@ class AppContainer(val context: Context) {
 
     // ---------------------------------------------------------------- Remote PC mode
     val identity by lazy { KeystoreIdentity.get() }
-    val relay by lazy { RelayConnection(http, identity, scope) }
+    private val relayLazy = lazy { RelayConnection(http, identity, scope) }
+    val relay by relayLazy
     val remote by lazy { RemoteSession(identity, relay, prefs, scope, BuildConfig.VERSION_NAME, "${Build.MANUFACTURER} ${Build.MODEL}".trim()) }
 
     // ---------------------------------------------------------------- Mobile mode (independent of the PC)
@@ -65,6 +66,24 @@ class AppContainer(val context: Context) {
         scope.launch { prefs.policies.collect { policies = it } }
         scope.launch { prefs.provider.collect { providerConfig = it } }
         scope.launch { prefs.speakReplies.collect { speakReplies = it } }
+        watchNetwork()
+    }
+
+    /**
+     * A pairing stays until the user unpairs (or revokes the phone on the PC); the connection to it is
+     * re-established automatically. This just skips the backoff wait when the app comes to the
+     * foreground or the phone gets a network again. (Android may suspend the socket while the app is
+     * in the background; there is no always-on background service.)
+     */
+    fun reconnectNow() { if (relayLazy.isInitialized()) relay.reconnectNow() }
+
+    private fun watchNetwork() {
+        val cm = context.getSystemService(android.net.ConnectivityManager::class.java) ?: return
+        runCatching {
+            cm.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) = reconnectNow()
+            })
+        }
     }
 
     /** The configured model provider, or null (Mobile Jarvis then handles direct commands only). */

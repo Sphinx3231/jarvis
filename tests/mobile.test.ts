@@ -1,3 +1,4 @@
+import { rmSync } from 'node:fs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { startRelay, type RunningRelay } from '../relay/relay.ts';
@@ -268,4 +269,52 @@ test('mobile: pairing payload binding — a request claiming another device id i
     assert.equal(app.mobile.devices().length, 0);
     phone.stop();
   });
+});
+
+test('mobile: pairing is permanent — survives a full PC restart and a relay restart, no re-pairing', async () => {
+  const relay = await startRelay();
+  const port = relay.port;
+  const first = await makeApp();
+  const dir = first.dir;
+  let second: Awaited<ReturnType<typeof makeApp>> | null = null;
+  let relay2: RunningRelay | null = null;
+  try {
+    first.app.settings.update({ mobile: { enabled: true, relayUrl: relay.url } });
+    await waitUntil(() => first.app.mobile.status().state === 'connected', 5000, 'PC connected');
+    const pcId = first.app.mobile.status().deviceId;
+    const phone = await pairedPhone(first.app, relay);
+
+    // The PC shuts down completely (e.g. reboot). The phone stays paired and is told the PC is offline.
+    await first.app.stop();
+    await waitUntil(() => phone.frames.find((f) => f.t === 'presence' && !f.online), 5000, 'PC offline');
+    const seen = phone.frames.length;
+
+    // Jarvis starts again on the same data: same PC identity, the phone is still allowed, and it comes back online by itself.
+    second = await makeApp({ dataDir: dir });
+    assert.equal(second.app.mobile.status().deviceId, pcId, 'the PC keeps its identity across restarts');
+    await waitUntil(() => second!.app.mobile.status().state === 'connected', 5000, 'restarted PC reconnected (setting persisted)');
+    await waitUntil(() => phone.frames.slice(seen).find((f) => f.t === 'presence' && f.online), 5000, 'phone told the PC is back');
+    const dev = second.app.mobile.status().devices.find((d) => d.id === phone.id);
+    assert.ok(dev && dev.online && dev.revokedAt === null, 'still paired, online, not revoked');
+    phone.send('pc.snapshot.request', {});
+    await phone.waitFor((e) => e.type === 'pc.snapshot');
+
+    // The relay restarts too: both ends reconnect on their own and keep working without pairing again.
+    await relay.close();
+    relay2 = await startRelay({ port });
+    phone.stop();
+    await phone.connect(relay2.url);
+    await waitUntil(() => second!.app.mobile.status().state === 'connected', 20_000, 'PC reconnected to the restarted relay');
+    await waitUntil(() => second!.app.mobile.status().devices.find((d) => d.id === phone.id)?.online, 5000, 'phone online again');
+    const before = phone.inbox.filter((e) => e.type === 'pc.snapshot').length;
+    phone.send('pc.snapshot.request', {});
+    await waitUntil(() => phone.inbox.filter((e) => e.type === 'pc.snapshot').length > before, 5000, 'command after relay restart');
+    assert.equal(second.app.mobile.status().devices.length, 1, 'no duplicate or re-paired device');
+  } finally {
+    TestPhone.stopAll();
+    await second?.app.stop();
+    rmSync(dir, { recursive: true, force: true });
+    await relay2?.close();
+    await relay.close().catch(() => {});
+  }
 });

@@ -70,6 +70,19 @@ class RelayConnection(private val http: OkHttpClient, private val identity: Devi
         _status.value = Status(State.IDLE, "Not connected")
     }
 
+    /**
+     * Skip the backoff wait and reconnect now (app opened, network came back). No-op while connected
+     * or when no PC is paired; the pairing itself is never touched here.
+     */
+    fun reconnectNow() {
+        if (!started || _status.value.state == State.CONNECTED || _status.value.state == State.CONNECTING) return
+        retryJob?.cancel()
+        attempt = 0
+        ws?.cancel()
+        ws = null
+        connect()
+    }
+
     fun send(text: String): Boolean {
         if (_status.value.state != State.CONNECTED) return false
         return ws?.send(text) ?: false

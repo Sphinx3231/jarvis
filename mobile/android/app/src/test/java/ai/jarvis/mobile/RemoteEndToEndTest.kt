@@ -33,7 +33,7 @@ class RemoteEndToEndTest {
         override suspend fun save(pc: PairedPc?) { this.pc = pc }
     }
 
-    @Test fun phoneDrivesPcJarvisThroughTheRelay() = runBlocking {
+    @Test fun phoneDrivesPcJarvisThroughTheRelay(): Unit = runBlocking {
         val uri = System.getenv("JARVIS_E2E_PAIRING")
         assumeTrue("set by mobile/scripts/remote-e2e.ts", !uri.isNullOrBlank())
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -75,6 +75,19 @@ class RemoteEndToEndTest {
             // 6. Emergency stop reaches the PC and reports back.
             session.emergencyStop("E2E stop")
             assertNotNull(withTimeout(10_000) { session.state.first { it.lastStop != null } }.lastStop)
+
+            // 7. The app is killed and reopened: a fresh session restores the stored pairing and
+            //    reconnects by itself (no QR, no re-pairing), then commands work again.
+            relay.stop()
+            val relay2 = RelayConnection(http, identity, scope)
+            val reopened = RemoteSession(identity, relay2, store, scope, deviceName = "Kotlin E2E phone")
+            try {
+                withTimeout(15_000) { reopened.state.first { it.paired == pc && it.pcOnline } }
+                val after = reopened.submit("remember that pairing survives an app restart")
+                withTimeout(20_000) { reopened.state.first { s -> s.chat.any { it.id == after && it.status == RemoteSession.ItemStatus.COMPLETED } } }
+            } finally {
+                relay2.stop()
+            }
         } finally {
             relay.stop()
             scope.cancel()

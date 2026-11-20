@@ -54,6 +54,7 @@ try {
   });
   const gradleCode: number = await new Promise((r) => gradle.on('exit', (c) => r(c ?? 1)));
   clearInterval(watcher);
+  if (gradleCode !== 0) console.error('PC-side mobile audit (newest first):\n' + app.mobile.auditLog().slice(0, 15).map((a) => `  ${a.type} → ${a.outcome}${a.detail ? ` (${a.detail})` : ''}`).join('\n'));
   assert.equal(gradleCode, 0, 'the Kotlin end-to-end test failed');
 
   // Verify on the PC side.
@@ -68,7 +69,8 @@ try {
   assert.ok(audit.some((a) => a.type === 'approval.resolve' && a.outcome === 'approved'), 'approved from the phone');
   assert.ok(audit.some((a) => a.type === 'system.emergency_stop' && a.outcome === 'stopped'), 'emergency stop reached the PC');
   assert.equal(app.tasks.list({ limit: 50 }).find((t) => t.title === 'Kotlin approval check')?.status, 'completed');
-  console.log('\nREMOTE E2E PASSED: Kotlin client ↔ relay ↔ PC Jarvis (pairing, command, voice, dedupe, approval, emergency stop)');
+  assert.equal(mem.filter((m) => /pairing survives an app restart/i.test(m)).length, 1, 'the reopened app reconnected from its stored pairing and its command ran');
+  console.log('\nREMOTE E2E PASSED: Kotlin client ↔ relay ↔ PC Jarvis (pairing, command, voice, dedupe, approval, emergency stop, app restart without re-pairing)');
   code = 0;
 } catch (err) {
   console.error('\nREMOTE E2E FAILED:', (err as Error).message);
