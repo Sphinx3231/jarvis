@@ -71,11 +71,25 @@ function targetsFor(s: State): Params {
 }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+
+// Hero geometry (viewBox units; the core's centre is 110,110).
+const GYRO_R = 40;
+const HERO_TICKS = Array.from({ length: 120 }, (_, i) => {
+  const a = (i / 120) * Math.PI * 2;
+  const major = i % 10 === 0;
+  const r0 = major ? 114 : 116;
+  return { x1: (110 + Math.cos(a) * r0).toFixed(2), y1: (110 + Math.sin(a) * r0).toFixed(2), x2: (110 + Math.cos(a) * 120).toFixed(2), y2: (110 + Math.sin(a) * 120).toFixed(2), major };
+});
+const HERO_BRACKET = (() => {
+  const p = (ang: number, r: number) => `${(110 + Math.cos(ang) * r).toFixed(2)} ${(110 + Math.sin(ang) * r).toFixed(2)}`;
+  const a = -Math.PI / 2;
+  return `M ${p(a - 0.16, 124)} L ${p(a - 0.16, 128)} A 128 128 0 0 1 ${p(a + 0.16, 128)} L ${p(a + 0.16, 124)}`;
+})();
 const NUM_KEYS = ['spinRate', 'arcRate', 'arcLen', 'coreBase', 'pulseAmp', 'pulseRate', 'glowAmp', 'ringOp', 'spokesOp', 'ripple', 'spark', 'bang'] as const;
 
 export interface OrbAgent { id: string; name: string; color: string; summary: string; working: boolean; }
 
-export function Core({ state, size = 220, reduceMotion = false, agents, wordmark = false, tag }: { state: CoreState; size?: number; reduceMotion?: boolean; agents?: OrbAgent[]; wordmark?: boolean; tag?: string }) {
+export function Core({ state, size = 220, reduceMotion = false, agents, hero = false }: { state: CoreState; size?: number; reduceMotion?: boolean; agents?: OrbAgent[]; hero?: boolean }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const stateRef = useRef<State>(state);
   const osReduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -92,6 +106,7 @@ export function Core({ state, size = 220, reduceMotion = false, agents, wordmark
       glow: $('c-glow'), ringOuter: $('c-ringOuter'), ringMid: $('c-ringMid'), ringInner: $('c-ringInner'),
       arc: $('c-arc'), spokes: $('c-spokes'), particles: $('c-particles'), core: $('c-core'), coreDot: $('c-coreDot'),
       waves: $('c-waves'), spark: $('c-spark'), bang: $('c-bang'),
+      ticks: $('c-ticks'), segs: $('c-segs'), gyro: $('c-gyro'), sphere: $('c-sphere'),
     };
     const ringEls = [parts.ringOuter, parts.ringMid, parts.ringInner, parts.arc].filter(Boolean) as SVGElement[];
     const set = (el: SVGElement | null, t: string) => el && el.setAttribute('transform', t);
@@ -183,7 +198,25 @@ export function Core({ state, size = 220, reduceMotion = false, agents, wordmark
         const bp = animate && now < shakeUntil ? 1 + 0.15 * Math.sin(now * 0.05) : 1;
         set(parts.bang, `translate(110 110) scale(${bp.toFixed(3)}) translate(-110 -110)`);
       }
-      // Saturn ring (wordmark/hero mode): a slow precession for a living, 3-D feel.
+      // Hero layers: tick ring and segmented arcs turn slowly in opposite directions (faster while
+      // working), and the wireframe sphere's meridians sweep like a turning globe.
+      rot(parts.ticks, t * cur.spinRate * 0.35);
+      rot(parts.segs, -t * cur.spinRate * 0.6);
+      if (parts.gyro) {
+        const spin = animate ? t * (0.35 + cur.spinRate * 0.03) : 0.6;
+        const ms = parts.gyro.querySelectorAll<SVGEllipseElement>('.c-meridian');
+        ms.forEach((m, i) => {
+          const ph = spin + (i * Math.PI) / ms.length;
+          m.setAttribute('rx', Math.abs(GYRO_R * Math.cos(ph)).toFixed(2));
+          m.setAttribute('stroke-opacity', (0.22 + 0.6 * Math.abs(Math.sin(ph))).toFixed(3));
+          m.setAttribute('stroke', cur.tint === C.accent ? C.soft : cur.tint);
+        });
+        op(parts.gyro, 0.75 + (animate ? breath * 0.1 : 0) + speech * 0.2);
+      }
+      if (parts.gyro && parts.sphere) parts.sphere.setAttribute('opacity', (0.45 + cur.glowAmp * 0.25 + (animate ? breath * 0.05 : 0) + speech * 0.15).toFixed(3));
+      // In the hero the aura stays tight around the sphere so the wireframe reads crisply.
+      if (parts.gyro && parts.glow) parts.glow.setAttribute('opacity', (0.16 + cur.glowAmp * 0.2 + (animate ? breath * 0.03 : 0) + speech * 0.1).toFixed(3));
+      // Saturn ring (legacy, hidden): kept for the compact core.
       const saturn = svg.querySelector('#c-saturn');
       if (saturn) set(saturn as SVGElement, `rotate(${(animate ? (t * 7) % 360 : -8).toFixed(2)} 110 110)`);
 
@@ -215,10 +248,12 @@ export function Core({ state, size = 220, reduceMotion = false, agents, wordmark
   }, [still]);
 
   // Radial filaments and particle dots, generated once.
-  const spokes = Array.from({ length: SPOKES }, (_, i) => {
-    const a = (i / SPOKES) * Math.PI * 2;
-    const r0 = 30 + (i % 3) * 3;
-    const r1 = 52 + (i % 5) * 7;
+  const nSpokes = hero ? 48 : SPOKES;
+  const spokes = Array.from({ length: nSpokes }, (_, i) => {
+    const a = (i / nSpokes) * Math.PI * 2;
+    // In the hero the filaments radiate from the sphere's surface out to the inner ring.
+    const r0 = hero ? GYRO_R + 6 + (i % 3) * 2 : 30 + (i % 3) * 3;
+    const r1 = hero ? 58 + (i % 5) * 5 : 52 + (i % 5) * 7;
     return { x1: 110 + Math.cos(a) * r0, y1: 110 + Math.sin(a) * r0, x2: 110 + Math.cos(a) * r1, y2: 110 + Math.sin(a) * r1, o: 0.3 + (i % 4) * 0.18 };
   });
   const particles = Array.from({ length: PARTICLES }, (_, i) => {
@@ -227,7 +262,7 @@ export function Core({ state, size = 220, reduceMotion = false, agents, wordmark
   });
 
   return (
-    <div className={`core core--${state} ${wordmark ? 'core--wordmark' : ''}`} style={{ ['--size' as string]: `${size}px` }} role="img" aria-label={`Jarvis is ${CORE_LABEL[state].toLowerCase()}`}>
+    <div className={`core core--${state} ${hero ? 'core--hero' : ''}`} style={{ ['--size' as string]: `${size}px` }} role="img" aria-label={`Jarvis is ${CORE_LABEL[state].toLowerCase()}`}>
       <svg ref={svgRef} viewBox="0 0 220 220" className="core__svg" aria-hidden>
         <defs>
           <radialGradient id="c-grad-core" cx="50%" cy="50%" r="50%">
@@ -243,6 +278,12 @@ export function Core({ state, size = 220, reduceMotion = false, agents, wordmark
             <stop offset="55%" stopColor={C.soft} />
             <stop offset="100%" stopColor={C.accent} />
           </linearGradient>
+          <radialGradient id="c-grad-sphere" cx="42%" cy="36%" r="62%">
+            <stop offset="0%" stopColor={C.soft} stopOpacity="0.6" />
+            <stop offset="35%" stopColor={C.accent} stopOpacity="0.38" />
+            <stop offset="75%" stopColor={C.deep} stopOpacity="0.3" />
+            <stop offset="100%" stopColor="#2e1065" stopOpacity="0.55" />
+          </radialGradient>
           <linearGradient id="c-saturn-grad" x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor={C.deep} stopOpacity="0.15" />
             <stop offset="35%" stopColor={C.bright} />
@@ -254,9 +295,35 @@ export function Core({ state, size = 220, reduceMotion = false, agents, wordmark
 
         <circle id="c-glow" cx="110" cy="110" r="70" fill={C.accent} opacity="0.4" filter="url(#c-blur)" />
 
-        {/* luminous planet body (shown in wordmark/hero mode, behind the JARVIS mark) */}
-        <circle id="c-sphere" cx="110" cy="110" r="50" fill="url(#c-grad-core)" opacity="0" />
-        <circle id="c-sphereEdge" cx="110" cy="110" r="50" fill="none" stroke={C.bright} strokeWidth="1" opacity="0" />
+        {hero && (
+          <>
+            {/* static HUD frame: outer ring, cardinal markers and bracket arcs */}
+            <g className="core__frame" fill="none" stroke={C.soft}>
+              <circle cx="110" cy="110" r="131" strokeOpacity="0.16" strokeWidth="0.6" />
+              <circle cx="110" cy="110" r="126" strokeOpacity="0.08" strokeWidth="0.6" strokeDasharray="1 4" />
+              {[0, 90, 180, 270].map((d) => (
+                <path key={d} d="M110 -24 l-3.2 -5.5 h6.4 Z" transform={`rotate(${d} 110 110)`} fill={C.soft} fillOpacity="0.55" stroke="none" />
+              ))}
+              {[45, 135, 225, 315].map((d) => (
+                <path key={d} d={HERO_BRACKET} transform={`rotate(${d} 110 110)`} strokeOpacity="0.45" strokeWidth="0.9" />
+              ))}
+            </g>
+            {/* precision tick ring */}
+            <g id="c-ticks" stroke={C.soft}>
+              {HERO_TICKS.map((k, i) => (
+                <line key={i} x1={k.x1} y1={k.y1} x2={k.x2} y2={k.y2} strokeOpacity={k.major ? 0.6 : 0.22} strokeWidth={k.major ? 0.9 : 0.6} />
+              ))}
+            </g>
+            {/* segmented arcs */}
+            <g id="c-segs" fill="none" strokeLinecap="round">
+              <circle cx="110" cy="110" r="108" stroke={C.soft} strokeOpacity="0.55" strokeWidth="2.2" strokeDasharray="70 14 6 14 120 22 18 22 60 300" />
+              <circle cx="110" cy="110" r="102" stroke={C.accent} strokeOpacity="0.35" strokeWidth="0.8" strokeDasharray="4 6" />
+            </g>
+          </>
+        )}
+        {/* luminous sphere (hero) */}
+        <circle id="c-sphere" cx="110" cy="110" r={GYRO_R + 2} fill={hero ? 'url(#c-grad-sphere)' : 'url(#c-grad-core)'} opacity="0" />
+        <circle id="c-sphereEdge" cx="110" cy="110" r={GYRO_R + 2} fill="none" stroke={C.bright} strokeWidth="0.8" opacity="0" />
 
         {/* radial filaments (the "burst") */}
         <g id="c-spokes" stroke={C.soft} strokeWidth="1.1" strokeLinecap="round">
@@ -334,13 +401,16 @@ export function Core({ state, size = 220, reduceMotion = false, agents, wordmark
           <circle cx="150" cy="64" r="2.2" fill="#1a0540" />
         </g>
 
-        {/* JARVIS wordmark (hero mode) — in-SVG so it scales with the core */}
-        {wordmark && (
-          <g id="c-wordmark" style={{ pointerEvents: 'none' }}>
-            <text x="110" y="110" textAnchor="middle" className="core__name">JARVIS</text>
-            <text x="110" y="128" textAnchor="middle" className="core__tag">
-              {tag ? `●\u00a0\u00a0${tag}` : 'AI\u00a0\u00a0PERSONAL\u00a0\u00a0ASSISTANT'}
-            </text>
+        {/* wireframe sphere: meridians that turn (hero) */}
+        {hero && (
+          <g id="c-gyro" fill="none" strokeWidth="0.85">
+            {Array.from({ length: 6 }, (_, i) => (
+              <ellipse key={i} className="c-meridian" cx="110" cy="110" rx={GYRO_R} ry={GYRO_R} stroke={C.soft} />
+            ))}
+            {/* latitudes, seen slightly from above: the equator and two parallels at ±27° */}
+            <ellipse cx="110" cy="110" rx={GYRO_R} ry={GYRO_R * 0.16} stroke={C.soft} strokeOpacity="0.4" />
+            <ellipse cx="110" cy={110 - GYRO_R * 0.45} rx={GYRO_R * 0.89} ry={GYRO_R * 0.12} stroke={C.soft} strokeOpacity="0.22" />
+            <ellipse cx="110" cy={110 + GYRO_R * 0.45} rx={GYRO_R * 0.89} ry={GYRO_R * 0.12} stroke={C.soft} strokeOpacity="0.22" />
           </g>
         )}
       </svg>

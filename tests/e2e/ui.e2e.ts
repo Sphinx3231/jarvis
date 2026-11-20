@@ -56,7 +56,12 @@ try {
   // Services have only just started after unlocking: wait for the core to settle.
   await page.locator('.core--idle').waitFor({ timeout: 10_000 });
   assert.equal(await page.locator('.core--idle').count(), 1);
-  assert.equal((await page.locator('#c-wordmark .core__name').textContent())?.trim(), 'JARVIS', 'the hero shows the JARVIS wordmark in the core');
+  // The hero core is an abstract intelligence core: a wireframe sphere whose meridians turn.
+  assert.equal(await page.locator('.core--hero #c-gyro .c-meridian').count(), 6, 'the hero core draws its wireframe sphere');
+  const meridian = () => page.locator('.core--hero .c-meridian').first().getAttribute('rx');
+  const m1 = await meridian();
+  await page.waitForTimeout(300);
+  assert.notEqual(m1, await meridian(), 'the sphere turns');
   // The core is a live inline-SVG vector rig — prove it is actually animating (rotating/pulsing),
   // not a static image: its outer ring transform must change between frames.
   const coreXform = () => page.locator('#c-ringOuter').getAttribute('transform');

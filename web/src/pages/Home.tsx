@@ -293,7 +293,7 @@ function TasksPanel() {
 }
 
 function ActivityPanel() {
-  const { data } = useResource<{ activity: ActivityEntry[] }>('/api/activity?limit=7', ['activity']);
+  const { data } = useResource<{ activity: ActivityEntry[] }>('/api/activity?limit=14', ['activity']);
   return (
     <Panel
       title="Recent activity"

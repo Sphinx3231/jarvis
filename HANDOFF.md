@@ -92,10 +92,18 @@ built web UI and a JSON+SSE API on localhost. The UI is token-gated to that loca
 - **Home** (`pages/Home.tsx`), a 3-column dashboard:
   - **Left:** System overview, with real CPU, RAM and Jarvis RSS from `/api/metrics`
     (`server/core/metrics.ts`) and sparklines of the samples; active tasks; recent activity.
-  - **Centre:** the orbit stage (`components/Orbit.tsx`): the core with JARVIS and its live state,
-    and the six agents as glass discs on an ellipse. Geometry comes from the stage's measured size,
-    so links and orbits always line up. Links pulse while an agent works. The voice-first command
-    bar sits below.
+  - **Centre:** the orbit stage (`components/Orbit.tsx`): the hero core and the six agents in
+    holographic containers on an ellipse, with double orbit lines, an anchor ring and beam links.
+    Geometry comes from the stage's measured size, so everything always lines up. A link carries
+    packets, and an agent's ring spins, only while that agent is actually working. The voice-first
+    command bar sits below.
+  - **Hero core** (`<Core hero />`): an abstract intelligence core (wireframe sphere with turning
+    meridians, tick ring, segmented arcs, HUD frame), driven by the same per-state animation loop.
+    It has no wordmark; the e2e test checks that the meridians turn.
+- **Environment** (`components/Backdrop.tsx`): fixed behind the app. Light sources, a masked
+  holographic grid, a perspective floor, concentric HUD rings, orbital arcs and particles. The big
+  SVG is static (painted once); only 16 twinkles and one slow ring animate, on their own compositor
+  layers.
   - **Right:** Jarvis core status, approvals, quick actions, the agents list (`.agents__row`, pinned
     by e2e) and insights.
   - Clicking an agent (disc or row) opens `AgentDetail`: role, latest result, last run, runs,

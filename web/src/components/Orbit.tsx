@@ -40,15 +40,6 @@ const SLOT_DEG = [-130, -50, 180, 0, 130, 50];
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const ellipsePath = (cx: number, cy: number, rx: number, ry: number) => `M ${cx - rx} ${cy} a ${rx} ${ry} 0 1 0 ${2 * rx} 0 a ${rx} ${ry} 0 1 0 ${-2 * rx} 0`;
 
-const CORE_TAG: Record<CoreState, string> = {
-  idle: 'READY',
-  thinking: 'THINKING',
-  listening: 'LISTENING',
-  speaking: 'SPEAKING',
-  working: 'EXECUTING',
-  success: 'DONE',
-  error: 'NEEDS ATTENTION',
-};
 
 function useSize(ref: React.RefObject<HTMLElement | null>): { w: number; h: number } {
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -65,10 +56,13 @@ function useSize(ref: React.RefObject<HTMLElement | null>): { w: number; h: numb
 }
 
 /**
- * Jarvis at the centre with its six sub-agents in orbit. Geometry is computed from the real size of
- * the stage, so the orbit paths, connection lines and nodes always line up at any window size.
- * Motion is restrained (slow drift on the orbits, a gentle float on the nodes, data pulses on the
- * links of agents that are working) and stops entirely with reduced motion.
+ * Jarvis's intelligence core at the centre with its six sub-agents in orbit. Geometry is computed
+ * from the real size of the stage, so the orbits, the anchor ring, the links and the agents always
+ * line up at any window size.
+ *
+ * What moves means something: the core's rings and sphere follow Jarvis's live state (see Core);
+ * a link carries data packets only while that agent is actually working, and that agent's ring
+ * spins. The rest is a slow ambient drift on the orbits. Reduced motion stops all of it.
  */
 export function OrbitStage({
   agents,
@@ -90,90 +84,118 @@ export function OrbitStage({
   const ref = useRef<HTMLDivElement>(null);
   const { w, h } = useSize(ref);
   const ready = w > 0 && h > 0;
-  const node = clamp(Math.min(w * 0.12, h * 0.17), 76, 112);
+  const node = clamp(Math.min(w * 0.11, h * 0.165), 82, 118);
   const cx = w / 2;
-  const cy = h / 2 - 6;
-  const core = clamp(Math.min(w * 0.4, h * 0.6), 170, 430);
-  const rx = clamp(w / 2 - node / 2 - 12, core * 0.62, w * 0.43);
-  const ry = clamp(h / 2 - node / 2 - 18, core * 0.52, h * 0.42);
+  const cy = h * 0.47;
+  // The core draws out to ~0.6 × its size (tick ring and HUD frame), so this is its visual size.
+  const core = clamp(Math.min(w * 0.46, h * 0.62), 220, 600);
+  const coreR = core * 0.6;
+  const rx = clamp(w / 2 - node / 2 - 16, coreR + node * 0.6, w * 0.45);
+  const ry = clamp(h * 0.47 - node / 2 - 14, coreR * 0.78, h * 0.44);
+  const anchorR = coreR + 10;
   const pts = agents.map((_, i) => {
     const deg = SLOT_DEG[i] ?? (i / agents.length) * 360;
     const a = (deg * Math.PI) / 180;
-    return { x: cx + rx * Math.cos(a), y: cy + ry * Math.sin(a), a };
+    return { x: cx + rx * Math.cos(a), y: cy + ry * Math.sin(a) };
   });
   const motion = !reduceMotion;
+  const anyWorking = agents.some((a) => a.state === 'working');
 
   return (
-    <div className={`orbit ${motion ? '' : 'orbit--still'}`} ref={ref}>
+    <div className={`orbit orbit--${state} ${motion ? '' : 'orbit--still'}`} ref={ref}>
       {ready && (
         <>
           <svg className="orbit__svg" width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden>
             <defs>
               <radialGradient id="orbit-haze" cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stopColor="#7c3aed" stopOpacity="0.28" />
-                <stop offset="55%" stopColor="#5b21b6" stopOpacity="0.08" />
+                <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.34" />
+                <stop offset="40%" stopColor="#6d28d9" stopOpacity="0.14" />
                 <stop offset="100%" stopColor="#09070f" stopOpacity="0" />
+              </radialGradient>
+              <radialGradient id="orbit-pool" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="#a78bfa" stopOpacity="0.32" />
+                <stop offset="100%" stopColor="#a78bfa" stopOpacity="0" />
               </radialGradient>
               {agents.map((a, i) => (
                 <linearGradient key={a.id} id={`orbit-link-${a.id}`} gradientUnits="userSpaceOnUse" x1={cx} y1={cy} x2={pts[i].x} y2={pts[i].y}>
-                  <stop offset="0%" stopColor="#a78bfa" stopOpacity="0.05" />
-                  <stop offset="100%" stopColor={a.color} stopOpacity="0.75" />
+                  <stop offset="0%" stopColor="#c4b5fd" stopOpacity="0.15" />
+                  <stop offset="55%" stopColor="#a78bfa" stopOpacity="0.35" />
+                  <stop offset="100%" stopColor={a.color} stopOpacity="0.9" />
                 </linearGradient>
               ))}
             </defs>
-            <ellipse cx={cx} cy={cy} rx={rx * 1.25} ry={ry * 1.1} fill="url(#orbit-haze)" />
-            {/* the agents' orbit, plus two tilted outer orbits for depth */}
+
+            {/* the light the core casts: a halo, and a pool on the "floor" beneath it */}
+            <ellipse cx={cx} cy={cy} rx={coreR * 2.1} ry={coreR * 1.7} fill="url(#orbit-haze)" />
+            <ellipse cx={cx} cy={Math.min(h - 10, cy + coreR + 26)} rx={coreR * 1.25} ry={coreR * 0.16} fill="url(#orbit-pool)" />
+
+            {/* orbits: the agents' ellipse (double line), two tilted outer orbits with travelling motes */}
+            <ellipse className="orbit__ring orbit__ring--base" cx={cx} cy={cy} rx={rx} ry={ry} />
             <ellipse className="orbit__ring orbit__ring--main" cx={cx} cy={cy} rx={rx} ry={ry} />
-            <g transform={`rotate(-12 ${cx} ${cy})`}>
-              <ellipse className="orbit__ring orbit__ring--tilt" cx={cx} cy={cy} rx={rx * 1.04} ry={ry * 0.5} />
+            <ellipse className="orbit__ring orbit__ring--outer" cx={cx} cy={cy} rx={rx + 14} ry={ry + 12} />
+            <g transform={`rotate(-11 ${cx} ${cy})`}>
+              <ellipse className="orbit__ring orbit__ring--tilt" cx={cx} cy={cy} rx={rx * 1.02} ry={ry * 0.46} />
               {motion && (
                 <circle r="2.6" className="orbit__mote">
-                  <animateMotion dur="26s" repeatCount="indefinite" path={ellipsePath(cx, cy, rx * 1.04, ry * 0.5)} />
+                  <animateMotion dur="28s" repeatCount="indefinite" path={ellipsePath(cx, cy, rx * 1.02, ry * 0.46)} />
                 </circle>
               )}
             </g>
-            <g transform={`rotate(14 ${cx} ${cy})`}>
-              <ellipse className="orbit__ring orbit__ring--tilt2" cx={cx} cy={cy} rx={rx * 0.86} ry={ry * 0.36} />
+            <g transform={`rotate(13 ${cx} ${cy})`}>
+              <ellipse className="orbit__ring orbit__ring--tilt2" cx={cx} cy={cy} rx={rx * 0.84} ry={ry * 0.34} />
               {motion && (
                 <circle r="2" className="orbit__mote orbit__mote--dim">
-                  <animateMotion dur="34s" repeatCount="indefinite" keyPoints="1;0" keyTimes="0;1" calcMode="linear" path={ellipsePath(cx, cy, rx * 0.86, ry * 0.36)} />
+                  <animateMotion dur="36s" repeatCount="indefinite" keyPoints="1;0" keyTimes="0;1" calcMode="linear" path={ellipsePath(cx, cy, rx * 0.84, ry * 0.34)} />
                 </circle>
               )}
             </g>
-            <circle className="orbit__halo" cx={cx} cy={cy} r={core * 0.6} style={{ transformOrigin: `${cx}px ${cy}px` }} />
-            {/* links from Jarvis to each agent; a pulse travels along the link while the agent works */}
+
+            {/* the anchor ring around the core, where each agent's link is plugged in */}
+            <circle className="orbit__anchor" cx={cx} cy={cy} r={anchorR} />
+
             {agents.map((a, i) => {
               const p = pts[i];
               const dx = p.x - cx;
               const dy = p.y - cy;
               const len = Math.hypot(dx, dy) || 1;
-              const x1 = cx + (dx / len) * core * 0.47;
-              const y1 = cy + (dy / len) * core * 0.47;
-              const x2 = p.x - (dx / len) * (node / 2 + 6);
-              const y2 = p.y - (dy / len) * (node / 2 + 6);
+              const ux = dx / len;
+              const uy = dy / len;
+              const x1 = cx + ux * anchorR;
+              const y1 = cy + uy * anchorR;
+              const x2 = p.x - ux * (node / 2 + 10);
+              const y2 = p.y - uy * (node / 2 + 10);
               const working = a.state === 'working';
+              const ang = (Math.atan2(uy, ux) * 180) / Math.PI;
               return (
-                <g key={a.id} className={`orbit__link ${working ? 'is-working' : ''}`}>
-                  <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={`url(#orbit-link-${a.id})`} />
+                <g key={a.id} className={`orbit__link ${working ? 'is-working' : ''}`} style={{ color: a.color }}>
+                  <line className="orbit__beam" x1={x1} y1={y1} x2={x2} y2={y2} stroke={a.color} />
+                  <line className="orbit__wire" x1={x1} y1={y1} x2={x2} y2={y2} stroke={`url(#orbit-link-${a.id})`} />
                   {working && motion && (
-                    <circle r="3.2" fill={a.color} className="orbit__pulse">
-                      <animateMotion dur="1.4s" repeatCount="indefinite" path={`M ${x1} ${y1} L ${x2} ${y2}`} />
-                    </circle>
+                    <>
+                      <circle r="3.4" fill={a.color} className="orbit__pulse">
+                        <animateMotion dur="1.3s" repeatCount="indefinite" path={`M ${x1} ${y1} L ${x2} ${y2}`} />
+                      </circle>
+                      <circle r="2.4" fill="#ede9fe" className="orbit__pulse">
+                        <animateMotion dur="1.3s" begin="0.65s" repeatCount="indefinite" path={`M ${x1} ${y1} L ${x2} ${y2}`} />
+                      </circle>
+                    </>
                   )}
-                  <circle cx={x2} cy={y2} r="2.2" fill={a.color} opacity="0.8" />
+                  {/* plug on the anchor ring, terminal at the agent */}
+                  <rect x={x1 - 3} y={y1 - 3} width="6" height="6" transform={`rotate(${ang + 45} ${x1} ${y1})`} className="orbit__plug" fill={a.color} />
+                  <circle cx={x2} cy={y2} r="2.6" fill={a.color} className="orbit__term" />
                 </g>
               );
             })}
           </svg>
 
           <div className="orbit__core" style={{ left: cx, top: cy }}>
-            <Core state={state} size={core} reduceMotion={reduceMotion} wordmark tag={CORE_TAG[state]} />
+            <Core state={state} size={core} reduceMotion={reduceMotion} hero />
           </div>
 
-          <div className={`state-pill state-pill--${state} orbit__state`} style={{ left: cx, top: Math.min(h - 18, cy + core / 2 + 4), maxWidth: Math.max(160, rx * 1.15 - node) }}>
+          <div className={`state-pill state-pill--${state} orbit__state`} style={{ left: cx, top: Math.min(h - 30, cy + coreR + 12), maxWidth: Math.max(180, rx * 1.2 - node) }}>
             <span className="state-pill__dot" />
             {CORE_LABEL[state]}
-            <span className="state-pill__detail">· {detail}</span>
+            <span className="state-pill__detail">· {anyWorking && state === 'idle' ? 'agents at work' : detail}</span>
             {wakeActive && (
               <span className="state-pill__detail" title="Wake word is on: say “Hey Jarvis…”">
                 · <Volume2 size={12} /> wake word on
@@ -187,7 +209,12 @@ export function OrbitStage({
             return (
               <button key={a.id} className={`anode anode--${st.key}`} style={style} onClick={() => onSelect(a.id)} aria-label={`${a.name} — ${st.label}. Open details.`} title={`${a.name}: ${a.lastSummary || splitRole(a.role).text}`}>
                 <span className="anode__disc">
-                  <span className="anode__icon">{agentIcon(a.id, node > 96 ? 22 : 19)}</span>
+                  <svg className="anode__ring" viewBox="0 0 100 100" aria-hidden>
+                    <circle cx="50" cy="50" r="48.5" className="anode__ring-track" />
+                    <circle cx="50" cy="50" r="48.5" className="anode__ring-arc" />
+                    <circle cx="50" cy="50" r="44" className="anode__ring-inner" />
+                  </svg>
+                  <span className="anode__icon">{agentIcon(a.id, node > 100 ? 23 : 20)}</span>
                   <span className="anode__name">{a.name}</span>
                   <span className="anode__status">
                     <i className="anode__dot" />

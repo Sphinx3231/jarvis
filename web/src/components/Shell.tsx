@@ -93,9 +93,7 @@ export function TopBar({ immersive, onToggleImmersive }: { immersive: boolean; o
         <span className="conn__dot" />
         {connected ? 'Online' : 'Offline'}
       </div>
-      <div className="topbar__tagline" aria-hidden>
-        Always here. Always evolving.
-      </div>
+      <div className="topbar__spacer" />
       <ComputerIndicator />
       <span className="topbar__sep" />
       <div className="topbar__time">{time}</div>

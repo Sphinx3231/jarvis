@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Minimize2 } from 'lucide-react';
+import { Backdrop } from './components/Backdrop';
 import { Sidebar, Toasts, TopBar } from './components/Shell';
 import type { StatusResponse } from './lib/api';
 import { api } from './lib/api';
@@ -79,6 +80,7 @@ export function App() {
 
   return (
     <div className="app">
+      <Backdrop />
       {immersive && (
         <button className="immersive-toggle" onClick={toggleImmersive} aria-label="Exit immersive mode (backslash)" title="Exit immersive (\\)">
           <Minimize2 size={16} />
