@@ -64,6 +64,65 @@ function useSize(ref: React.RefObject<HTMLElement | null>): { w: number; h: numb
  * a link carries data packets only while that agent is actually working, and that agent's ring
  * spins. The rest is a slow ambient drift on the orbits. Reduced motion stops all of it.
  */
+export interface Telemetry {
+  cpu: number | null;
+  mem: number | null;
+  cores: number | null;
+  tasksRunning: number;
+  tasksActive: number;
+  tasksMax: number;
+  monitoring: boolean;
+  startedAt: number | null;
+  platform: string | null;
+  version: string | null;
+}
+
+const PLATFORM: Record<string, string> = { linux: 'LINUX', win32: 'WINDOWS', darwin: 'MACOS' };
+const two = (n: number) => String(Math.floor(n)).padStart(2, '0');
+
+/** Clock and uptime for the stage's HUD corners (one 1-second timer; nothing else re-renders). */
+function StageTelemetry({ t, state }: { t: Telemetry; state: CoreState }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const d = new Date(now);
+  const up = t.startedAt ? Math.max(0, (now - t.startedAt) / 1000) : null;
+  const upText = up === null ? '--:--:--' : `${up >= 86400 ? `${Math.floor(up / 86400)}D ` : ''}${two((up % 86400) / 3600)}:${two((up % 3600) / 60)}:${two(up % 60)}`;
+  return (
+    <>
+      <div className="tele tele--tl">
+        <span className="tele__k">LOCAL</span>
+        <span className="tele__v">
+          {two(d.getHours())}:{two(d.getMinutes())}:{two(d.getSeconds())}
+        </span>
+        <span className="tele__s">{d.toLocaleDateString('en-US', { weekday: 'short', day: '2-digit', month: 'short' }).toUpperCase()}</span>
+      </div>
+      <div className="tele tele--tr">
+        <span className="tele__k">UPTIME</span>
+        <span className="tele__v">{upText}</span>
+        <span className="tele__s">CORE · {CORE_LABEL[state].toUpperCase()}</span>
+      </div>
+      <div className="tele tele--bl">
+        <span className="tele__k">HOST</span>
+        <span className="tele__v">{t.platform ? (PLATFORM[t.platform] ?? t.platform.toUpperCase()) : '—'}</span>
+        <span className="tele__s">{t.cores ? `${t.cores} THREADS` : ''}</span>
+      </div>
+      <div className="tele tele--br">
+        <span className="tele__k">MONITOR</span>
+        <span className={`tele__v ${t.monitoring ? 'is-on' : 'is-off'}`}>{t.monitoring ? 'ACTIVE' : 'PAUSED'}</span>
+        <span className="tele__s">{t.version ? `JARVIS v${t.version}` : ''}</span>
+      </div>
+    </>
+  );
+}
+
+const arc = (cx: number, cy: number, r: number, a0: number, a1: number) => {
+  const p = (a: number) => `${(cx + r * Math.cos((a * Math.PI) / 180)).toFixed(2)} ${(cy + r * Math.sin((a * Math.PI) / 180)).toFixed(2)}`;
+  return `M ${p(a0)} A ${r} ${r} 0 0 1 ${p(a1)}`;
+};
+
 export function OrbitStage({
   agents,
   enabled,
@@ -72,6 +131,7 @@ export function OrbitStage({
   wakeActive,
   reduceMotion,
   onSelect,
+  telemetry,
 }: {
   agents: AgentInfo[];
   enabled: boolean;
@@ -80,6 +140,7 @@ export function OrbitStage({
   wakeActive: boolean;
   reduceMotion: boolean;
   onSelect: (id: string) => void;
+  telemetry: Telemetry;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const { w, h } = useSize(ref);
@@ -100,6 +161,17 @@ export function OrbitStage({
   });
   const motion = !reduceMotion;
   const anyWorking = agents.some((a) => a.state === 'working');
+  // HUD gauges in the four gaps between the agents' links — all live values.
+  const readyCount = agents.filter((a) => ['ready', 'working'].includes(agentStatus(a, enabled).key)).length;
+  const gR = coreR + 26;
+  const T = telemetry;
+  const gauges: Array<{ id: string; at: number; label: string; value: string; frac: number; tone: string }> = [
+    { id: 'cpu', at: 205, label: 'CPU LOAD', value: T.cpu === null ? '—' : `${Math.round(T.cpu)}%`, frac: (T.cpu ?? 0) / 100, tone: (T.cpu ?? 0) > 90 ? '#f87171' : '#a78bfa' },
+    { id: 'mem', at: -25, label: 'MEMORY', value: T.mem === null ? '—' : `${Math.round(T.mem)}%`, frac: (T.mem ?? 0) / 100, tone: (T.mem ?? 0) > 92 ? '#f87171' : '#c084fc' },
+    { id: 'tasks', at: 155, label: 'TASKS RUNNING', value: `${T.tasksRunning}/${T.tasksMax}`, frac: Math.min(1, T.tasksRunning / Math.max(1, T.tasksMax)), tone: '#67e8f9' },
+    { id: 'agents', at: 25, label: 'AGENTS READY', value: `${readyCount}/${agents.length}`, frac: agents.length ? readyCount / agents.length : 0, tone: '#4ade80' },
+  ];
+  const SPAN = 34;
 
   return (
     <div className={`orbit orbit--${state} ${motion ? '' : 'orbit--still'}`} ref={ref}>
@@ -153,6 +225,41 @@ export function OrbitStage({
             {/* the anchor ring around the core, where each agent's link is plugged in */}
             <circle className="orbit__anchor" cx={cx} cy={cy} r={anchorR} />
 
+            {/* live gauges around the core */}
+            {gauges.map((g) => {
+              const a0 = g.at - SPAN / 2;
+              const a1 = g.at + SPAN / 2;
+              const fillEnd = a0 + SPAN * Math.max(0.015, Math.min(1, g.frac));
+              const right = Math.cos((g.at * Math.PI) / 180) > 0;
+              const lr = gR + 14;
+              const lx = cx + lr * Math.cos((g.at * Math.PI) / 180);
+              const ly = cy + lr * Math.sin((g.at * Math.PI) / 180);
+              const tick = (a: number) => {
+                const r0 = gR - 6;
+                const r1 = gR + 6;
+                const c = Math.cos((a * Math.PI) / 180);
+                const s2 = Math.sin((a * Math.PI) / 180);
+                return <line x1={cx + r0 * c} y1={cy + r0 * s2} x2={cx + r1 * c} y2={cy + r1 * s2} />;
+              };
+              return (
+                <g key={g.id} className={`gauge gauge--${g.id}`} style={{ color: g.tone }}>
+                  <path className="gauge__track" d={arc(cx, cy, gR, a0, a1)} />
+                  <path className="gauge__glow" d={arc(cx, cy, gR, a0, fillEnd)} />
+                  <path className="gauge__fill" d={arc(cx, cy, gR, a0, fillEnd)} />
+                  <g className="gauge__ticks">
+                    {tick(a0)}
+                    {tick(a1)}
+                  </g>
+                  <text className="gauge__label" x={lx} y={ly - 7} textAnchor={right ? 'start' : 'end'}>
+                    {g.label}
+                  </text>
+                  <text className="gauge__value" x={lx} y={ly + 12} textAnchor={right ? 'start' : 'end'}>
+                    {g.value}
+                  </text>
+                </g>
+              );
+            })}
+
             {agents.map((a, i) => {
               const p = pts[i];
               const dx = p.x - cx;
@@ -188,6 +295,11 @@ export function OrbitStage({
             })}
           </svg>
 
+          {/* radar sweep: only while background monitoring is on */}
+          {T.monitoring && <div className="orbit__sweep" style={{ left: cx, top: cy, width: coreR * 2.1, height: coreR * 2.1 }} aria-hidden />}
+          <div className="orbit__scan" style={{ left: cx, top: cy, width: coreR * 2.3, height: coreR * 2.3 }} aria-hidden />
+          <StageTelemetry t={T} state={state} />
+
           <div className="orbit__core" style={{ left: cx, top: cy }}>
             <Core state={state} size={core} reduceMotion={reduceMotion} hero />
           </div>
@@ -220,6 +332,9 @@ export function OrbitStage({
                     <i className="anode__dot" />
                     {st.label}
                   </span>
+                </span>
+                <span className={`anode__plate ${pts[i].y < cy - 20 ? 'anode__plate--up' : ''}`}>
+                  RUNS {a.runs} · {a.lastRunAt ? timeAgo(a.lastRunAt).toUpperCase() : 'NEVER'}
                 </span>
               </button>
             );

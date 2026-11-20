@@ -56,12 +56,14 @@ try {
   // Services have only just started after unlocking: wait for the core to settle.
   await page.locator('.core--idle').waitFor({ timeout: 10_000 });
   assert.equal(await page.locator('.core--idle').count(), 1);
-  // The hero core is an abstract intelligence core: a wireframe sphere whose meridians turn.
-  assert.equal(await page.locator('.core--hero #c-gyro .c-meridian').count(), 6, 'the hero core draws its wireframe sphere');
-  const meridian = () => page.locator('.core--hero .c-meridian').first().getAttribute('rx');
-  const m1 = await meridian();
-  await page.waitForTimeout(300);
-  assert.notEqual(m1, await meridian(), 'the sphere turns');
+  // The hero core is an abstract intelligence core: a rotating neural network drawn on a canvas.
+  const plexFrame = () => page.locator('.core--hero .core__plexus').getAttribute('data-frame');
+  await page.waitForFunction(() => Number(document.querySelector('.core--hero .core__plexus')?.getAttribute('data-frame') ?? 0) > 0);
+  const f1 = await plexFrame();
+  await page.waitForTimeout(500);
+  assert.notEqual(f1, await plexFrame(), 'the neural core keeps drawing');
+  // Live HUD gauges around the core (real CPU / memory / tasks / agents).
+  assert.equal(await page.locator('.orbit .gauge').count(), 4, 'four live gauges ring the core');
   // The core is a live inline-SVG vector rig — prove it is actually animating (rotating/pulsing),
   // not a static image: its outer ring transform must change between frames.
   const coreXform = () => page.locator('#c-ringOuter').getAttribute('transform');

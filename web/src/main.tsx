@@ -4,6 +4,10 @@ import { App } from './App';
 import { RoamiesGate } from './components/RoamiesGate';
 import { LiveProvider } from './lib/live';
 import { VoiceProvider } from './lib/voice';
+// The display face for the HUD (titles, numbers, agent names), bundled so it works offline.
+import '@fontsource/rajdhani/latin-500.css';
+import '@fontsource/rajdhani/latin-600.css';
+import '@fontsource/rajdhani/latin-700.css';
 import './styles.css';
 
 createRoot(document.getElementById('root')!).render(

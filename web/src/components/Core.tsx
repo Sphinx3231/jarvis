@@ -72,8 +72,132 @@ function targetsFor(s: State): Params {
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
+// ---------------------------------------------------------------- the neural core (hero)
+
+/*
+ * A point cloud on a sphere (Fibonacci lattice) joined to its nearest neighbours: a rotating
+ * neural network. Neighbour pairs never change under rotation, so they are computed once; each
+ * frame only rotates and projects the points, then draws lines and points in three depth batches
+ * (a handful of canvas calls). Pulses run along the links, and how many there are follows Jarvis's
+ * state: a few at rest, many while thinking or working.
+ */
+const PLEX_N = 220;
+const PLEX_PTS = (() => {
+  const pts: Array<[number, number, number]> = [];
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < PLEX_N; i++) {
+    const y = 1 - (i / (PLEX_N - 1)) * 2;
+    const r = Math.sqrt(1 - y * y);
+    const a = i * golden;
+    pts.push([Math.cos(a) * r, y, Math.sin(a) * r]);
+  }
+  return pts;
+})();
+const PLEX_EDGES = (() => {
+  const edges: Array<[number, number]> = [];
+  const lim = Math.cos(0.29);
+  for (let i = 0; i < PLEX_N; i++)
+    for (let j = i + 1; j < PLEX_N; j++) {
+      const [a, b] = [PLEX_PTS[i], PLEX_PTS[j]];
+      if (a[0] * b[0] + a[1] * b[1] + a[2] * b[2] > lim) edges.push([i, j]);
+    }
+  return edges;
+})();
+const PULSES: Record<CoreState, number> = { idle: 7, listening: 12, speaking: 16, thinking: 26, working: 30, success: 18, error: 10 };
+const rgb = (hex: string) => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)].join(',');
+const proj = new Float32Array(PLEX_N * 3);
+
+function drawPlexus(canvas: HTMLCanvasElement, t: number, animate: boolean, cur: { spinRate: number; tint: string; glowAmp: number }, state: CoreState, speech: number, frame: number) {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const css = canvas.clientWidth;
+  if (!css) return;
+  const px = Math.round(css * dpr);
+  if (canvas.width !== px) {
+    canvas.width = px;
+    canvas.height = px;
+  }
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const W = canvas.width;
+  const c = W / 2;
+  const R = W * 0.43 * (1 + speech * 0.05);
+  const ay = animate ? t * (0.16 + cur.spinRate * 0.012) : 0.7;
+  const ax = -0.42 + (animate ? Math.sin(t * 0.27) * 0.06 : 0);
+  const [sy, cy, sx, cx] = [Math.sin(ay), Math.cos(ay), Math.sin(ax), Math.cos(ax)];
+  for (let i = 0; i < PLEX_N; i++) {
+    const [x, y, z] = PLEX_PTS[i];
+    const x1 = x * cy + z * sy;
+    const z1 = -x * sy + z * cy;
+    const y2 = y * cx - z1 * sx;
+    const z2 = y * sx + z1 * cx;
+    const k = 1 / (1 - z2 * 0.16);
+    proj[i * 3] = c + x1 * R * k;
+    proj[i * 3 + 1] = c + y2 * R * k;
+    proj[i * 3 + 2] = z2;
+  }
+  const tint = rgb(cur.tint === C.accent ? C.soft : cur.tint);
+  ctx.clearRect(0, 0, W, W);
+  ctx.lineCap = 'round';
+  // links, back to front
+  const bands: Array<[number, number, number]> = [
+    [-1.1, -0.25, 0.1],
+    [-0.25, 0.35, 0.24],
+    [0.35, 1.1, 0.46],
+  ];
+  ctx.lineWidth = 0.75 * dpr;
+  for (const [lo, hi, alpha] of bands) {
+    ctx.beginPath();
+    for (const [a, b] of PLEX_EDGES) {
+      const z = (proj[a * 3 + 2] + proj[b * 3 + 2]) / 2;
+      if (z < lo || z >= hi) continue;
+      ctx.moveTo(proj[a * 3], proj[a * 3 + 1]);
+      ctx.lineTo(proj[b * 3], proj[b * 3 + 1]);
+    }
+    ctx.strokeStyle = `rgba(${tint},${alpha})`;
+    ctx.stroke();
+  }
+  // signal pulses along links (how many: Jarvis's state)
+  const n = PULSES[state] ?? 8;
+  ctx.lineWidth = 1.6 * dpr;
+  for (let k = 0; k < n; k++) {
+    const life = animate ? t * 0.9 + k * 0.61 : k * 0.61;
+    const gen = Math.floor(life);
+    const ph = life - gen;
+    const [a, b] = PLEX_EDGES[(k * 7919 + gen * 104729) % PLEX_EDGES.length];
+    const z = (proj[a * 3 + 2] + proj[b * 3 + 2]) / 2;
+    if (z < -0.2) continue;
+    const ax0 = proj[a * 3];
+    const ay0 = proj[a * 3 + 1];
+    const bx = proj[b * 3];
+    const by = proj[b * 3 + 1];
+    const p0 = Math.max(0, ph - 0.35);
+    ctx.strokeStyle = `rgba(237,233,254,${(Math.sin(ph * Math.PI) * 0.9).toFixed(3)})`;
+    ctx.beginPath();
+    ctx.moveTo(ax0 + (bx - ax0) * p0, ay0 + (by - ay0) * p0);
+    ctx.lineTo(ax0 + (bx - ax0) * ph, ay0 + (by - ay0) * ph);
+    ctx.stroke();
+  }
+  // nodes, back to front, nearer ones larger and brighter
+  for (const [lo, hi, alpha, r] of [
+    [-1.1, -0.25, 0.25, 0.8],
+    [-0.25, 0.35, 0.55, 1.1],
+    [0.35, 1.1, 0.95, 1.5],
+  ] as const) {
+    ctx.beginPath();
+    for (let i = 0; i < PLEX_N; i++) {
+      const z = proj[i * 3 + 2];
+      if (z < lo || z >= hi) continue;
+      ctx.moveTo(proj[i * 3] + r * dpr, proj[i * 3 + 1]);
+      ctx.arc(proj[i * 3], proj[i * 3 + 1], r * dpr, 0, Math.PI * 2);
+    }
+    ctx.fillStyle = `rgba(${tint},${alpha})`;
+    ctx.fill();
+  }
+  if (frame % 15 === 0) canvas.dataset.frame = String(frame);
+}
+
 // Hero geometry (viewBox units; the core's centre is 110,110).
-const GYRO_R = 40;
+const GYRO_R = 46;
 const HERO_TICKS = Array.from({ length: 120 }, (_, i) => {
   const a = (i / 120) * Math.PI * 2;
   const major = i % 10 === 0;
@@ -91,6 +215,7 @@ export interface OrbAgent { id: string; name: string; color: string; summary: st
 
 export function Core({ state, size = 220, reduceMotion = false, agents, hero = false }: { state: CoreState; size?: number; reduceMotion?: boolean; agents?: OrbAgent[]; hero?: boolean }) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const plexRef = useRef<HTMLCanvasElement>(null);
   const stateRef = useRef<State>(state);
   const osReduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   const still = reduceMotion || Boolean(osReduce);
@@ -106,12 +231,14 @@ export function Core({ state, size = 220, reduceMotion = false, agents, hero = f
       glow: $('c-glow'), ringOuter: $('c-ringOuter'), ringMid: $('c-ringMid'), ringInner: $('c-ringInner'),
       arc: $('c-arc'), spokes: $('c-spokes'), particles: $('c-particles'), core: $('c-core'), coreDot: $('c-coreDot'),
       waves: $('c-waves'), spark: $('c-spark'), bang: $('c-bang'),
-      ticks: $('c-ticks'), segs: $('c-segs'), gyro: $('c-gyro'), sphere: $('c-sphere'),
+      ticks: $('c-ticks'), segs: $('c-segs'), sphere: $('c-sphere'),
     };
     const ringEls = [parts.ringOuter, parts.ringMid, parts.ringInner, parts.arc].filter(Boolean) as SVGElement[];
     const set = (el: SVGElement | null, t: string) => el && el.setAttribute('transform', t);
     const op = (el: SVGElement | null, v: number) => el && el.setAttribute('opacity', v.toFixed(3));
 
+    const plex = plexRef.current;
+    let frame = 0;
     const cur = targetsFor('idle');
     let sparkUntil = 0;
     let shakeUntil = 0;
@@ -202,20 +329,11 @@ export function Core({ state, size = 220, reduceMotion = false, agents, hero = f
       // working), and the wireframe sphere's meridians sweep like a turning globe.
       rot(parts.ticks, t * cur.spinRate * 0.35);
       rot(parts.segs, -t * cur.spinRate * 0.6);
-      if (parts.gyro) {
-        const spin = animate ? t * (0.35 + cur.spinRate * 0.03) : 0.6;
-        const ms = parts.gyro.querySelectorAll<SVGEllipseElement>('.c-meridian');
-        ms.forEach((m, i) => {
-          const ph = spin + (i * Math.PI) / ms.length;
-          m.setAttribute('rx', Math.abs(GYRO_R * Math.cos(ph)).toFixed(2));
-          m.setAttribute('stroke-opacity', (0.22 + 0.6 * Math.abs(Math.sin(ph))).toFixed(3));
-          m.setAttribute('stroke', cur.tint === C.accent ? C.soft : cur.tint);
-        });
-        op(parts.gyro, 0.75 + (animate ? breath * 0.1 : 0) + speech * 0.2);
-      }
-      if (parts.gyro && parts.sphere) parts.sphere.setAttribute('opacity', (0.45 + cur.glowAmp * 0.25 + (animate ? breath * 0.05 : 0) + speech * 0.15).toFixed(3));
-      // In the hero the aura stays tight around the sphere so the wireframe reads crisply.
-      if (parts.gyro && parts.glow) parts.glow.setAttribute('opacity', (0.16 + cur.glowAmp * 0.2 + (animate ? breath * 0.03 : 0) + speech * 0.1).toFixed(3));
+      const isHero = Boolean(plex);
+      if (plex) drawPlexus(plex, t, animate, cur, stateRef.current, speech, ++frame);
+      if (isHero && parts.sphere) parts.sphere.setAttribute('opacity', (0.38 + cur.glowAmp * 0.22 + (animate ? breath * 0.05 : 0) + speech * 0.15).toFixed(3));
+      // In the hero the aura stays tight around the sphere so the network reads crisply.
+      if (isHero && parts.glow) parts.glow.setAttribute('opacity', (0.16 + cur.glowAmp * 0.2 + (animate ? breath * 0.03 : 0) + speech * 0.1).toFixed(3));
       // Saturn ring (legacy, hidden): kept for the compact core.
       const saturn = svg.querySelector('#c-saturn');
       if (saturn) set(saturn as SVGElement, `rotate(${(animate ? (t * 7) % 360 : -8).toFixed(2)} 110 110)`);
@@ -401,19 +519,8 @@ export function Core({ state, size = 220, reduceMotion = false, agents, hero = f
           <circle cx="150" cy="64" r="2.2" fill="#1a0540" />
         </g>
 
-        {/* wireframe sphere: meridians that turn (hero) */}
-        {hero && (
-          <g id="c-gyro" fill="none" strokeWidth="0.85">
-            {Array.from({ length: 6 }, (_, i) => (
-              <ellipse key={i} className="c-meridian" cx="110" cy="110" rx={GYRO_R} ry={GYRO_R} stroke={C.soft} />
-            ))}
-            {/* latitudes, seen slightly from above: the equator and two parallels at ±27° */}
-            <ellipse cx="110" cy="110" rx={GYRO_R} ry={GYRO_R * 0.16} stroke={C.soft} strokeOpacity="0.4" />
-            <ellipse cx="110" cy={110 - GYRO_R * 0.45} rx={GYRO_R * 0.89} ry={GYRO_R * 0.12} stroke={C.soft} strokeOpacity="0.22" />
-            <ellipse cx="110" cy={110 + GYRO_R * 0.45} rx={GYRO_R * 0.89} ry={GYRO_R * 0.12} stroke={C.soft} strokeOpacity="0.22" />
-          </g>
-        )}
       </svg>
+      {hero && <canvas ref={plexRef} className="core__plexus" aria-hidden />}
     </div>
   );
 }

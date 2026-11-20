@@ -9,7 +9,7 @@ import { Progress } from '../components/ui';
 import { api, type ActivityEntry, type AgentsResponse, type ChatMessage, type ChatResult, type CoreState, type StatusResponse, type Task } from '../lib/api';
 import { bytes, clock, timeAgo, uptime } from '../lib/format';
 import { useAction, useLive, useResource } from '../lib/live';
-import { useMetrics } from '../lib/metrics';
+import { useMetrics, type MetricsHistory } from '../lib/metrics';
 import { navigate } from '../lib/router';
 import { useVoice } from '../lib/voice';
 
@@ -228,8 +228,7 @@ function Panel({ title, icon, action, children, className = '' }: { title: strin
   );
 }
 
-function SystemPanel() {
-  const m = useMetrics();
+function SystemPanel({ m }: { m: MetricsHistory }) {
   const l = m.latest;
   const rows: Array<{ id: string; label: string; icon: ReactNode; value: string; sub: string; values: number[]; max?: number; tone: string }> = [
     { id: 'cpu', label: 'CPU', icon: <Cpu size={14} />, value: l ? `${Math.round(l.cpuPercent)}%` : '—', sub: l ? `${l.cores} threads` : '', values: m.cpu, max: 100, tone: l && l.cpuPercent > 90 ? 'bad' : 'ok' },
@@ -469,6 +468,8 @@ export function HomePage({ status, onImmersive }: { status: StatusResponse | nul
   const [sending, setSending] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const metrics = useMetrics();
+  const tasksRes = useResource<{ tasks: Task[] }>('/api/tasks?status=active&limit=50', ['task.updated']);
   const reduceMotion = Boolean(settings?.appearance.reduceMotion) || (typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches));
 
   useEffect(() => {
@@ -530,7 +531,7 @@ export function HomePage({ status, onImmersive }: { status: StatusResponse | nul
   return (
     <div className={`dash ${hasConversation ? 'dash--chat' : ''}`}>
       <aside className="dash__col dash__left" aria-label="System">
-        <SystemPanel />
+        <SystemPanel m={metrics} />
         <TasksPanel />
         <ActivityPanel />
       </aside>
@@ -562,7 +563,27 @@ export function HomePage({ status, onImmersive }: { status: StatusResponse | nul
             <Conversation messages={messages} sending={sending} />
           </>
         ) : (
-          <OrbitStage agents={agents?.agents ?? []} enabled={agents?.enabled ?? false} state={coreState} detail={statusLine} wakeActive={voice.wakeActive} reduceMotion={reduceMotion} onSelect={setSelected} />
+          <OrbitStage
+            agents={agents?.agents ?? []}
+            enabled={agents?.enabled ?? false}
+            state={coreState}
+            detail={statusLine}
+            wakeActive={voice.wakeActive}
+            reduceMotion={reduceMotion}
+            onSelect={setSelected}
+            telemetry={{
+              cpu: metrics.latest?.cpuPercent ?? null,
+              mem: metrics.latest?.memUsedPercent ?? null,
+              cores: metrics.latest?.cores ?? status?.status.host.cpus ?? null,
+              tasksRunning: (tasksRes.data?.tasks ?? []).filter((t) => t.status === 'running').length,
+              tasksActive: tasksRes.data?.tasks.length ?? 0,
+              tasksMax: settings?.background.maxConcurrentTasks ?? 3,
+              monitoring: status?.status.background.enabled ?? false,
+              startedAt: status?.status.startedAt ?? null,
+              platform: status?.status.host.platform ?? null,
+              version: status?.status.version ?? null,
+            }}
+          />
         )}
         <CommandBar onSend={send} sending={sending} draft={draft} />
       </section>

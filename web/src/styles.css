@@ -3365,7 +3365,6 @@ button.chip:hover {
 }
 .orbit__mote {
   fill: #ede9fe;
-  filter: drop-shadow(0 0 4px #a78bfa);
 }
 .orbit__mote--dim {
   fill: #a78bfa;
@@ -3392,10 +3391,9 @@ button.chip:hover {
 }
 .orbit__term {
   opacity: 0.9;
-  filter: drop-shadow(0 0 4px currentColor);
 }
 .orbit__pulse {
-  filter: drop-shadow(0 0 5px currentColor);
+  opacity: 0.95;
 }
 .orbit__core {
   position: absolute;
@@ -3999,4 +3997,306 @@ button.chip:hover {
   border-color: var(--hud-line-strong);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
+}
+
+/* =====================================================================
+   High-tech layer: display type, neural core, gauges, sweep, telemetry
+   ===================================================================== */
+
+:root {
+  --display: 'Rajdhani', var(--font);
+}
+
+/* display type for everything that is a label, a number or a name */
+.brand__name,
+.brand__sub,
+.conn,
+.hud__title,
+.dash .card .card__title,
+.sysm__label,
+.sysm__value,
+.corestat__state,
+.kv__row dd,
+.agents__name,
+.agents__state,
+.anode__name,
+.anode__status,
+.qa__btn,
+.state-pill,
+.chathead__title,
+.nav__label,
+.adetail__id h2,
+.adetail__role,
+.adetail__label,
+.adetail__status,
+.topbar__time,
+.ca__chip {
+  font-family: var(--display);
+}
+.brand__name {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+}
+.brand__sub {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+}
+.conn {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.topbar__time {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.hud__title,
+.dash .card .card__title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+}
+.sysm__label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+.sysm__value {
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1;
+  margin: 2px 0 1px;
+  letter-spacing: 0.01em;
+  text-shadow: 0 0 18px rgba(167, 139, 250, 0.45);
+}
+.corestat__state {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.kv__row dd {
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.agents__name {
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.agents__state {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.anode__name {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.anode__status {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+.qa__btn {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+.state-pill {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+.nav__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+.chathead__title {
+  font-size: 23px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* monospace micro-readouts */
+.gauge__label,
+.gauge__value,
+.tele,
+.anode__plate,
+.sysm__sub,
+.feed__time {
+  font-family: var(--mono);
+}
+
+/* ---------------------------------------------------------------- neural core canvas */
+
+.core__plexus {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 48%;
+  height: 48%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------- gauges */
+
+.gauge__track {
+  fill: none;
+  stroke: currentColor;
+  stroke-opacity: 0.18;
+  stroke-width: 4;
+}
+.gauge__fill {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 4;
+  stroke-linecap: butt;
+  transition: d 0.8s ease;
+}
+.gauge__ticks line {
+  stroke: currentColor;
+  stroke-opacity: 0.7;
+  stroke-width: 1;
+}
+.gauge__label {
+  fill: rgba(196, 181, 253, 0.7);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+}
+.gauge__value {
+  fill: currentColor;
+  font-family: var(--display);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+/* ---------------------------------------------------------------- radar sweep & hologram scan */
+
+.orbit__sweep {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  z-index: 0;
+  pointer-events: none;
+  background: conic-gradient(from 0deg, transparent 0deg, transparent 290deg, rgba(167, 139, 250, 0.05) 320deg, rgba(196, 181, 253, 0.24) 359deg, transparent 360deg);
+  -webkit-mask-image: radial-gradient(circle, transparent 36%, #000 40%, #000 98%, transparent 100%);
+  mask-image: radial-gradient(circle, transparent 36%, #000 40%, #000 98%, transparent 100%);
+  animation: sweep 7s linear infinite;
+  will-change: transform;
+}
+@keyframes sweep {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+.orbit__scan {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  z-index: 2;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(221, 214, 254, 0.045) 0 1px, transparent 1px 3px);
+  -webkit-mask-image: radial-gradient(circle, #000 0%, rgba(0, 0, 0, 0.6) 40%, transparent 70%);
+  mask-image: radial-gradient(circle, #000 0%, rgba(0, 0, 0, 0.6) 40%, transparent 70%);
+}
+
+/* ---------------------------------------------------------------- stage telemetry corners */
+
+.tele {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 10px;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: rgba(196, 181, 253, 0.6);
+  pointer-events: none;
+}
+.tele::before {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-color: rgba(196, 181, 253, 0.55);
+  border-style: solid;
+  border-width: 0;
+}
+.tele--tl { left: 0; top: 0; }
+.tele--tl::before { left: 0; top: 0; border-left-width: 1px; border-top-width: 1px; }
+.tele--tr { right: 0; top: 0; text-align: right; align-items: flex-end; }
+.tele--tr::before { right: 0; top: 0; border-right-width: 1px; border-top-width: 1px; }
+.tele--bl { left: 0; bottom: 0; }
+.tele--bl::before { left: 0; bottom: 0; border-left-width: 1px; border-bottom-width: 1px; }
+.tele--br { right: 0; bottom: 0; text-align: right; align-items: flex-end; }
+.tele--br::before { right: 0; bottom: 0; border-right-width: 1px; border-bottom-width: 1px; }
+.tele__v {
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #ede9fe;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 10px rgba(167, 139, 250, 0.6);
+}
+.tele__v.is-on {
+  color: #86efac;
+  text-shadow: 0 0 10px rgba(74, 222, 128, 0.55);
+}
+.tele__v.is-off {
+  color: var(--warning);
+}
+.tele__s {
+  font-size: 9.5px;
+  color: rgba(168, 162, 192, 0.7);
+}
+
+/* ---------------------------------------------------------------- agent data plates */
+
+.anode__plate {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 12px);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  color: color-mix(in srgb, var(--c) 45%, #ddd6fe);
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--c) 35%, transparent);
+  border-radius: 3px;
+  background: rgba(8, 5, 20, 0.72);
+  pointer-events: none;
+}
+.anode__plate--up {
+  top: auto;
+  bottom: calc(100% + 12px);
+}
+
+/* motion preferences for the new layers */
+:root[data-reduce-motion='true'] .orbit__sweep {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .orbit__sweep {
+    animation: none !important;
+  }
+}
+.gauge__glow {
+  fill: none;
+  stroke: currentColor;
+  stroke-opacity: 0.22;
+  stroke-width: 11;
 }

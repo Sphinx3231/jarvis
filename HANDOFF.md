@@ -97,9 +97,17 @@ built web UI and a JSON+SSE API on localhost. The UI is token-gated to that loca
     Geometry comes from the stage's measured size, so everything always lines up. A link carries
     packets, and an agent's ring spins, only while that agent is actually working. The voice-first
     command bar sits below.
-  - **Hero core** (`<Core hero />`): an abstract intelligence core (wireframe sphere with turning
-    meridians, tick ring, segmented arcs, HUD frame), driven by the same per-state animation loop.
-    It has no wordmark; the e2e test checks that the meridians turn.
+  - **Hero core** (`<Core hero />`): a rotating neural network on a canvas (`drawPlexus`: a
+    Fibonacci point sphere plus precomputed neighbour links, drawn in depth batches). Its pulse count,
+    spin and tint follow the live state. Tick ring, segmented arcs and HUD frame in SVG. No
+    wordmark; the e2e test checks the canvas keeps drawing (`data-frame`).
+  - **Live HUD around the core:**
+    - four gauges (CPU, memory, tasks running vs. the concurrency limit, agents ready);
+    - a radar sweep, shown only while background monitoring is on;
+    - telemetry corners (local clock, uptime, host and threads, monitor state and version);
+    - a data plate under each agent (runs, last run).
+  - **Type:** Rajdhani (`@fontsource/rajdhani`, bundled latin subsets) for labels, numbers and
+    names; monospace for micro-readouts; Inter for body text.
 - **Environment** (`components/Backdrop.tsx`): fixed behind the app. Light sources, a masked
   holographic grid, a perspective floor, concentric HUD rings, orbital arcs and particles. The big
   SVG is static (painted once); only 16 twinkles and one slow ring animate, on their own compositor
