@@ -56,6 +56,9 @@ fun HomeScreen(
     onOpenChat: () -> Unit,
     onOpenTasks: () -> Unit,
     onEmergencyStop: (() -> Unit)?,
+    model: ai.jarvis.mobile.ui.ModelCard? = null,
+    onModelAction: () -> Unit = {},
+    onModelSecondary: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
@@ -92,6 +95,18 @@ fun HomeScreen(
             }
             Text(view.coreDetail, color = J.TextDim, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(), maxLines = 2)
             Spacer(Modifier.height(12.dp))
+
+            if (model != null) {
+                HudPanel(title = model.title) {
+                    Text(model.detail, color = J.TextDim, fontSize = 12.sp)
+                    model.progress?.let { SegmentGauge(it, J.Purple, Modifier.padding(top = 8.dp)) }
+                    if (model.action != null || model.secondary != null) Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        model.action?.let { HudButton(it, onModelAction, color = J.Purple) }
+                        model.secondary?.let { HudButton(it, onModelSecondary, color = J.Bad) }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+            }
 
             if (view.approvals.isNotEmpty()) {
                 HudPanel(title = "Needs your approval", trailing = { Chip("${view.approvals.size}", J.Warn) }) {

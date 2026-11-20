@@ -36,6 +36,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -138,7 +139,7 @@ private fun Main(c: AppContainer, mode: Mode, deepLink: String?, onDeepLinkHandl
         else -> null
     }
     val view = if (mode == Mode.REMOTE_PC) remoteHome(remoteState)
-    else mobileHome(routerStatus, mobileState.busy, modelConnection(provider.kind, localModelState, c.localModel.spec?.name, providerLabel), agentResults, mobileTasks, pendingMobile.map { ApprovalView(it.id, it.title, it.summary, null) }, messages, speech.listening)
+    else mobileHome(routerStatus, mobileState.busy, modelConnection(provider.kind, localModelState, c.localModel.spec.name, providerLabel), agentResults, mobileTasks, pendingMobile.map { ApprovalView(it.id, it.title, it.summary, null) }, messages, speech.listening)
 
     // ---- actions ---------------------------------------------------------------------------
     val submit: (String, String) -> Unit = { text, via -> if (mode == Mode.REMOTE_PC) remote?.submit(text, via) else c.mobile.submit(text, via) }
@@ -196,6 +197,19 @@ private fun Main(c: AppContainer, mode: Mode, deepLink: String?, onDeepLinkHandl
     }
 
     // ---- confirmations -----------------------------------------------------------------------
+    var confirmDownload by remember { mutableStateOf(false) }
+    if (confirmDownload) AlertDialog(
+        onDismissRequest = { confirmDownload = false }, containerColor = J.Bg2,
+        title = { Text("Download the offline model?") },
+        text = { Text("${c.localModel.spec.name}, ${c.localModel.spec.sizeBytes / 1_000_000} MB, from Hugging Face (${c.localModel.spec.source}). It's checked against its published SHA-256 before use and then runs entirely on this phone. Needs about ${(c.localModel.spec.sizeBytes + 200_000_000) / 1_000_000} MB free.") },
+        confirmButton = { TextButton(onClick = { confirmDownload = false; c.modelDownloader.start(allowMobileData = false) }) { Text("Wi-Fi only") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { confirmDownload = false }) { Text("Cancel") }
+                TextButton(onClick = { confirmDownload = false; c.modelDownloader.start(allowMobileData = true) }) { Text("Use mobile data too") }
+            }
+        },
+    )
     var confirmStop by remember { mutableStateOf(false) }
     if (confirmStop) AlertDialog(
         onDismissRequest = { confirmStop = false }, containerColor = J.Bg2,
@@ -220,7 +234,10 @@ private fun Main(c: AppContainer, mode: Mode, deepLink: String?, onDeepLinkHandl
         Box(Modifier.weight(1f)) {
             NavHost(nav, startDestination = "home") {
                 composable("home") {
-                    HomeScreen(view, speech.listening, speech.partial, setMode, { submit(it, "text") }, onMic, { nav.navigate("agent/$it") }, onApproval, { nav.navigate("chat") }, { nav.navigate("tasks") }, if (mode == Mode.REMOTE_PC && remoteState.paired != null) ({ confirmStop = true }) else null)
+                    HomeScreen(view, speech.listening, speech.partial, setMode, { submit(it, "text") }, onMic, { nav.navigate("agent/$it") }, onApproval, { nav.navigate("chat") }, { nav.navigate("tasks") }, if (mode == Mode.REMOTE_PC && remoteState.paired != null) ({ confirmStop = true }) else null,
+                        model = if (mode == Mode.MOBILE && provider.kind == "on_device") modelCard(localModelState, c.localModel.spec) else null,
+                        onModelAction = { confirmDownload = true },
+                        onModelSecondary = { c.modelDownloader.cancel(); scope.launch { c.localModel.refresh() } })
                 }
                 composable("chat") {
                     ChatScreen(view, speech.listening, speech.partial, { submit(it, "text") }, onMic, { id -> remote?.redeliver(id) }, { if (mode == Mode.REMOTE_PC) remote?.newConversation() else c.mobile.open(null) }, if (mode == Mode.MOBILE) ({ nav.navigate("history") }) else null)
@@ -269,12 +286,15 @@ private fun Main(c: AppContainer, mode: Mode, deepLink: String?, onDeepLinkHandl
                     }
                 }
                 composable("settings") {
-                    val onDeviceInfo = c.localModel.spec?.let { spec ->
+                    val onDeviceInfo = c.localModel.spec.let { spec ->
                         val st = when (val m = localModelState) {
                             is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Ready -> "ready${c.onDevice.backend?.let { b -> " · runs on the $b" } ?: ""}"
                             is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Preparing -> "unpacking ${(m.fraction * 100).toInt()}% (first launch only)"
+                            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Downloading -> "downloading ${(m.fraction * 100).toInt()}%"
+                            ai.jarvis.mobile.runtime.local.LocalModelStore.State.NotDownloaded -> "not downloaded yet (tap Download on the Core screen, ${spec.sizeBytes / 1_000_000} MB)"
+                            ai.jarvis.mobile.runtime.local.LocalModelStore.State.Verifying -> "checking the download"
+                            ai.jarvis.mobile.runtime.local.LocalModelStore.State.Checking -> "checking"
                             is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Failed -> "unavailable: ${m.reason}"
-                            else -> "ready to unpack"
                         }
                         "${spec.name} — $st\nRuns fully offline; nothing you say to it leaves the phone.\nLicense: ${spec.license}. Source: ${spec.source}."
                     }

@@ -149,14 +149,28 @@ fun fmtTime(ms: Long): String {
 }
 
 /** The Mobile-mode model as the header strip shows it. */
-fun modelConnection(kind: String, onDevice: ai.jarvis.mobile.runtime.local.LocalModelStore.State, onDeviceName: String?, cloudLabel: String?): Connection {
+fun modelConnection(kind: String, onDevice: ai.jarvis.mobile.runtime.local.LocalModelStore.State, onDeviceName: String, cloudLabel: String?): Connection {
     if (kind == "on_device") {
         return when (onDevice) {
-            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Ready, ai.jarvis.mobile.runtime.local.LocalModelStore.State.Idle -> Connection("ON-DEVICE MODEL", "${onDeviceName ?: "Local model"} · runs offline on this phone", J.Ok, true)
+            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Ready, ai.jarvis.mobile.runtime.local.LocalModelStore.State.Checking -> Connection("ON-DEVICE MODEL", "$onDeviceName · runs offline on this phone", J.Ok, true)
+            ai.jarvis.mobile.runtime.local.LocalModelStore.State.NotDownloaded -> Connection("MODEL NOT DOWNLOADED", "Direct commands work now; download the offline model for chat", J.Warn, true)
+            is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Downloading -> Connection("DOWNLOADING MODEL ${(onDevice.fraction * 100).toInt()}%", "Keeps going in the background", J.Lavender, true)
+            ai.jarvis.mobile.runtime.local.LocalModelStore.State.Verifying -> Connection("CHECKING MODEL", "Verifying the download", J.Lavender, true)
             is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Preparing -> Connection("UNPACKING MODEL ${(onDevice.fraction * 100).toInt()}%", "First launch only — direct commands already work", J.Lavender, true)
             is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Failed -> Connection("MODEL UNAVAILABLE", onDevice.reason, J.Bad, true)
-            ai.jarvis.mobile.runtime.local.LocalModelStore.State.NotBundled -> Connection("NO MODEL", "This build has no on-device model — add one in Settings", J.Warn, true)
         }
     }
     return if (cloudLabel != null) Connection("MODEL READY", cloudLabel, J.Ok, true) else Connection("NO MODEL", "Direct commands only — add a model in Settings", J.Warn, true)
+}
+
+/** The "get the offline model" card on Home (Mobile mode, when the model isn't ready). */
+data class ModelCard(val title: String, val detail: String, val progress: Float?, val action: String?, val secondary: String?)
+
+fun modelCard(state: ai.jarvis.mobile.runtime.local.LocalModelStore.State, spec: ai.jarvis.mobile.runtime.local.LocalModelSpec): ModelCard? = when (state) {
+    ai.jarvis.mobile.runtime.local.LocalModelStore.State.NotDownloaded -> ModelCard("Offline AI model", "Jarvis chats with ${spec.name}, running entirely on this phone — no account, nothing leaves the device. One-time download: ${spec.sizeBytes / 1_000_000} MB. Direct commands (alarms, timers, reminders, search…) already work.", null, "Download", null)
+    is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Downloading -> ModelCard("Downloading the offline model", "${(state.fraction * spec.sizeBytes / 1_000_000).toInt()} of ${spec.sizeBytes / 1_000_000} MB. It continues in the background, even if you close Jarvis.", state.fraction, null, "Cancel")
+    ai.jarvis.mobile.runtime.local.LocalModelStore.State.Verifying -> ModelCard("Checking the download", "Making sure the model is exactly the published file (SHA-256)…", null, null, null)
+    is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Preparing -> ModelCard("Unpacking the offline model", "First launch only.", state.fraction, null, null)
+    is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Failed -> ModelCard("Offline model unavailable", state.reason, null, "Download again", null)
+    else -> null
 }

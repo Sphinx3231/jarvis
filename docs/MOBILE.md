@@ -101,12 +101,17 @@ for memory.
   Qwen2.5-1.5B-Instruct was clearly better on every case.
 - **Measured.** `mobile/scripts/local-model-check.sh` sends the app's exact prompts through the real
   model (LiteRT-LM on a computer) and parses the replies with the app's parser: 9 of 10 scenarios
-  behave as expected and the tenth bad call is refused by validation. The one miss ("how charged is my phone" → an
+  behave as expected and the remaining bad call is refused by validation. The one miss ("how charged is my phone" → an
   invented percentage) is a direct command in the app, and is flagged by the honesty note otherwise.
 
-Build with the model: `mobile/scripts/fetch-model.sh`, then
-`./gradlew assembleDebug -Pjarvis.bundleModel=true` (APK ≈ 1.7 GB). Without the flag the APK has
-no model and Mobile mode offers cloud models or direct commands.
+**Getting the model onto the phone.** The default APK is small (~90 MB) and the phone downloads the
+model itself on the user's tap: Android's DownloadManager (background, resumable, own
+notification; Wi-Fi only unless the user allows mobile data) fetches a pinned revision from Hugging
+Face into the app's own storage, and it is checked against the pinned SHA-256 before it is ever
+loaded (a bad or partial file is deleted). Until then, direct commands work. Alternatively, build
+with the model inside: `mobile/scripts/fetch-model.sh`, then
+`./gradlew assembleDebug -Pjarvis.bundleModel=true` (APK ≈ 1.7 GB; copied out of the APK once on
+first launch).
 
 ## Build and install the app
 

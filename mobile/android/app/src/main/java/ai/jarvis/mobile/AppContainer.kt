@@ -20,6 +20,7 @@ import ai.jarvis.mobile.runtime.MobileToolRegistry
 import ai.jarvis.mobile.runtime.ModelProvider
 import ai.jarvis.mobile.runtime.OpenAiCompatibleProvider
 import ai.jarvis.mobile.runtime.local.LocalModelStore
+import ai.jarvis.mobile.runtime.local.ModelDownloader
 import ai.jarvis.mobile.runtime.local.OnDeviceProvider
 import ai.jarvis.mobile.runtime.tools.androidTools
 import ai.jarvis.mobile.voice.SpeechInput
@@ -61,6 +62,9 @@ class AppContainer(val context: Context) {
     @Volatile private var providerConfig = ProviderConfig()
     /** The model bundled in the APK (Qwen2.5 1.5B), unpacked to app storage on first use. */
     val localModel = LocalModelStore.forApp(context, BuildConfig.BUNDLED_MODEL)
+    val modelBundled = BuildConfig.BUNDLED_MODEL.isNotBlank()
+    /** Fetches the model on the phone when this APK doesn't bundle it (only on the user's tap). */
+    val modelDownloader = ModelDownloader(context, localModel, scope)
     val onDevice = OnDeviceProvider(context, localModel)
     val router = MobileExecutionRouter(context, ::provider, registry, permissions, conversations, memory, activity)
     val agents = MobileAgents(context, db.tasks(), db.activity(), registry, permissions, activity)
@@ -72,12 +76,13 @@ class AppContainer(val context: Context) {
         scope.launch {
             prefs.provider.collect {
                 providerConfig = it
-                // Unpack the bundled model in the background so the first message doesn't wait for it.
-                if (it.kind == "on_device" && localModel.spec != null) launch { runCatching { localModel.ensureReady() } }
+                // Unpack (bundled) or verify (downloaded) in the background, so the first message doesn't wait.
+                if (it.kind == "on_device") launch { localModel.refresh() }
             }
         }
         scope.launch { prefs.speakReplies.collect { speakReplies = it } }
         watchNetwork()
+        modelDownloader.resume()
     }
 
     /**
@@ -102,7 +107,7 @@ class AppContainer(val context: Context) {
         val c = providerConfig
         val key = secrets.get(API_KEY)
         return when (c.kind) {
-            "on_device" -> if (localModel.spec != null) onDevice else null
+            "on_device" -> onDevice
             "anthropic" -> if (key.isNullOrBlank() || c.model.isBlank()) null else AnthropicProvider(http, key, c.model)
             "openai_compatible" -> if (c.baseUrl.isBlank() || c.model.isBlank()) null else OpenAiCompatibleProvider(http, c.baseUrl, key, c.model)
             else -> null

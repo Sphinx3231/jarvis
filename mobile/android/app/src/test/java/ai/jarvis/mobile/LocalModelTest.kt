@@ -19,7 +19,7 @@ import ai.jarvis.mobile.runtime.ToolSpec
 import ai.jarvis.mobile.runtime.Turn
 import ai.jarvis.mobile.runtime.local.LocalModelStore
 import ai.jarvis.mobile.runtime.local.LocalPrompt
-import ai.jarvis.mobile.runtime.local.BUNDLED_QWEN
+import ai.jarvis.mobile.runtime.local.QWEN_1_5B
 import ai.jarvis.mobile.runtime.tools.androidTools
 import ai.jarvis.mobile.voice.Speaker
 import android.app.Application
@@ -29,6 +29,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -193,30 +194,116 @@ class LocalModelTest {
 
     // ------------------------------------------------------------------ unpacking the bundled model
 
-    @Test fun modelIsUnpackedOnceWithProgressAndSpaceCheck() = runBlocking {
+    @Test fun bundledModelIsUnpackedOnceWithProgressAndSpaceCheck() = runBlocking {
         val dir = File(ctx.cacheDir, "models-test").apply { deleteRecursively() }
         val bytes = ByteArray(10 * 1024 * 1024) { (it % 251).toByte() }
         var opened = 0
-        val store = LocalModelStore(dir, BUNDLED_QWEN, { opened++; ByteArrayInputStream(bytes) to bytes.size.toLong() }, freeBytes = { Long.MAX_VALUE })
+        val store = LocalModelStore(QWEN_1_5B, { opened++; ByteArrayInputStream(bytes) to bytes.size.toLong() }, dir, null, freeBytes = { Long.MAX_VALUE })
         val progress = mutableListOf<Float>()
         val watch = launch(Dispatchers.Default) { store.state.collect { (it as? LocalModelStore.State.Preparing)?.let { p -> progress += p.fraction } } }
         val f = store.ensureReady()
         watch.cancel()
-        assertEquals(bytes.size.toLong(), f.length())
         assertTrue(f.readBytes().contentEquals(bytes))
         assertTrue(store.state.value is LocalModelStore.State.Ready)
         assertTrue("reported progress", progress.isNotEmpty())
         assertEquals(f, store.ensureReady())
         assertEquals("not copied twice", 1, opened)
         // A fresh start with the file present only checks its size.
-        val again = LocalModelStore(dir, BUNDLED_QWEN, { ByteArrayInputStream(ByteArray(0)) to bytes.size.toLong() }, freeBytes = { Long.MAX_VALUE })
+        val again = LocalModelStore(QWEN_1_5B, { ByteArrayInputStream(ByteArray(0)) to bytes.size.toLong() }, dir, null, freeBytes = { Long.MAX_VALUE })
         assertEquals(bytes.size.toLong(), again.ensureReady().length())
         // Not enough space: a clear failure, no partial file left behind.
-        val full = LocalModelStore(File(ctx.cacheDir, "models-full"), BUNDLED_QWEN, { ByteArrayInputStream(bytes) to bytes.size.toLong() }, freeBytes = { 1000L })
-        val err = runCatching { full.ensureReady() }.exceptionOrNull()!!
-        assertTrue(err.message, err.message!!.contains("Not enough free storage"))
+        val full = LocalModelStore(QWEN_1_5B, { ByteArrayInputStream(bytes) to bytes.size.toLong() }, File(ctx.cacheDir, "models-full"), null, freeBytes = { 1000L })
+        assertTrue(runCatching { full.ensureReady() }.exceptionOrNull()!!.message!!.contains("Not enough free storage"))
         assertTrue(full.state.value is LocalModelStore.State.Failed)
-        assertFalse(File(ctx.cacheDir, "models-full/${BUNDLED_QWEN.file}.part").exists())
+        assertFalse(File(ctx.cacheDir, "models-full/${QWEN_1_5B.file}.part").exists())
+    }
+
+    @Test fun downloadedModelIsVerifiedAgainstThePinnedChecksum() = runBlocking {
+        val dir = File(ctx.cacheDir, "dl-test").apply { deleteRecursively(); mkdirs() }
+        val bytes = "the model".toByteArray()
+        val goodSha = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        val spec = QWEN_1_5B.copy(sha256 = goodSha, sizeBytes = bytes.size.toLong())
+        val file = File(dir, spec.file)
+        var hashed = 0
+        fun store() = LocalModelStore(spec, { null }, dir, file, sha256Of = { hashed++; ai.jarvis.mobile.runtime.local.sha256Hex(it) })
+
+        // Not downloaded: a clear message, state says so.
+        val none = store()
+        assertTrue(runCatching { none.ensureReady() }.exceptionOrNull()!!.message!!.contains("isn't on this phone yet"))
+        assertEquals(LocalModelStore.State.NotDownloaded, none.state.value)
+
+        // The right file: accepted, and the checksum is computed only once across restarts.
+        file.writeBytes(bytes)
+        assertEquals(file, store().ensureReady())
+        assertEquals(file, store().ensureReady())
+        assertEquals(1, hashed)
+
+        // A tampered file of the right size: rejected and deleted.
+        file.writeBytes("THE MODEL".toByteArray())
+        val bad = store()
+        assertTrue(runCatching { bad.ensureReady() }.isFailure)
+        assertTrue(bad.state.value is LocalModelStore.State.Failed)
+        assertFalse(file.exists())
+
+        // A truncated download: rejected and deleted.
+        file.writeBytes("the".toByteArray())
+        val short = store()
+        assertTrue(runCatching { short.ensureReady() }.exceptionOrNull()!!.message!!.contains("incomplete"))
+        assertFalse(file.exists())
+    }
+
+    @Test fun phoneDownloadsWithTheSystemDownloadManager() = runBlocking {
+        val bytes = "the model".toByteArray()
+        val sha = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        val spec = QWEN_1_5B.copy(sha256 = sha, sizeBytes = bytes.size.toLong())
+        val target = File(ctx.getExternalFilesDir("models"), spec.file).apply { delete() }
+        val store = LocalModelStore(spec, { null }, File(ctx.cacheDir, "unused"), target)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val dm = ctx.getSystemService(android.app.DownloadManager::class.java)
+        val shadowDm = org.robolectric.Shadows.shadowOf(dm)
+        try {
+            assertEquals(LocalModelStore.State.NotDownloaded, store.refresh())
+            // Too little space: refused before anything is requested.
+            ai.jarvis.mobile.runtime.local.ModelDownloader(ctx, store, scope, freeBytes = { 10L }).start(allowMobileData = false)
+            assertTrue((store.state.value as LocalModelStore.State.Failed).reason.contains("Not enough free storage"))
+            assertEquals(0, shadowDm.requestCount)
+
+            val dl = ai.jarvis.mobile.runtime.local.ModelDownloader(ctx, store, scope, freeBytes = { Long.MAX_VALUE })
+            dl.start(allowMobileData = false)
+            assertEquals(1, shadowDm.requestCount)
+            val id = ctx.getSharedPreferences("jarvis_model_download", Context.MODE_PRIVATE).getLong("downloadId", -1)
+            val req = org.robolectric.shadow.api.Shadow.extract<org.robolectric.shadows.ShadowDownloadManager.ShadowRequest>(shadowDm.getRequest(id))
+            assertEquals(spec.url, req.uri.toString())
+            assertTrue(req.destination.toString(), req.destination.toString().endsWith("/models/${spec.file}"))
+            assertFalse("Wi-Fi only was respected", req.allowedOverMetered)
+            assertEquals("Jarvis offline AI model", req.title.toString())
+
+            req.status = android.app.DownloadManager.STATUS_RUNNING
+            req.bytesSoFar = 4
+            kotlinx.coroutines.withTimeout(5000) { store.state.first { it is LocalModelStore.State.Downloading && it.fraction > 0.4f } }
+
+            // The system finishes the download: the file is verified against the checksum, then ready.
+            target.writeBytes(bytes)
+            req.status = android.app.DownloadManager.STATUS_SUCCESSFUL
+            assertEquals(target, (kotlinx.coroutines.withTimeout(5000) { store.state.first { it is LocalModelStore.State.Ready } } as LocalModelStore.State.Ready).file)
+
+            // A failed download is reported with a retry hint.
+            target.delete(); File(target.path + ".verified").delete()
+            dl.start(allowMobileData = true)
+            val id2 = ctx.getSharedPreferences("jarvis_model_download", Context.MODE_PRIVATE).getLong("downloadId", -1)
+            val req2 = org.robolectric.shadow.api.Shadow.extract<org.robolectric.shadows.ShadowDownloadManager.ShadowRequest>(shadowDm.getRequest(id2))
+            assertTrue(req2.allowedOverMetered)
+            req2.status = android.app.DownloadManager.STATUS_FAILED
+            val failed = kotlinx.coroutines.withTimeout(5000) { store.state.first { it is LocalModelStore.State.Failed } } as LocalModelStore.State.Failed
+            assertTrue(failed.reason, failed.reason.contains("try again"))
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test fun pinnedModelMatchesTheTestedFile() {
+        assertTrue(QWEN_1_5B.url.contains("/resolve/60257f9f1d00ca1f24cc5ce3b829b4139be1ca2b/"))
+        assertEquals("82968d0a6c3872cf016fdbcfc591571605f4c7fd2b0f64d2533df502cc6596b3", QWEN_1_5B.sha256)
     }
 
     // ------------------------------------------------------------------ real-model round trip (opt-in)

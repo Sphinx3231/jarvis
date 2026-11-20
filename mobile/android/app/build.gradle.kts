@@ -13,6 +13,9 @@ if (bundleModel) {
     require(rootProject.file("model-assets/$bundledModelFile").isFile) {
         "model-assets/$bundledModelFile is missing: run mobile/scripts/fetch-model.sh first"
     }
+    // Everything in model-assets/ is packed into the APK: allow nothing but the model.
+    val extra = rootProject.file("model-assets").listFiles().orEmpty().filter { it.name != bundledModelFile }
+    require(extra.isEmpty()) { "Remove ${extra.joinToString { it.name }} from model-assets/ (it would be packed into the APK)" }
 }
 
 android {

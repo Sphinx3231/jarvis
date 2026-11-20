@@ -7,8 +7,10 @@ app's sampler settings. Usage: python local-model-check.py <model.task> <prompts
 import json, sys, time
 import litert_lm as L
 
+import os
 model, prompts_path, out_path = sys.argv[1:4]
-engine = L.Engine(model, backend=L.Backend.CPU(), max_num_tokens=4096)
+# Keep the runtime's cache out of model-assets/ (everything there is packed into the APK).
+engine = L.Engine(model, backend=L.Backend.CPU(), max_num_tokens=4096, cache_dir=os.path.dirname(os.path.abspath(out_path)))
 results = []
 for case in json.load(open(prompts_path)):
     session = engine.create_session(apply_prompt_template=False, sampler_config=L.SamplerConfig(top_k=40, top_p=0.9, temperature=0.4, seed=7))

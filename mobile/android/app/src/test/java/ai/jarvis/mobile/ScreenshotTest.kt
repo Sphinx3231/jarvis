@@ -83,7 +83,7 @@ class ScreenshotTest {
         ),
     )
     private val mobileView = mobileHome(
-        MobileExecutionRouter.Status(), false, ai.jarvis.mobile.ui.modelConnection("on_device", ai.jarvis.mobile.runtime.local.LocalModelStore.State.Idle, "Qwen2.5 1.5B Instruct", null),
+        MobileExecutionRouter.Status(), false, ai.jarvis.mobile.ui.modelConnection("on_device", ai.jarvis.mobile.runtime.local.LocalModelStore.State.Ready(java.io.File("m")), "Qwen2.5 1.5B Instruct", null),
         mapOf("neo" to "Watching 1 phone task(s). Next: “stretch” at 10:30"),
         listOf(MobileTaskEntity("m1", "Stretch", "reminder", "scheduled", now + 600_000, now, now)),
         emptyList(),
@@ -104,6 +104,11 @@ class ScreenshotTest {
     @Test fun onboarding() = shot("01-onboarding") { OnboardingScreen {} }
     @Test fun homeRemote() = shot("02-home-remote-pc") { HomeScreen(remoteHome(remoteState), false, "", {}, {}, {}, {}, { _, _ -> }, {}, {}, {}) }
     @Test fun homeMobile() = shot("03-home-mobile") { HomeScreen(mobileView, false, "", {}, {}, {}, {}, { _, _ -> }, {}, {}, null) }
+    @Test fun homeModelDownload() = shot("03b-home-model-download") {
+        val st = ai.jarvis.mobile.runtime.local.LocalModelStore.State.Downloading(0.42f)
+        HomeScreen(mobileView.copy(connection = ai.jarvis.mobile.ui.modelConnection("on_device", st, "Qwen2.5 1.5B Instruct", null)), false, "", {}, {}, {}, {}, { _, _ -> }, {}, {}, null,
+            model = ai.jarvis.mobile.ui.modelCard(st, ai.jarvis.mobile.runtime.local.QWEN_1_5B))
+    }
     @Test fun homeOffline() = shot("04-home-pc-offline") { HomeScreen(remoteHome(remoteState.copy(pcOnline = false, approvals = emptyList(), tasks = emptyList())), false, "", {}, {}, {}, {}, { _, _ -> }, {}, {}, {}) }
     @Test fun chatRemote() = shot("05-chat-remote") { ChatScreen(remoteHome(remoteState), false, "", {}, {}, {}, {}, null) }
     @Test fun chatMobileListening() = shot("06-chat-mobile-listening") { ChatScreen(mobileView.copy(core = ai.jarvis.mobile.ui.components.CoreMode.LISTENING), true, "what's on my", {}, {}, {}, {}, {}) }
