@@ -1,5 +1,6 @@
 import { Bell, Brain, Info, KeyRound, Mic, Monitor, Palette, Shield, Sparkles, Square, Timer, Trash2, User } from 'lucide-react';
 import { useState } from 'react';
+import { MobileCard } from '../components/MobileCard';
 import { Badge, Button, Card, Field, Loading, PageHeader, Toggle } from '../components/ui';
 import { api, type ComputerResponse, type Grant, type Integrations, type Scope, type Settings } from '../lib/api';
 import { dateTime } from '../lib/format';
@@ -516,6 +517,8 @@ export function SettingsPage() {
         )}
         <p className="muted small">The “Observe this computer” and “Control this computer” permissions above govern how often Jarvis asks before each use. Control is consequential and always asks (or runs under Full access).</p>
       </Card>
+
+      <MobileCard />
 
       <Card title="Notifications" icon={<Bell size={18} />}>
         <Field label="Desktop notifications" hint="When the Jarvis window is in the background. Your browser must allow notifications (see Integrations).">

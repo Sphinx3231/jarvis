@@ -233,6 +233,28 @@ pick a model (local models work).
 
 ---
 
+## 7b. Jarvis Mobile (Android) — `docs/MOBILE.md`
+
+- **Architecture:** phone and PC both connect *out* to a self-hosted relay (`relay/`, Dockerfile +
+  README); messages are E2E encrypted (P-256 ECDH → HKDF → AES-256-GCM). Contract in
+  `shared/protocol/` (zod → JSON Schema + fixtures; Kotlin checked against them). ADRs in `docs/adr/`.
+- **PC side:** `server/mobile/gateway.ts` (pairing, device registry, scopes, idempotency ledger,
+  replay window, rate limit, audit — dispatches into the *existing* `app.jarvis`, `app.engine`,
+  `app.permissions`). DB migration 9. Settings → **Jarvis Mobile** card (`web/src/components/MobileCard.tsx`).
+- **App:** `mobile/android` (Kotlin, Compose, Room, DataStore, WorkManager, OkHttp, zxing).
+  Remote PC mode = `remote/`; Mobile mode = `runtime/` (model provider, 20 tools, permission
+  manager, router). Screens in `ui/screens` are stateless; `ui/JarvisApp.kt` wires them.
+- **Pairing is permanent** until the user unpairs (phone or PC). Restarts of Jarvis/PC/relay/phone
+  reconnect automatically and re-send queued commands (de-duplicated by the PC).
+- **Tests:** `node --test tests/mobile.test.ts tests/protocol-contract.test.ts`,
+  `node mobile/scripts/remote-e2e.ts` (real Kotlin client ↔ relay ↔ PC), `node tests/e2e/mobile.e2e.ts`,
+  `cd mobile/android && ./gradlew testDebugUnitTest`. Screenshots: `mobile/android/app/screenshots/`.
+- **Build:** `cd mobile/android && ./gradlew assembleDebug` → `app/build/outputs/apk/debug/app-debug.apk`.
+- **Gotcha (cloud sandbox only):** Maven Central rate-limits through the proxy; a `~/.gradle/init.d`
+  mirror script (not committed) was used. Normal machines don't need it.
+- **Not yet verified on a physical phone** (no emulator in the build sandbox): QR camera, speech,
+  TTS and the intent-based tools need an on-device pass.
+
 ## 8. Outstanding work (not yet built)
 
 > **Biggest requested initiative: Computer Access Mode** — give Jarvis human-like control of the

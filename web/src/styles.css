@@ -4823,3 +4823,10 @@ button.chip:hover {
 .dash .command__bar {
   background: linear-gradient(180deg, rgba(22, 14, 46, 0.94), rgba(10, 6, 24, 0.96));
 }
+
+/* ---- Jarvis Mobile (Settings) ---- */
+.mobile-pair { display: flex; gap: 18px; align-items: flex-start; margin: 10px 0; flex-wrap: wrap; }
+.mobile-qr { width: 196px; height: 196px; border-radius: 8px; box-shadow: 0 0 0 1px var(--line, rgba(139, 92, 246, 0.4)), 0 0 24px rgba(139, 92, 246, 0.35); flex: none; }
+.mobile-link { display: block; word-break: break-all; font-size: 11px; margin-top: 6px; user-select: all; }
+.mobile-device { padding: 10px 12px; border: 1px solid rgba(139, 92, 246, 0.22); border-radius: 8px; display: flex; flex-direction: column; gap: 6px; }
+.mobile-device .inline { flex-wrap: wrap; }

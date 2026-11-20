@@ -571,6 +571,7 @@ export interface Settings {
   tasks: { stepTimeoutSec: number; maxAttempts: number };
   permissions: { policies: Record<string, 'allow' | 'ask' | 'deny'>; followRequests: boolean; fullAccess: boolean };
   brain: { backend: 'openjarvis' | 'roamies'; openjarvisUrl: string; model: string; engineUrl: string; via: 'openjarvis' | 'engine'; toolMode: 'auto' | 'native' | 'prompted'; localOnly: boolean };
+  mobile: { enabled: boolean; relayUrl: string };
   computerAccess: { enabled: boolean; level: 'observe' | 'interact' | 'extended'; screenshotRetentionMin: number; browserEndpoint: string; watchIntervalSec: number; confirmCritical: boolean };
   voice: {
     enabled: boolean;
@@ -589,4 +590,31 @@ export interface Settings {
   agents: { enabled: boolean; spendUsd: number; offensive: boolean; autoSubmit: boolean; autoHunt: boolean };
   appearance: { reduceMotion: boolean; accent: 'violet' | 'indigo' | 'fuchsia' };
   integrations: { workspaceDir: string; web: { allowPrivateNetwork: boolean; maxBytes: number }; shell: { enabled: boolean }; hackerone: { enabled: boolean; username: string; autoRun: boolean; intervalMin: number; bountyOnly: boolean } };
+}
+
+// ---------------------------------------------------------------- Jarvis Mobile
+
+export type MobileScope = 'observe' | 'command' | 'approve' | 'stop';
+
+export interface MobileDevice {
+  id: string;
+  name: string;
+  platform: string;
+  appVersion: string;
+  scopes: MobileScope[];
+  pairedAt: number;
+  lastSeen: number | null;
+  revokedAt: number | null;
+  online: boolean;
+}
+
+export interface MobileStatus {
+  enabled: boolean;
+  relayUrl: string;
+  relayProblem: string | null;
+  state: 'idle' | 'connecting' | 'connected' | 'error';
+  detail: string;
+  deviceId: string;
+  pairing: { expiresAt: number } | null;
+  devices: MobileDevice[];
 }

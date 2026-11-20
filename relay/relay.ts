@@ -42,6 +42,11 @@ export interface RelayOptions {
   /** Failed authentications per IP within 5 minutes before the IP is refused. */
   maxAuthFailures?: number;
   log?: (msg: string) => void;
+  /**
+   * Behind a reverse proxy / TLS terminator, take the client address from X-Forwarded-For (for the
+   * failed-auth block). Off by default: when exposed directly, a client could forge that header.
+   */
+  trustProxy?: boolean;
 }
 
 export interface RunningRelay {
@@ -107,7 +112,8 @@ export async function startRelay(opts: RelayOptions = {}): Promise<RunningRelay>
   };
 
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
-    const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim();
+    const forwarded = opts.trustProxy ? String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim() : '';
+    const ip = forwarded || String(req.socket.remoteAddress ?? '');
     const c: Client = { ws, ip, role: null, deviceId: null, pubSign: null, nonce: null, authed: false, tokens: burst, lastRefill: Date.now(), dropped: 0 };
     if (ipBlocked(ip)) {
       err(c, 'rate_limited', 'Too many failed authentications from this address; try again later.');

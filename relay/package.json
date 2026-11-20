@@ -1,0 +1,9 @@
+{
+  "name": "jarvis-relay",
+  "private": true,
+  "type": "module",
+  "description": "Jarvis Mobile relay: routes end-to-end-encrypted messages between a PC and its paired phones.",
+  "engines": { "node": ">=22.18" },
+  "scripts": { "start": "node relay/main.ts" },
+  "dependencies": { "ws": "8.18.3", "zod": "4.6.7" }
+}
