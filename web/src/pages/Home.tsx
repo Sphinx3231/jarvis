@@ -8,42 +8,18 @@ import { Sparkline } from '../components/Sparkline';
 import { ArcReactor, HudClock, RingGauge } from '../components/Hud';
 import { Progress, WorkingMark } from '../components/ui';
 import { useFresh } from '../motion/useFresh';
-import { api, type ActivityEntry, type AgentsResponse, type ChatMessage, type ChatResult, type CoreState, type StatusResponse, type Task } from '../lib/api';
+import { api, type ActivityEntry, type AgentsResponse, type ChatMessage, type CoreState, type StatusResponse, type Task } from '../lib/api';
 import { bytes, clock, timeAgo, uptime } from '../lib/format';
 import { useAction, useLive, useResource } from '../lib/live';
 import { useMetrics, type MetricsHistory } from '../lib/metrics';
 import { navigate } from '../lib/router';
 import { useVoice } from '../lib/voice';
+import { useChat, useCoreState } from '../lib/chat';
 import SpotlightCard from '../components/bits/SpotlightCard';
 import { PANEL_LIGHT } from '../components/ui';
 import { useCommandMotion } from '../motion/commandMotion';
 import { useConversationMotion } from '../motion/useConversationMotion';
 
-const CONV_KEY = 'jarvis.conversationId';
-const readConv = () => {
-  try {
-    return localStorage.getItem(CONV_KEY);
-  } catch {
-    return null;
-  }
-};
-const writeConv = (id: string | null) => {
-  try {
-    if (id) localStorage.setItem(CONV_KEY, id);
-    else localStorage.removeItem(CONV_KEY);
-  } catch {
-    /* storage unavailable */
-  }
-};
-
-function useCoreState(): CoreState {
-  const { state } = useLive();
-  const voice = useVoice();
-  if (voice.listening) return 'listening';
-  if (voice.transcribing) return 'thinking';
-  if (voice.speaking) return 'speaking';
-  return state.state;
-}
 
 function Actions({ message }: { message: ChatMessage }) {
   const { settings } = useLive();
@@ -131,7 +107,7 @@ export interface Draft {
   n: number;
 }
 
-function CommandBar({ onSend, sending, draft }: { onSend: (text: string, via: 'text' | 'voice') => void; sending: boolean; draft: Draft | null }) {
+export function CommandBar({ onSend, sending, draft }: { onSend: (text: string, via: 'text' | 'voice') => void; sending: boolean; draft: Draft | null }) {
   const [text, setText] = useState('');
   const [typing, setTyping] = useState(false);
   const voice = useVoice();
@@ -478,7 +454,7 @@ function Launcher({ onDraft, onNewChat, onImmersive, agents, hasConversation }: 
     { id: 'memory', label: 'Memory', icon: <Brain size={18} />, run: () => navigate({ page: 'memory' }), title: 'Open Memory' },
     hasConversation
       ? { id: 'new', label: 'New chat', icon: <MessageSquarePlus size={18} />, run: onNewChat, title: 'Start a new conversation' }
-      : { id: 'immersive', label: 'Immersive', icon: <Maximize2 size={18} />, run: onImmersive, title: 'Make Jarvis the whole screen (\\)' },
+      : { id: 'immersive', label: 'Jarvis only', icon: <Maximize2 size={18} />, run: onImmersive, title: 'Hide the interface: just Jarvis (\\)' },
   ];
   const label = items.find((i) => i.id === hover)?.label;
   return (
@@ -529,63 +505,13 @@ export function HomePage({ status, onImmersive }: { status: StatusResponse | nul
   const agentsRes = useResource<AgentsResponse>('/api/subagents', ['agents.changed', 'settings.changed']);
   const agents = agentsRes.data;
   const orbAgents: OrbAgent[] = (agents?.agents ?? []).map((a) => ({ id: a.id, name: a.name, color: a.color, summary: a.lastSummary, working: a.state === 'working' }));
-  const [conversationId, setConversationId] = useState<string | null>(readConv);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [sending, setSending] = useState(false);
+  const { messages, sending, send, newConversation } = useChat();
   const [selected, setSelected] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const metrics = useMetrics();
   const tasksRes = useResource<{ tasks: Task[] }>('/api/tasks?status=active&limit=50', ['task.updated']);
   const reduceMotion = Boolean(settings?.appearance.reduceMotion) || (typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches));
 
-  useEffect(() => {
-    if (!conversationId) return;
-    api
-      .get<{ messages: ChatMessage[] }>(`/api/conversations/${conversationId}/messages`)
-      .then((r) => setMessages(r.messages))
-      .catch(() => {
-        writeConv(null);
-        setConversationId(null);
-      });
-  }, [conversationId]);
-
-  const send = useCallback(
-    async (text: string, via: 'text' | 'voice') => {
-      setSending(true);
-      const temp: ChatMessage = { id: `tmp-${Date.now()}`, conversationId: conversationId ?? '', role: 'user', content: text, meta: { via }, createdAt: Date.now() };
-      setMessages((m) => [...m, temp]);
-      try {
-        const res = await api.post<ChatResult>('/api/chat', { conversationId, message: text, via });
-        if (res.conversationId !== conversationId) {
-          writeConv(res.conversationId);
-          setConversationId(res.conversationId);
-        }
-        setMessages((m) => [...m.filter((x) => x.id !== temp.id), res.userMessage, res.reply]);
-        if (settings?.voice.enabled && (via === 'voice' || settings.voice.autoSpeak)) voice.speak(res.reply.content);
-      } catch (e) {
-        setMessages((m) => [
-          ...m,
-          { id: `err-${Date.now()}`, conversationId: conversationId ?? '', role: 'assistant', content: `I couldn't reach the Jarvis service: ${(e as Error).message}`, meta: { error: 'network' }, createdAt: Date.now() },
-        ]);
-      } finally {
-        setSending(false);
-      }
-    },
-    [conversationId, settings, voice],
-  );
-
-  // Wake word ("Jarvis, …") routes spoken commands here when enabled in Settings.
-  useEffect(() => {
-    voice.setWakeHandler((cmd) => void send(cmd, 'voice'));
-    return () => voice.setWakeHandler(null);
-  }, [send, voice]);
-
-  const newConversation = () => {
-    writeConv(null);
-    setConversationId(null);
-    setMessages([]);
-    voice.stopSpeaking();
-  };
   const onDraft = useCallback((text: string, caret?: number) => setDraft((d) => ({ text, caret, n: (d?.n ?? 0) + 1 })), []);
   const closeDetail = useCallback(() => setSelected(null), []);
 

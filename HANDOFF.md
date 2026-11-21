@@ -142,6 +142,13 @@ override — `permissions.fullAccess` makes `decide()` allow everything with no 
 (whole-disk files via `resolvePath`, any website, shell). Loud red banner + warning insight. It grants
 data/file/web/shell reach only — NOT control of other apps/screen/input.
 
+**Jarvis-only view** (`web/src/components/JarvisView.tsx`, styles in `web/src/motion/jarvis-view.css`) is
+the default: the core in a targeting HUD + state + latest answer + command bar; `\` or the Interface
+button toggles the full UI (`localStorage['jarvis.view']` = `jarvis` | `full`; `<html data-immersive>`
+mirrors it). Chat state is shared through `useChat()` in `web/src/lib/chat.ts`, so both views use the
+same conversation and whichever is mounted takes the wake word. Pending approvals show as a notice
+that opens Tasks. E2E suites other than ui.e2e start in the full UI via that localStorage key.
+
 **Motion layer** (`web/src/motion/`, GSAP 3.15 + Lenis 1.3 + vendored React Bits in
 `web/src/components/bits/`). Rules: animate only real events (live SSE events via `useLiveEvent`,
 real agent/task/assistant state diffs), never fake progress; GSAP never tweens `.anode`,

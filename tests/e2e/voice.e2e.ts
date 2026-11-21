@@ -66,6 +66,8 @@ const browser = await playwright.chromium.launch({
   args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${audioFile}`, '--autoplay-policy=no-user-gesture-required'],
 });
 const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
+// These checks run in the full interface (Jarvis-only is the default view; see ui.e2e.ts).
+await page.addInitScript(() => localStorage.setItem('jarvis.view', 'full'));
 const errors: string[] = [];
 page.on('pageerror', (e) => errors.push(e.message));
 try {

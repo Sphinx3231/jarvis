@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
-import { Minimize2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Backdrop } from './components/Backdrop';
 import { useLenis } from './motion/useLenis';
 import { useReveal } from './motion/useReveal';
@@ -7,7 +6,7 @@ import { Sidebar, Toasts, TopBar } from './components/Shell';
 import type { StatusResponse } from './lib/api';
 import { api } from './lib/api';
 import { useLive, useResource } from './lib/live';
-import { navigate, useRoute } from './lib/router';
+import { useRoute } from './lib/router';
 import { ActivityPage } from './pages/Activity';
 import { HomePage } from './pages/Home';
 import { IntegrationsPage } from './pages/Integrations';
@@ -16,59 +15,58 @@ import { PipelinePage } from './pages/Pipeline';
 import { SettingsPage } from './pages/Settings';
 import { SkillsPage } from './pages/Skills';
 import { TasksPage } from './pages/Tasks';
+import { JarvisView } from './components/JarvisView';
 
 const STATUS_EVENTS = ['task.updated', 'approval.updated', 'memory.changed', 'integrations.changed', 'settings.changed', 'job.ran'];
 
-/** Immersive mode makes Jarvis the whole screen (just the core + voice). Toggle with the backslash key. */
-function useImmersive(): [boolean, () => void] {
-  const [immersive, setImmersive] = useState(() => {
+const VIEW_KEY = 'jarvis.view';
+
+/**
+ * Jarvis-only view (the default) or the full interface. Toggle with the backslash key, the button
+ * in the Jarvis view's corner, or the top bar. The choice is remembered.
+ */
+function useJarvisView(): [boolean, () => void] {
+  const [jarvisOnly, setJarvisOnly] = useState(() => {
     try {
-      return localStorage.getItem('jarvis-immersive') === '1';
+      return localStorage.getItem(VIEW_KEY) !== 'full';
     } catch {
-      return false;
+      return true;
     }
   });
   useEffect(() => {
-    document.documentElement.dataset.immersive = String(immersive);
+    document.documentElement.dataset.immersive = String(jarvisOnly);
     try {
-      localStorage.setItem('jarvis-immersive', immersive ? '1' : '0');
+      localStorage.setItem(VIEW_KEY, jarvisOnly ? 'jarvis' : 'full');
     } catch {
       /* private mode */
     }
-  }, [immersive]);
-  const toggle = () =>
-    setImmersive((v) => {
-      if (!v) navigate({ page: 'home' });
-      return !v;
-    });
+  }, [jarvisOnly]);
+  const toggle = useCallback(() => setJarvisOnly((v) => !v), []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== '\\' || e.ctrlKey || e.metaKey || e.altKey) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       e.preventDefault();
-      setImmersive((v) => {
-        if (!v) navigate({ page: 'home' });
-        return !v;
-      });
+      setJarvisOnly((v) => !v);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-  return [immersive, toggle];
+  return [jarvisOnly, toggle];
 }
 
 export function App() {
   const route = useRoute();
   const { settings } = useLive();
   const { data: status } = useResource<StatusResponse>('/api/status', STATUS_EVENTS);
-  const [immersive, toggleImmersive] = useImmersive();
+  const [immersive, toggleImmersive] = useJarvisView();
   const mainRef = useRef<HTMLElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   // Smooth wheel scrolling for the pages that scroll (Home is a fixed command center with its own panes).
   useLenis(mainRef, innerRef, route.page !== 'home' && !immersive, route.page);
   // Every page powers on: its panels slide out of their clips in order.
-  useReveal(innerRef, route.page);
+  useReveal(innerRef, `${route.page}:${immersive}`);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -89,26 +87,26 @@ export function App() {
   return (
     <div className="app">
       <Backdrop />
-      {immersive && (
-        <button className="immersive-toggle" onClick={toggleImmersive} aria-label="Exit immersive mode (backslash)" title="Exit immersive (\\)">
-          <Minimize2 size={16} />
-        </button>
+      {immersive ? (
+        <JarvisView onExit={toggleImmersive} />
+      ) : (
+        <>
+          <TopBar immersive={false} onToggleImmersive={toggleImmersive} />
+          <Sidebar page={route.page} status={status} />
+          <main ref={mainRef} className={`content content--${route.page}`} id="content">
+            <div ref={innerRef} className="content__inner">
+              {route.page === 'home' && <HomePage status={status} onImmersive={toggleImmersive} />}
+              {route.page === 'tasks' && <TasksPage selectedId={route.id} />}
+              {route.page === 'pipeline' && <PipelinePage />}
+              {route.page === 'memory' && <MemoryPage />}
+              {route.page === 'skills' && <SkillsPage />}
+              {route.page === 'integrations' && <IntegrationsPage />}
+              {route.page === 'activity' && <ActivityPage />}
+              {route.page === 'settings' && <SettingsPage />}
+            </div>
+          </main>
+        </>
       )}
-      <TopBar immersive={immersive} onToggleImmersive={toggleImmersive} />
-      <Sidebar page={route.page} status={status} />
-      <main ref={mainRef} className={`content content--${route.page}`} id="content">
-        <div ref={innerRef} className="content__inner">
-        {route.page === 'home' && <HomePage status={status} onImmersive={toggleImmersive} />}
-        {route.page === 'tasks' && <TasksPage selectedId={route.id} />}
-        {route.page === 'pipeline' && <PipelinePage />}
-        {route.page === 'memory' && <MemoryPage />}
-        {route.page === 'skills' && <SkillsPage />}
-        {route.page === 'integrations' && <IntegrationsPage />}
-        {route.page === 'activity' && <ActivityPage />}
-        {route.page === 'settings' && <SettingsPage />}
-        </div>
-      </main>
-      {immersive && <div className="immersive-hint">Press \ to exit</div>}
       <Toasts />
     </div>
   );

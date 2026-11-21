@@ -140,7 +140,7 @@ export function TopBar({ immersive, onToggleImmersive }: { immersive: boolean; o
       <button className="icon-btn" aria-label="Settings" title="Settings" onClick={() => navigate({ page: 'settings' })}>
         <Settings size={18} />
       </button>
-      <button className="icon-btn" onClick={onToggleImmersive} aria-label={immersive ? 'Exit immersive mode (backslash)' : 'Immersive mode (backslash)'} title={immersive ? 'Exit immersive (\\)' : 'Make Jarvis the whole screen (\\)'}>
+      <button className="icon-btn" onClick={onToggleImmersive} aria-label={immersive ? 'Show the full interface (backslash)' : 'Jarvis only: hide the interface (backslash)'} title={immersive ? 'Show the full interface (\\)' : 'Jarvis only — hide the interface (\\)'}>
         {immersive ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
       </button>
     </header>

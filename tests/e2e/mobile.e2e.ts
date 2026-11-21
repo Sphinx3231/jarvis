@@ -25,6 +25,8 @@ const relay = await startRelay({ host: '127.0.0.1' });
 const running = await startJarvis({ dataDir: join(dir, 'data'), port: 0, quiet: true });
 const browser = await playwright.chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: Number(process.env.E2E_SCALE ?? 1) });
+// These checks run in the full interface (Jarvis-only is the default view; see ui.e2e.ts).
+await page.addInitScript(() => localStorage.setItem('jarvis.view', 'full'));
 const errors: string[] = [];
 page.on('pageerror', (e) => errors.push(e.message));
 const step = (msg: string) => console.log(`  ✓ ${msg}`);

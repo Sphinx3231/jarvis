@@ -52,6 +52,8 @@ const call = async (method: string, path: string, body?: unknown) => {
 };
 const browser = await playwright.chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: Number(process.env.E2E_SCALE ?? 1) });
+// These checks run in the full interface (Jarvis-only is the default view; see ui.e2e.ts).
+await page.addInitScript(() => localStorage.setItem('jarvis.view', 'full'));
 const errors: string[] = [];
 page.on('pageerror', (e) => errors.push(e.message));
 const shot = (name: string) => page.screenshot({ path: join(outDir, `${name}.png`) });

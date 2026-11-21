@@ -62,6 +62,22 @@ try {
   const f1 = await plexFrame();
   await page.waitForFunction((prev) => document.querySelector('.core--hero .core__plexus')?.getAttribute('data-frame') !== prev, f1, { timeout: 5000 });
   assert.notEqual(f1, await plexFrame(), 'the neural core keeps drawing');
+  // Jarvis-only is the default view: the core inside its HUD, no interface around it.
+  await page.locator('.jv').waitFor();
+  assert.equal(await page.locator('.sidebar').count(), 0, 'no sidebar in the Jarvis-only view');
+  assert.equal(await page.locator('.topbar').count(), 0, 'no top bar in the Jarvis-only view');
+  await page.locator('.jv__sat').nth(5).waitFor({ state: 'attached', timeout: 5000 });
+  assert.equal(await page.locator('.jv__sat').count(), 6, 'the six agents sit on the HUD ring');
+  assert.ok(await page.getByRole('button', { name: 'Type instead' }).isVisible(), 'Jarvis can still be spoken or typed to');
+  await page.waitForTimeout(1600);
+  await shot('01a-jarvis-only');
+  step('Jarvis-only view is the default: the core, its HUD and the command bar, nothing else');
+  // The interface comes back with the corner button (or backslash).
+  await page.getByRole('button', { name: 'Show the full interface (backslash)' }).click();
+  await page.locator('.sidebar').waitFor();
+  assert.equal(await page.evaluate(() => localStorage.getItem('jarvis.view')), 'full', 'the choice is remembered');
+  await page.locator('.core--hero .core__plexus').waitFor();
+  step('the full interface toggles back on');
   // Live HUD gauges around the core (real CPU / memory / tasks / agents).
   assert.equal(await page.locator('.orbit .gauge').count(), 4, 'four live gauges ring the core');
   // The core is a live inline-SVG vector rig — prove it is actually animating (rotating/pulsing),
@@ -83,15 +99,15 @@ try {
   assert.ok(await page.locator('.agents__row', { hasText: 'Trinity' }).count(), 'the Agents card lists Trinity (security operator)');
   step('home renders with the core as a live animating vector, service online');
 
-  // Immersive mode: the backslash key makes Jarvis fill the screen.
+  // The backslash key switches between Jarvis-only and the full interface.
   await page.keyboard.press('Backslash');
   await page.waitForFunction(() => document.documentElement.dataset.immersive === 'true', undefined, { timeout: 3000 });
-  assert.equal(await page.locator('.sidebar').isVisible(), false, 'sidebar is hidden in immersive mode');
-  await shot('01b-immersive');
+  await page.locator('.jv').waitFor();
+  assert.equal(await page.locator('.sidebar').count(), 0, 'the interface is gone in the Jarvis-only view');
   await page.keyboard.press('Backslash');
   await page.waitForFunction(() => document.documentElement.dataset.immersive === 'false', undefined, { timeout: 3000 });
-  assert.ok(await page.locator('.sidebar').isVisible(), 'sidebar returns when immersive is off');
-  step('backslash toggles immersive full-screen Jarvis');
+  assert.ok(await page.locator('.sidebar').isVisible(), 'the interface returns');
+  step('backslash toggles between Jarvis-only and the full interface');
 
   // Voice is the primary input now; open the type-instead fallback for the scripted text steps.
   await page.getByRole('button', { name: 'Type instead' }).click();

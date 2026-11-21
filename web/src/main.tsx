@@ -11,6 +11,7 @@ import '@fontsource/rajdhani/latin-700.css';
 import './styles.css';
 import 'lenis/dist/lenis.css';
 import './motion/motion.css';
+import './motion/jarvis-view.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
