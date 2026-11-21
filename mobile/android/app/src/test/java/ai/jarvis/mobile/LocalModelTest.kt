@@ -329,6 +329,7 @@ class LocalModelTest {
             override fun send(request: ModelRequest): ModelResponse =
                 if (gpu) throw IllegalStateException("Failed to call nativeSendMessage: UNKNOWN:\n\nUNKNOWN: Can not find OpenCL library on this device")
                 else ModelResponse("Hello from the CPU", emptyList(), "end_turn")
+            override fun transcribe(wav: File) = "hello"
             override fun close() {}
         }
         val p = ai.jarvis.mobile.runtime.local.OnDeviceProvider({ store }, { _, gpu -> opened += if (gpu) "GPU" else "CPU"; runner(gpu) }, memory)
@@ -352,10 +353,11 @@ class LocalModelTest {
     }
 
     @Test fun pinnedModelsMatchTheTestedFiles() {
-        assertTrue(LocalModels.GEMMA4_E2B.url.contains("/resolve/2e12bfd869b2962984f97a1f2a26807316d534cc/"))
-        assertEquals("181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c", LocalModels.GEMMA4_E2B.sha256)
-        assertTrue(LocalModels.GEMMA4_E4B.url.contains("/resolve/f254b5ba6e36f7d89cc7892e268e9877bc20f0a0/"))
-        assertEquals(LocalModels.GEMMA4_E2B, LocalModels.byId("nonsense"))
+        assertTrue(LocalModels.GEMMA4_E2B.url.contains("csabag76/gemma-4-E2B-it-abliterated-litert-lm/resolve/6e6d6e68ab2ff9873e01d69d6c3421658fb4c840/"))
+        assertEquals("0ebc29dcd1533a46a84b0078656ffa7010eaa07282fd2b0b6586556373409fd9", LocalModels.GEMMA4_E2B.sha256)
+        assertTrue(LocalModels.GEMMA4_E4B.url.contains("olekk/gemma-4-E4B-it-abliterated-litert-lm/resolve/a4eecccd3b0ba1777660180cda60a396eedcb8aa/"))
+        assertEquals("f5a6625e0368e853743c91b39fa6ac6a8add1fc4825b18f98f518966610f2a88", LocalModels.GEMMA4_E4B.sha256)
+        assertEquals("an older choice maps to the default", LocalModels.GEMMA4_E2B, LocalModels.byId("gemma4_e2b"))
     }
 
     // ------------------------------------------------------------------ real-model round trip (opt-in)
@@ -367,7 +369,7 @@ class LocalModelTest {
         "Look up the weather in Cairo online" to "web_search",
         "Please ring 555 0134" to "phone_dial",
         "Start a countdown of 3 minutes" to "set_timer",
-        "Open Spotify" to "apps_list|app_launch",
+        "Open Spotify" to "app_launch",
         "What did I write in my notes about the gym plan?" to "brain_search",
         "Save a note called Groceries with milk, eggs and bread" to "brain_write",
         "Tell me a short joke" to "",
@@ -384,12 +386,65 @@ class LocalModelTest {
         fun user(q: String) = buildJsonObject { put("role", "user"); put("content", q) }
         val arr = buildJsonArray {
             scenarios.forEach { (q, expect) -> add(buildJsonObject { put("question", q); put("expect", expect); put("system", harnessSystem); put("tools", tools); put("messages", buildJsonArray { add(user(q)) }) }) }
+            phoneCases().forEach { add(it) }
             add(buildJsonObject {
                 put("question", "follow-up (battery result)"); put("expect", ""); put("system", harnessSystem); put("tools", tools)
                 put("messages", Json.parseToJsonElement("""[{"role":"user","content":"How charged is my phone?"},{"role":"assistant","content":[],"tool_calls":[{"type":"function","function":{"name":"device_battery","arguments":{}}}]},{"role":"tool","content":[{"type":"tool_response","name":"device_battery","response":{"levelPercent":64,"charging":false}}]}]"""))
             })
         }
         File(out!!).writeText(arr.toString())
+    }
+
+    // ---- phone control on simulated screens (the exact text the app's screen reader produces)
+    private val inbox = ai.jarvis.mobile.control.ScreenSnapshot("com.google.android.gm", "Gmail", listOf(
+        ai.jarvis.mobile.control.UiElement(1, "button", "", "Open navigation drawer", clickable = true),
+        ai.jarvis.mobile.control.UiElement(2, "field", "Search in mail", clickable = true, editable = true),
+        ai.jarvis.mobile.control.UiElement(3, "text", "Primary"),
+        ai.jarvis.mobile.control.UiElement(4, "item", "Amazon · Your order has shipped · Arriving Tuesday · 10:42", clickable = true),
+        ai.jarvis.mobile.control.UiElement(5, "item", "Mum · Sunday lunch? · Are you coming this weekend… · 09:15", clickable = true),
+        ai.jarvis.mobile.control.UiElement(6, "item", "GitHub · [jarvis] CI passed on main · Yesterday", clickable = true),
+        ai.jarvis.mobile.control.UiElement(7, "button", "Compose", clickable = true),
+    )).describe()
+    private val mumEmail = ai.jarvis.mobile.control.ScreenSnapshot("com.google.android.gm", "Gmail", listOf(
+        ai.jarvis.mobile.control.UiElement(1, "button", "", "Navigate up", clickable = true),
+        ai.jarvis.mobile.control.UiElement(2, "text", "Sunday lunch?"),
+        ai.jarvis.mobile.control.UiElement(3, "text", "Mum <mum@example.com> · 09:15"),
+        ai.jarvis.mobile.control.UiElement(4, "text", "Hi love, are you coming for Sunday lunch at 1pm? Could you bring the dessert? Dad is making roast chicken."),
+        ai.jarvis.mobile.control.UiElement(5, "button", "Reply", clickable = true),
+        ai.jarvis.mobile.control.UiElement(6, "button", "Forward", clickable = true),
+    )).describe()
+    private val fortnite = ai.jarvis.mobile.control.ScreenSnapshot("com.epicgames.fortnite", "Fortnite", emptyList(), isGame = true).describe()
+
+    private fun phoneCases(): List<JsonObject> {
+        val tools = buildJsonArray {
+            (registry.specs(ctx) + ai.jarvis.mobile.control.phoneControlTools().map { ToolSpec(it.name, it.description, it.parameters) }).forEach { add(Json.parseToJsonElement(LocalFormat.toolDescription(it))) }
+        }
+        val system = MobileExecutionRouter.systemPrompt(onDevice = true, now = java.time.ZonedDateTime.parse("2026-11-20T09:00:00Z"), known = listOf("my name is Sam"), notes = null, phoneControl = true)
+        fun user(t: String) = buildJsonObject { put("role", "user"); put("content", t) }
+        fun call(name: String, args: String) = Json.parseToJsonElement("""{"role":"assistant","content":[],"tool_calls":[{"type":"function","function":{"name":"$name","arguments":$args}}]}""")
+        fun result(name: String, text: String) = buildJsonObject { put("role", "tool"); put("content", buildJsonArray { add(buildJsonObject { put("type", "tool_response"); put("name", name); put("response", buildJsonObject { put("result", text) }) }) }) }
+        fun case(q: String, expect: String, check: String, vararg msgs: kotlinx.serialization.json.JsonElement) = buildJsonObject {
+            put("question", q); put("expect", expect); put("check", check); put("system", system); put("tools", tools); put("messages", buildJsonArray { msgs.forEach { add(it) } })
+        }
+        val q1 = "Check my Gmail"
+        val q2 = "Open the email from Mum and tell me what it says"
+        val q4 = "Search my Gmail for flight tickets"
+        val q5 = "Reply to Mum's email"
+        val q6 = "Play Fortnite and find the pirate token"
+        return listOf(
+            case(q1, "app_launch", "app~gmail", user(q1)),
+            case("$q1 (inbox on screen)", "-", "text~amazon", user(q1), call("app_launch", """{"app":"Gmail"}"""), result("app_launch", ai.jarvis.mobile.control.PhoneControl.afterLaunch("Gmail", inbox))),
+            case("$q1 (inbox on screen, after Jarvis's nudge)", "screen_read|-", "text~amazon", user(q1), call("app_launch", """{"app":"Gmail"}"""), result("app_launch", ai.jarvis.mobile.control.PhoneControl.afterLaunch("Gmail", inbox)),
+                buildJsonObject { put("role", "assistant"); put("content", "Hey Sam, I've opened your Gmail. What would you like to check or do there?") }, user(MobileExecutionRouter.READ_NUDGE)),
+            case("$q1 (nudged, then re-read the screen)", "-", "text~amazon", user(q1), call("app_launch", """{"app":"Gmail"}"""), result("app_launch", ai.jarvis.mobile.control.PhoneControl.afterLaunch("Gmail", inbox)),
+                buildJsonObject { put("role", "assistant"); put("content", "Hey Sam, I've opened your Gmail. What would you like to check or do there?") }, user(MobileExecutionRouter.READ_NUDGE),
+                call("screen_read", "{}"), result("screen_read", inbox)),
+            case("$q2 (inbox on screen)", "screen_tap", "element=5", user(q2), call("app_launch", """{"app":"Gmail"}"""), result("app_launch", ai.jarvis.mobile.control.PhoneControl.afterLaunch("Gmail", inbox))),
+            case("$q2 (email open)", "-", "text~lunch", user(q2), call("app_launch", """{"app":"Gmail"}"""), result("app_launch", ai.jarvis.mobile.control.PhoneControl.afterLaunch("Gmail", inbox)), call("screen_tap", """{"element":5}"""), result("screen_tap", ai.jarvis.mobile.control.PhoneControl.afterTap(5, "Mum · Sunday lunch? · Are you coming this weekend… · 09:15", mumEmail))),
+            case("$q4 (inbox on screen)", "screen_type|screen_tap", "element=2", user(q4), call("app_launch", """{"app":"Gmail"}"""), result("app_launch", ai.jarvis.mobile.control.PhoneControl.afterLaunch("Gmail", inbox))),
+            case("$q5 (email open)", "screen_tap|-", "element=5", user(q5), call("app_launch", """{"app":"Gmail"}"""), result("app_launch", ai.jarvis.mobile.control.PhoneControl.afterLaunch("Gmail", inbox)), call("screen_tap", """{"element":5}"""), result("screen_tap", ai.jarvis.mobile.control.PhoneControl.afterTap(5, "Mum · Sunday lunch? · Are you coming this weekend… · 09:15", mumEmail))),
+            case("$q6 (game on screen)", "-", "", user(q6), call("app_launch", """{"app":"Fortnite"}"""), result("app_launch", ai.jarvis.mobile.control.PhoneControl.afterLaunch("Fortnite", fortnite))),
+        )
     }
 
     /** Converts what the real model answered the way the app does, validates the calls, and checks each scenario. */
@@ -414,15 +469,27 @@ class LocalModelTest {
             val valid = got?.let { c -> registry.get(c.name)?.let { registry.validate(it, c.arguments) == null } ?: false }
             val risky = got?.let { registry.get(it.name)?.risk == ai.jarvis.mobile.runtime.Risk.ACT } ?: false
             // A wrong call that validation refuses never runs: safe, but reported as such.
-            val refused = answerOk && got != null && valid != true
-            val pass = (answerOk && got == null && text.isNotBlank()) || refused || (got != null && got.name in expect.split('|') && valid == true)
+            val refused = answerOk && got != null && valid != true && !got.name.startsWith("screen_")
+            val check = r["check"]?.jsonPrimitive?.content.orEmpty()
+            val checkOk = when {
+                check.isEmpty() -> true
+                check.startsWith("text~") -> got != null || text.lowercase().contains(check.removePrefix("text~"))
+                // Argument checks apply to calls; asking the user instead is judged by "expect".
+                got == null -> true
+                "~" in check -> check.split("~").let { (k, v) -> got?.arguments?.get(k)?.jsonPrimitive?.content?.lowercase()?.contains(v) == true }
+                "=" in check -> check.split("=").let { (k, v) -> got?.arguments?.get(k)?.jsonPrimitive?.content == v }
+                else -> true
+            }
+            // Screen tools aren't in this test's registry (they need the phone); judge them by the check.
+            val validOrScreen = valid == true || (got != null && got.name.startsWith("screen_"))
+            val pass = checkOk && ((answerOk && got == null && text.isNotBlank()) || refused || (got != null && got.name in expect.split('|') && validOrScreen))
             if (pass) ok++
             val label = when { refused -> "SAFE (bad call refused by validation)"; pass -> "PASS"; got != null && valid == true && risky -> "MISS (would ask you first)"; else -> "MISS" }
             report.append("$label  ${r["question"]!!.jsonPrimitive.content}  →  ${got?.let { "${it.name} ${it.arguments}" } ?: text.take(90)}  [${r["seconds"]?.jsonPrimitive?.content}s]\n")
         }
         println(report)
         File(path).resolveSibling("local-model-report.txt").writeText(report.toString() + "\n$ok/${results.size} as expected\n")
-        assertTrue("at least 10 of ${results.size} scenarios behave as expected:\n$report", ok >= 10)
+        assertTrue("at least ${results.size - 3} of ${results.size} scenarios behave as expected:\n$report", ok >= results.size - 3)
     }
 
     private fun plain(e: kotlinx.serialization.json.JsonElement): Any? = when (e) {

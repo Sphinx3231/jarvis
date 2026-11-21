@@ -143,9 +143,21 @@ data class CapRow(val name: String, val title: String, val description: String, 
 data class PermRow(val permission: String, val label: String, val why: String, val granted: Boolean)
 
 @Composable
-fun CapabilitiesScreen(caps: List<CapRow>, perms: List<PermRow>, onPolicy: (String, Policy) -> Unit, onGrant: (String) -> Unit, onOpenSystemSettings: () -> Unit) {
+fun CapabilitiesScreen(caps: List<CapRow>, perms: List<PermRow>, onPolicy: (String, Policy) -> Unit, onGrant: (String) -> Unit, phoneControlOn: Boolean = false, onOpenAccessibility: () -> Unit = {}, onOpenSystemSettings: () -> Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item { ScreenTitle("Capabilities", "What Mobile Jarvis may do on this phone. Read-only actions run freely; actions that change something ask first by default.") }
+        item {
+            HudPanel(title = "Phone control", trailing = { Chip(if (phoneControlOn) "on" else "off", if (phoneControlOn) J.Ok else J.TextDim) }) {
+                Text("Lets Jarvis work inside your apps like you would — e.g. “check my Gmail” opens Gmail and reads your inbox. It reads the screen and taps, types and scrolls only while doing what you asked, shows a STOP button, and asks first before sending, paying, deleting or posting, and for anything in banking or payment apps. It never reads or types passwords, and doesn't control games.", color = J.TextDim, fontSize = 12.sp)
+                if (!phoneControlOn) {
+                    Text("To switch it on: Accessibility → Installed apps → Jarvis phone control → On. Android may say it's a “restricted setting” because Jarvis wasn't installed from the Play Store — then open Settings → Apps → Jarvis → ⋮ (top right) → Allow restricted settings, and try again.", color = J.Lavender, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+                }
+                Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    HudButton(if (phoneControlOn) "Accessibility settings" else "Turn on", onOpenAccessibility, color = J.Purple)
+                    if (!phoneControlOn) HudButton("App info", onOpenSystemSettings)
+                }
+            }
+        }
         item {
             HudPanel(title = "Android permissions") {
                 perms.forEach { p ->
@@ -186,7 +198,7 @@ fun CapabilitiesScreen(caps: List<CapRow>, perms: List<PermRow>, onPolicy: (Stri
 // ------------------------------------------------------------------- settings
 
 @Composable
-fun SettingsScreen(mode: Mode, provider: ProviderConfig, hasKey: Boolean, speakReplies: Boolean, providerTest: String?, models: List<ModelOption>, onMode: (Mode) -> Unit, onSave: (ProviderConfig, String?) -> Unit, onClearKey: () -> Unit, onTest: () -> Unit, onSpeak: (Boolean) -> Unit, onOpen: (String) -> Unit, onSelectModel: (String) -> Unit = {}, onDeleteModel: (String) -> Unit = {}) {
+fun SettingsScreen(mode: Mode, provider: ProviderConfig, hasKey: Boolean, speakReplies: Boolean, providerTest: String?, models: List<ModelOption>, onMode: (Mode) -> Unit, voiceEngine: String = "model", onVoiceEngine: (String) -> Unit = {}, onSave: (ProviderConfig, String?) -> Unit, onClearKey: () -> Unit, onTest: () -> Unit, onSpeak: (Boolean) -> Unit, onOpen: (String) -> Unit, onSelectModel: (String) -> Unit = {}, onDeleteModel: (String) -> Unit = {}) {
     var kind by remember(provider) { mutableStateOf(provider.kind) }
     var url by remember(provider) { mutableStateOf(provider.baseUrl) }
     var model by remember(provider) { mutableStateOf(provider.model) }
@@ -244,6 +256,13 @@ fun SettingsScreen(mode: Mode, provider: ProviderConfig, hasKey: Boolean, speakR
                 }
                 Switch(speakReplies, onSpeak, colors = SwitchDefaults.colors(checkedTrackColor = J.Purple))
             }
+            Text("Speech recognition", color = J.Text, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
+            Row(Modifier.padding(top = 6.dp).clip(chamfer(14f)).border(1.dp, J.Line, chamfer(14f))) {
+                listOf("model" to "JARVIS MODEL", "android" to "ANDROID").forEach { (k, label) ->
+                    Text(label, color = if (k == voiceEngine) Color.White else J.TextDim, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, modifier = Modifier.background(if (k == voiceEngine) J.PurpleDeep else Color.Transparent).clickable { onVoiceEngine(k) }.padding(horizontal = 12.dp, vertical = 7.dp))
+                }
+            }
+            Text(if (voiceEngine == "model") "Your voice is transcribed by the on-device model (more accurate; works offline). Until the model is downloaded, Android's recognizer is used." else "Android's speech recognizer (faster to start; accuracy depends on your phone).", color = J.TextFaint, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
         }
         Spacer(Modifier.height(10.dp))
         HudPanel(title = "More") {

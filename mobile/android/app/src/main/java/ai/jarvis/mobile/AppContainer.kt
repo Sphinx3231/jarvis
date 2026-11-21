@@ -54,6 +54,8 @@ class AppContainer(val context: Context) {
     val activity = ActivityLog(db.activity())
     val speaker = Speaker(context)
     val speech = SpeechInput(context)
+    /** Records voice commands for transcription by the on-device model. */
+    val recorder = ai.jarvis.mobile.voice.VoiceRecorder(java.io.File(context.cacheDir, "voice/command.wav"))
 
     // ---------------------------------------------------------------- Remote PC mode
     val identity by lazy { KeystoreIdentity.get() }
@@ -70,7 +72,7 @@ class AppContainer(val context: Context) {
     val memory = MobileMemoryManager(db.memories(), activity) { kind, content -> brain.logMemory(kind, content) }
     val conversations = MobileConversationManager(db.conversations())
     val tasks = MobileTaskManager(context, db.tasks(), activity)
-    val registry = MobileToolRegistry(androidTools(memory, tasks, speaker) + brainTools(brain))
+    val registry = MobileToolRegistry(androidTools(memory, tasks, speaker) + brainTools(brain) + ai.jarvis.mobile.control.phoneControlTools())
     @Volatile private var policies: Map<String, String> = emptyMap()
     val permissions = MobilePermissionManager(db.activity()) { policies }
     @Volatile private var providerConfig = ProviderConfig()

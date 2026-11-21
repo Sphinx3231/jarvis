@@ -121,6 +121,7 @@ private fun Main(c: AppContainer, mode: Mode, deepLink: String?, onDeepLinkHandl
     val speech by c.speech.state.collectAsState()
     val provider by c.prefs.provider.collectAsState(ProviderConfig())
     val speakReplies by c.prefs.speakReplies.collectAsState(true)
+    val rec by c.recorder.state.collectAsState()
     val policies by c.prefs.policies.collectAsState(emptyMap())
     val mobileTasks by remember { c.tasks.all() }.collectAsState(emptyList())
     val activity by remember { c.db.activity().recent() }.collectAsState(emptyList())
@@ -143,19 +144,42 @@ private fun Main(c: AppContainer, mode: Mode, deepLink: String?, onDeepLinkHandl
         else -> null
     }
     val view = if (mode == Mode.REMOTE_PC) remoteHome(remoteState)
-    else mobileHome(routerStatus, mobileState.busy, modelConnection(provider.kind, localModelState, c.localModel.spec.name, providerLabel), agentResults, mobileTasks, pendingMobile.map { ApprovalView(it.id, it.title, it.summary, null) }, messages, speech.listening)
+    else mobileHome(routerStatus, mobileState.busy, modelConnection(provider.kind, localModelState, c.localModel.spec.name, providerLabel), agentResults, mobileTasks, pendingMobile.map { ApprovalView(it.id, it.title, it.summary, null) }, messages, speech.listening || rec.recording)
 
     // ---- actions ---------------------------------------------------------------------------
     val submit: (String, String) -> Unit = { text, via -> if (mode == Mode.REMOTE_PC) remote?.submit(text, via) else c.mobile.submit(text, via) }
+    // Voice: the on-device model transcribes when it's downloaded (more accurate, nothing leaves the
+    // phone); otherwise Android's recognizer.
+    val voiceEngine by c.prefs.voiceEngine.collectAsState("model")
+    var transcribing by remember { mutableStateOf(false) }
+    val useModelForVoice = voiceEngine == "model" && localModelState is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Ready
+    val startListening: () -> Unit = {
+        if (useModelForVoice) {
+            c.recorder.start { wav ->
+                if (wav == null) { scope.launch { Toast.makeText(ctx, "Didn't hear anything", Toast.LENGTH_SHORT).show() }; return@start }
+                scope.launch {
+                    transcribing = true
+                    val heard = runCatching { c.onDevice.transcribe(wav) }
+                    transcribing = false
+                    heard.onSuccess { t -> if (t.isNotBlank()) submit(t.trim(), "voice") else Toast.makeText(ctx, "Didn't catch that", Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, "Couldn't transcribe: ${it.message?.take(120)}", Toast.LENGTH_LONG).show() }
+                }
+            }
+        } else c.speech.start { submit(it, "voice") }
+    }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         permTick++
-        if (ok) c.speech.start { submit(it, "voice") } else Toast.makeText(ctx, "Voice needs the microphone permission", Toast.LENGTH_SHORT).show()
+        if (ok) startListening() else Toast.makeText(ctx, "Voice needs the microphone permission", Toast.LENGTH_SHORT).show()
     }
+    val listening = speech.listening || rec.recording
+    val partial = when { transcribing -> "Transcribing…"; rec.recording -> if (rec.heardSpeech) "Listening… (pause or tap to finish)" else "Listening…"; else -> speech.partial }
     val onMic = {
         when {
+            rec.recording -> c.recorder.stop()
             speech.listening -> c.speech.stop()
-            !c.speech.available() -> Toast.makeText(ctx, "No speech recognition service on this phone", Toast.LENGTH_LONG).show()
-            granted(ctx, Manifest.permission.RECORD_AUDIO) -> c.speech.start { submit(it, "voice") }
+            transcribing -> Unit
+            !useModelForVoice && !c.speech.available() -> Toast.makeText(ctx, "No speech recognition service on this phone — download the on-device model in Settings to use voice", Toast.LENGTH_LONG).show()
+            granted(ctx, Manifest.permission.RECORD_AUDIO) -> startListening()
             else -> micPermission.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
@@ -238,13 +262,13 @@ private fun Main(c: AppContainer, mode: Mode, deepLink: String?, onDeepLinkHandl
         Box(Modifier.weight(1f)) {
             NavHost(nav, startDestination = "home") {
                 composable("home") {
-                    HomeScreen(view, speech.listening, speech.partial, setMode, { submit(it, "text") }, onMic, { nav.navigate("agent/$it") }, onApproval, { nav.navigate("chat") }, { nav.navigate("tasks") }, if (mode == Mode.REMOTE_PC && remoteState.paired != null) ({ confirmStop = true }) else null,
+                    HomeScreen(view, listening, partial, setMode, { submit(it, "text") }, onMic, { nav.navigate("agent/$it") }, onApproval, { nav.navigate("chat") }, { nav.navigate("tasks") }, if (mode == Mode.REMOTE_PC && remoteState.paired != null) ({ confirmStop = true }) else null,
                         model = if (mode == Mode.MOBILE && provider.kind == "on_device") modelCard(localModelState, c.localModel.spec) else null,
                         onModelAction = { confirmDownload = true },
                         onModelSecondary = { c.modelDownloader.cancel(); scope.launch { c.localModel.refresh() } })
                 }
                 composable("chat") {
-                    ChatScreen(view, speech.listening, speech.partial, { submit(it, "text") }, onMic, { id -> remote?.redeliver(id) }, { if (mode == Mode.REMOTE_PC) remote?.newConversation() else c.mobile.open(null) }, if (mode == Mode.MOBILE) ({ nav.navigate("history") }) else null)
+                    ChatScreen(view, listening, partial, { submit(it, "text") }, onMic, { id -> remote?.redeliver(id) }, { if (mode == Mode.REMOTE_PC) remote?.newConversation() else c.mobile.open(null) }, if (mode == Mode.MOBILE) ({ nav.navigate("history") }) else null)
                 }
                 composable("agents") { AgentsScreen(mode, view.agents) { nav.navigate("agent/$it") } }
                 composable("agent/{id}") { entry ->
@@ -285,7 +309,11 @@ private fun Main(c: AppContainer, mode: Mode, deepLink: String?, onDeepLinkHandl
                             if (Build.VERSION.SDK_INT >= 33) add(PermRow(Manifest.permission.POST_NOTIFICATIONS, "Notifications", "Reminders and notices", granted(ctx, Manifest.permission.POST_NOTIFICATIONS)))
                         }
                     }
-                    CapabilitiesScreen(caps, perms, { tool, p -> scope.launch { c.prefs.setPolicy(tool, p.name) } }, { requestPermission.launch(it) }) {
+                    val controlOn by ai.jarvis.mobile.control.PhoneControlService.connected.collectAsState()
+                    CapabilitiesScreen(caps, perms, { tool, p -> scope.launch { c.prefs.setPolicy(tool, p.name) } }, { requestPermission.launch(it) },
+                        phoneControlOn = controlOn,
+                        onOpenAccessibility = { ctx.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
+                    ) {
                         ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", ctx.packageName, null)))
                     }
                 }
@@ -304,7 +332,7 @@ private fun Main(c: AppContainer, mode: Mode, deepLink: String?, onDeepLinkHandl
                         ai.jarvis.mobile.ui.screens.ModelOption(spec.id, spec.name, spec.summary, spec.sizeBytes / 1_000_000, status, spec.id == selectedModelId,
                             st is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Ready, st is ai.jarvis.mobile.runtime.local.LocalModelStore.State.Ready && c.modelStores.getValue(spec.id).downloadFile?.isFile == true, "${spec.license}; ${spec.source}")
                     }
-                    SettingsScreen(mode, provider, hasKey, speakReplies, providerTest, models, setMode,
+                    SettingsScreen(mode, provider, hasKey, speakReplies, providerTest, models, setMode, voiceEngine = voiceEngine, onVoiceEngine = { v -> scope.launch { c.prefs.setVoiceEngine(v) } },
                         onSave = { cfg, key -> scope.launch { c.prefs.setProvider(cfg); if (key != null) c.secrets.set(AppContainer.API_KEY, key); keyTick++; providerTest = "Saved." } },
                         onClearKey = { c.secrets.set(AppContainer.API_KEY, null); keyTick++ },
                         onTest = {

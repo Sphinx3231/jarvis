@@ -36,6 +36,8 @@ interface MobileTool {
     val description: String
     val parameters: JsonObject
     val risk: Risk
+    /** The risk of this particular call (e.g. tapping "Send" vs tapping a list item). Defaults to [risk]. */
+    fun riskFor(args: JsonObject): Risk = risk
     /** Android runtime permission needed (null = none). */
     val androidPermission: String? get() = null
     fun availability(context: Context): Availability = androidPermission?.let {

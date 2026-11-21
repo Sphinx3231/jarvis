@@ -82,32 +82,62 @@ seen id are dropped.
 
 ## On-device model (Mobile mode default)
 
-Mobile mode runs **Google's Gemma 4** on the phone with **LiteRT-LM** (GPU when available,
-otherwise CPU), using the model's own chat template and **native function calling**. Automatic
-tool calling is off: the calls the model proposes come back to the router, which validates and
-authorizes each one like any other call.
+Mobile mode runs **Gemma 4, abliterated** (refusal behaviour removed) on the phone with
+**LiteRT-LM** (GPU when available, otherwise CPU), using the model's own chat template and
+**native function calling**; automatic tool calling is off, so every call the model proposes comes
+back to the router to be validated and authorized.
 
-| Model | Download | Notes (Google's benchmarks, Galaxy S26 Ultra) |
+| Model | Download | Source |
 |---|---|---|
-| **Gemma 4 E2B** (default) | 2.6 GB | ~1.4–1.7 GB RAM on CPU / ~0.7 GB on GPU; 41–52 tok/s |
-| Gemma 4 E4B | 3.7 GB | ~2.8–3.3 GB RAM on CPU / ~0.8 GB on GPU; 17–22 tok/s |
+| **Gemma 4 E2B · abliterated** (default) | 2.6 GB | `csabag76/gemma-4-E2B-it-abliterated-litert-lm` — Google's E2B with only the text-decoder weights edited; vision, audio, tokenizer and template byte-identical |
+| Gemma 4 E4B · abliterated | 3.7 GB | `olekk/gemma-4-E4B-it-abliterated-litert-lm` (same in-place method) |
 
-Both are Apache-2.0, pinned to an exact Hugging Face revision and checked against SHA-256 before
-first use. The phone downloads the chosen model itself on the user's tap (Android DownloadManager:
-background, resumable, Wi-Fi only unless the user allows mobile data); custom builds can bundle E2B
-(`mobile/scripts/fetch-model.sh`, then `-Pjarvis.bundleModel=true`, APK ≈ 2.7 GB).
+Community builds (Apache-2.0), pinned to exact revisions and checked against SHA-256 before first
+use; the phone downloads the chosen one on the user's tap. The abliteration is moderate (per its
+card: refusals on a standard harmful-prompt set 101/104 → 28/104, small quality cost). Jarvis's own
+approvals for actions are unaffected — they are the app's, not the model's.
 
-- **Direct commands first.** Clear commands (alarms, timers, reminders, search, open app/site, call,
-  copy, battery, network, remember/recall, time, date) are understood by `LocalIntents` without the
-  model (faster, deterministic), still with validation and approvals.
-- **Guards for a small model:** unknown extra arguments are dropped; a lone `speak` call for an
-  ordinary reply is shown as text; a reply that claims an action without a tool gets a visible note.
-- **Measured.** `MODEL=… mobile/scripts/local-model-check.sh` sends the app's exact requests (the
-  router's own system prompt, all 23 tool descriptions) through the real model with LiteRT-LM on a
-  computer and checks the replies with the app's conversion and validation: **13 of 13** behave as
-  expected (12 correct; one invented `calculator` tool refused by validation).
-- **History.** 0.2.0 shipped Qwen2.5-1.5B (MediaPipe); DeepSeek-R1-Distill-1.5B was evaluated
-  first and rejected. 0.3.0 removes the Qwen files from the phone to free space.
+- **Direct commands first** (alarms, timers, reminders, search, open app, call, copy, battery,
+  network, remember/recall, time, date) without the model; same validation and approvals.
+- **Guards:** unknown extra arguments dropped; a lone `speak` for an ordinary reply shown as text;
+  claims of actions without a tool get a visible note; a "check/read" request answered with a
+  question gets one nudge to report what's on screen.
+- **Measured** (`MODEL=… mobile/scripts/local-model-check.sh`: the app's exact prompt, tools and
+  tool-result wording through the real model, checked by the app's conversion and validation):
+  **21 of 22** scenarios behave as expected, including the phone-control ones below.
+
+## Speech recognition
+
+The mic records 16 kHz audio (push-to-talk; stops after a pause, a second tap, or 30 s) and the
+**on-device model transcribes it** with Gemma's audio encoder — nothing leaves the phone. Measured
+on this machine: word-exact on LibriSpeech and the "I have a dream" recording (overall WER 7% on a
+94-word set; the only errors were on synthesized robot-voice commands). Android's recognizer is the
+fallback (before the model is downloaded, or by choice in Settings → Voice), now with an explicit
+language, longer pause tolerance and the most confident of 5 hypotheses.
+
+## Phone control (operating other apps)
+
+With the user's permission (Android Accessibility settings — an app can't enable it itself;
+sideloaded installs also need "Allow restricted settings"), Jarvis can work inside apps: "check my
+Gmail" opens Gmail and reads the inbox from the screen.
+
+- `PhoneControlService` reads the active window as numbered elements (clickable rows labelled with
+  their contents; password fields masked) and taps, types, scrolls, goes back/home. Tools:
+  `screen_read`, `screen_tap`, `screen_type`, `screen_scroll`, `screen_back`, `screen_home`, plus
+  `app_launch` (by app name), each returning the new screen.
+- **Asks first:** taps on consequential buttons (send, pay, delete, post, buy, confirm, install…;
+  long list rows only when they start with such a verb) and anything in banking/payment/wallet apps.
+  Reading and navigating run freely; policies are adjustable per tool in Capabilities.
+- **Never:** reading or typing passwords; operating Jarvis's own screens (so it can't answer its own
+  approvals; synthetic taps on Jarvis's overlay are refused); **games** (declared game category or
+  known publishers) — playing games for the user would break their rules (Fortnite's included) and
+  games can't be read through Accessibility anyway.
+- While working, an overlay shows **"Jarvis is using your phone · STOP"**, approval cards over the
+  other app, and the answer when done. Up to 20 steps per request; only the latest screen is kept in
+  full in the model's context.
+- Real-model results on simulated Gmail screens: opens Gmail; summarizes the inbox (after one
+  nudge); opens the right email and reads it; types a search into the search field; asks what to
+  say before replying; declines to play Fortnite.
 
 ## Live brain (notes vault / Obsidian)
 
@@ -158,4 +188,4 @@ manager).
 - Cross-network use needs a relay you deploy with TLS (see `relay/README.md`).
 - Streaming replies (`jarvis.response.delta`) are defined in the protocol but the PC currently
   sends the complete reply.
-- The on-device model is small: good for chat, notes and simple phone actions, not for long multi-step work. It has been validated on a computer with the same model file and runtime, not yet on a phone (speed and GPU support vary by device). The Obsidian-vault connection (Storage Access Framework) is compile-checked but only tested with the built-in vault.
+- The on-device model is small: good for chat, notes, simple phone actions and short in-app tasks, not for long multi-step work. Phone control is verified on simulated screens with the real model and with unit tests, not yet on a phone; real apps differ in how well their screens can be read. It has been validated on a computer with the same model file and runtime, not yet on a phone (speed and GPU support vary by device). The Obsidian-vault connection (Storage Access Framework) is compile-checked but only tested with the built-in vault.

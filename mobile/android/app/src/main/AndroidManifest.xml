@@ -67,6 +67,18 @@
                 <data android:scheme="jarvis" android:host="pair" />
             </intent-filter>
         </activity>
+        <!-- Phone control: lets Jarvis read the screen and tap/type in other apps for the user's requests.
+             Only works after the user switches it on in Android's Accessibility settings. -->
+        <service
+            android:name=".control.PhoneControlService"
+            android:exported="false"
+            android:label="@string/phone_control_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/phone_control" />
+        </service>
         <!-- zxing's scanner activity, locked to portrait. -->
         <activity
             android:name="com.journeyapps.barcodescanner.CaptureActivity"

@@ -31,6 +31,7 @@ class Prefs(private val context: Context) : PairingStore {
         val PROVIDER_MODEL = stringPreferencesKey("provider.model")
         val SPEAK_REPLIES = booleanPreferencesKey("voice.speakReplies")
         val LOCAL_MODEL = stringPreferencesKey("localModel")
+        val VOICE_ENGINE = stringPreferencesKey("voice.engine")
         val PAIRED_PC = stringPreferencesKey("remote.pairedPc")
         fun policy(tool: String) = stringPreferencesKey("policy.$tool")
     }
@@ -40,13 +41,16 @@ class Prefs(private val context: Context) : PairingStore {
     val provider: Flow<ProviderConfig> = context.store.data.map { ProviderConfig(it[K.PROVIDER_KIND] ?: "on_device", it[K.PROVIDER_URL] ?: "", it[K.PROVIDER_MODEL] ?: "") }
     val speakReplies: Flow<Boolean> = context.store.data.map { it[K.SPEAK_REPLIES] ?: true }
     /** Which on-device model Mobile mode uses (see LocalModels). */
-    val localModel: Flow<String> = context.store.data.map { it[K.LOCAL_MODEL] ?: "gemma4_e2b" }
+    val localModel: Flow<String> = context.store.data.map { it[K.LOCAL_MODEL] ?: "gemma4_e2b_abliterated" }
     val policies: Flow<Map<String, String>> = context.store.data.map { p -> p.asMap().filterKeys { it.name.startsWith("policy.") }.map { (k, v) -> k.name.removePrefix("policy.") to v.toString() }.toMap() }
 
     suspend fun setMode(m: Mode) = context.store.edit { it[K.MODE] = m.name; it[K.ONBOARDED] = true }
     suspend fun setProvider(c: ProviderConfig) = context.store.edit { it[K.PROVIDER_KIND] = c.kind; it[K.PROVIDER_URL] = c.baseUrl; it[K.PROVIDER_MODEL] = c.model }
     suspend fun setSpeakReplies(on: Boolean) = context.store.edit { it[K.SPEAK_REPLIES] = on }
     suspend fun setLocalModel(id: String) = context.store.edit { it[K.LOCAL_MODEL] = id }
+    /** "model" = transcribe with the on-device model (once downloaded); "android" = Android's recognizer. */
+    val voiceEngine: Flow<String> = context.store.data.map { it[K.VOICE_ENGINE] ?: "model" }
+    suspend fun setVoiceEngine(v: String) = context.store.edit { it[K.VOICE_ENGINE] = v }
     suspend fun setPolicy(tool: String, policy: String) = context.store.edit { it[K.policy(tool)] = policy }
 
     override suspend fun load(): PairedPc? = context.store.data.first()[K.PAIRED_PC]?.let { runCatching { JarvisJson.decodeFromString(PairedPc.serializer(), it) }.getOrNull() }

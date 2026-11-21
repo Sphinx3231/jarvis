@@ -39,6 +39,29 @@ import java.time.format.DateTimeParseException
 private fun JsonObject.s(k: String) = this[k]?.jsonPrimitive?.content
 private fun JsonObject.i(k: String) = this[k]?.jsonPrimitive?.int
 
+/** Apps the user can open (launcher apps), matched by name: exact, then starts-with, then contains; or by package. */
+object InstalledApps {
+    fun all(context: Context): List<Pair<String, String>> {
+        val pm = context.packageManager
+        return pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
+            .map { it.loadLabel(pm).toString() to it.activityInfo.packageName }.distinctBy { it.second }
+    }
+
+    fun find(context: Context, query: String): Pair<String, String>? {
+        val q = query.trim().removeSuffix(" app").lowercase()
+        if (q.isEmpty()) return null
+        val apps = all(context)
+        return apps.firstOrNull { it.second.lowercase() == q } ?: apps.firstOrNull { it.first.lowercase() == q }
+            ?: apps.firstOrNull { it.first.lowercase().startsWith(q) } ?: apps.firstOrNull { it.first.lowercase().contains(q) }
+            ?: apps.firstOrNull { it.first.lowercase().replace(" ", "") == q.replace(" ", "") }
+    }
+
+    fun similar(context: Context, query: String): List<String> {
+        val words = query.lowercase().split(' ').filter { it.length >= 3 }
+        return all(context).map { it.first }.filter { name -> words.any { w -> name.lowercase().contains(w.take(4)) } }.take(8)
+    }
+}
+
 private fun startActivity(ctx: Context, intent: Intent): ToolOutcome = try {
     ctx.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     ToolOutcome.ok("Opened")
@@ -127,13 +150,25 @@ fun androidTools(memory: MobileMemoryManager, tasks: MobileTaskManager, speaker:
     object : MobileTool {
         override val name = "app_launch"
         override val title = "Open an app"
-        override val description = "Open an installed app by its package name (from apps_list)."
-        override val parameters = schema(listOf("package"), "package" to str("Android package name, e.g. com.spotify.music", 200))
+        override val description = "Open an installed app by its name, e.g. Spotify or WhatsApp (a package name also works)."
+        override val parameters = schema(listOf("app"), "app" to str("The app's name as shown on the home screen, e.g. Spotify", 200))
         override val risk = Risk.ACT
-        override fun summarize(args: JsonObject) = "Open the app ${args.s("package")}"
+        override fun summarize(args: JsonObject) = "Open ${args.s("app")}"
         override suspend fun execute(context: Context, args: JsonObject): ToolOutcome {
-            val intent = context.packageManager.getLaunchIntentForPackage(args.s("package") ?: "") ?: return ToolOutcome.fail("That app is not installed or can't be opened")
-            return startActivity(context, intent)
+            val want = args.s("app") ?: ""
+            val app = InstalledApps.find(context, want)
+                ?: return ToolOutcome.fail("No app called “$want” is installed. Similar apps: ${InstalledApps.similar(context, want).ifEmpty { listOf("none") }.joinToString()}")
+            val intent = context.packageManager.getLaunchIntentForPackage(app.second) ?: return ToolOutcome.fail("${app.first} can't be opened")
+            val opened = startActivity(context, intent)
+            if (!opened.ok) return opened
+            // With phone control on, hand back what the app shows so the next step can act on it.
+            val svc = ai.jarvis.mobile.control.PhoneControl.service() ?: return ToolOutcome.ok("Opened ${app.first}")
+            ai.jarvis.mobile.control.PhoneControl.inUse.value = true
+            for (i in 0 until 15) {
+                if (kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { svc.foregroundPackage() } == app.second) break
+                kotlinx.coroutines.delay(200)
+            }
+            return ToolOutcome.ok(ai.jarvis.mobile.control.PhoneControl.afterLaunch(app.first, ai.jarvis.mobile.control.PhoneControl.screenAfter(1200)))
         }
     },
     object : MobileTool {

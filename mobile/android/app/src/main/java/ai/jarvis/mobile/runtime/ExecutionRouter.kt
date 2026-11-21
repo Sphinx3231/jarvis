@@ -82,16 +82,29 @@ class MobileExecutionRouter(
         val standing = memory.standing()
         val relevant = memory.search(text, 6).filter { m -> standing.none { it.id == m.id } }
         val notes = brain?.let { bn -> runCatching { bn.contextFor(text) }.getOrNull() }
-        val system = systemPrompt(model.onDevice, java.time.ZonedDateTime.now(), (standing + relevant).map { it.content }, notes)
+        val specs = registry.specs(context)
+        val system = systemPrompt(model.onDevice, java.time.ZonedDateTime.now(), (standing + relevant).map { it.content }, notes, phoneControl = specs.any { it.name == "screen_read" })
         val history = conversations.history(conv, 16).dropLast(1).mapNotNull { m ->
             when (m.role) { "user" -> Turn.User(m.content); "assistant" -> Turn.Assistant(m.content); else -> null }
         }.dropWhile { it !is Turn.User }
         val turns = (history + Turn.User(text)).toMutableList()
         val used = mutableListOf<String>()
-        repeat(maxSteps) {
-            val resp = model.complete(ModelRequest(system, turns, registry.specs(context)))
+        var steps = 0
+        var nudged = false
+        while (true) {
+            // Working inside apps takes more steps than a single action.
+            val limit = if (used.any { isScreenTool(it) }) PHONE_STEPS else maxSteps
+            if (steps++ >= limit) break
+            val resp = model.complete(ModelRequest(system, compactScreens(turns), specs))
             // A small model sometimes "speaks" an ordinary reply; unless the user asked for it out loud, show it as text.
             if (model.onDevice) speakAsReply(resp.toolCalls, text)?.let { return Result(conv, it, used, model.displayName) }
+            // "Check my Gmail": a small model sometimes asks what to check instead of reading the screen it has. Nudge once.
+            if (resp.toolCalls.isEmpty() && !nudged && needsReadNudge(text, turns, resp.text)) {
+                nudged = true
+                turns += Turn.Assistant(resp.text)
+                turns += Turn.User(READ_NUDGE)
+                continue
+            }
             if (resp.toolCalls.isEmpty()) return Result(conv, honest(resp.text.ifBlank { if (used.isEmpty()) "I'm not sure how to help with that." else "Done." }, used, model), used, model.displayName)
             turns += Turn.Assistant(resp.text, resp.toolCalls)
             for (call in resp.toolCalls) {
@@ -101,7 +114,7 @@ class MobileExecutionRouter(
             }
             setPhase(Phase.THINKING, "Thinking with ${model.displayName}")
         }
-        return Result(conv, "I stopped after $maxSteps steps without finishing. Try a simpler request.", used, model.displayName)
+        return Result(conv, "I stopped after ${steps - 1} steps without finishing. Try a simpler request.", used, model.displayName)
     }
 
     /** Validate → check availability → authorize → execute. Every outcome is logged. */
@@ -126,6 +139,31 @@ class MobileExecutionRouter(
     }
 
     companion object {
+        const val PHONE_STEPS = 20
+        const val READ_NUDGE = "Just tell me what's there — summarize what the screen shows (for messages: who they're from and what they're about)."
+
+        /** The user asked to check/read something, the model has a screen, and it answered with a question. */
+        fun needsReadNudge(userText: String, turns: List<Turn>, reply: String): Boolean {
+            val asked = Regex("^(?:(?:hey |ok )?jarvis,? )?(?:please |can you |could you )?(check|read|look at|show me|go through|what'?s (?:in|on|new in)|any new)\\b", RegexOption.IGNORE_CASE).containsMatchIn(userText.trim())
+            val hasScreen = turns.lastOrNull() is Turn.ToolResult && isScreenTool((turns.last() as Turn.ToolResult).name)
+            return asked && hasScreen && reply.trim().endsWith("?")
+        }
+
+        fun isScreenTool(name: String) = name.startsWith("screen_") || name == "app_launch"
+
+        /**
+         * Only the latest screen matters: earlier screen results are cut to their first line, so a long
+         * task inside an app doesn't overflow a small model's context.
+         */
+        fun compactScreens(turns: List<Turn>): List<Turn> {
+            val lastScreen = turns.indexOfLast { it is Turn.ToolResult && isScreenTool(it.name) }
+            return turns.mapIndexed { i, t ->
+                if (t is Turn.ToolResult && isScreenTool(t.name) && i != lastScreen && t.content.length > 200)
+                    t.copy(content = t.content.lineSequence().first().take(160) + " … (earlier screen, no longer shown)")
+                else t
+            }
+        }
+
         /** The text of a lone `speak` call when the user didn't ask for anything to be said aloud. */
         fun speakAsReply(calls: List<ToolCall>, userText: String): String? {
             val c = calls.singleOrNull()?.takeIf { it.name == "speak" } ?: return null
@@ -134,7 +172,7 @@ class MobileExecutionRouter(
         }
 
         /** The instructions every model gets. The on-device wording was tuned against Gemma 4 E2B (mobile/scripts/local-model-check.sh). */
-        fun systemPrompt(onDevice: Boolean, now: java.time.ZonedDateTime, known: List<String>, notes: String?): String = buildString {
+        fun systemPrompt(onDevice: Boolean, now: java.time.ZonedDateTime, known: List<String>, notes: String?, phoneControl: Boolean = false): String = buildString {
             append("You are Jarvis, the user's personal assistant, running on their Android phone (not their PC). Be brief and friendly.\n")
             append("Current time: ${now.toLocalDate()} ${"%02d:%02d".format(now.hour, now.minute)} (${now.dayOfWeek.name.lowercase().replaceFirstChar { it.uppercase() }}).\n")
             if (known.isNotEmpty()) append("What you know about the user:\n" + known.joinToString("\n") { "- $it" } + "\n")
@@ -144,6 +182,11 @@ class MobileExecutionRouter(
                 append("Use a tool only when the user asks you to do something on the phone, or asks about the phone, their notes or what you remember. ")
                 append("\"Notes\" means the user's notes vault: use the brain_ tools for notes, and the memory_ tools only for short facts. ")
                 append("If no tool fits a request, say you can't do that on the phone yet. Never say something happened unless a tool result says so.\n")
+                if (phoneControl) {
+                    append("You can also operate apps like a person: open the app with app_launch (you get its screen back as numbered elements), then use screen_tap with an element number, screen_type, screen_scroll or screen_back. ")
+                    append("Each action returns the new screen. Read the screen before acting, pick elements only from the latest screen, and when you have what the user asked for, stop and answer in text. ")
+                    append("You can't control games.\n")
+                }
             } else {
                 append("Act only through the tools provided; actions that change something may wait for the user's approval on screen, and you cannot approve anything yourself. Never say something happened unless its tool result says so.\n")
             }

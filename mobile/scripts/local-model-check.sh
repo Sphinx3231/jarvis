@@ -9,6 +9,6 @@ out="$android/app/build/local-model"
 mkdir -p "$out"
 cd "$android"
 JARVIS_PROMPT_DUMP="$out/prompts.json" ./gradlew -q :app:testDebugUnitTest --tests 'ai.jarvis.mobile.LocalModelTest.dumpPromptsForTheRealModel' --rerun-tasks
-"${PYTHON:-python3}" "$here/local-model-check.py" "${MODEL:?set MODEL to a gemma-4-E2B-it.litertlm file (see fetch-model.sh)}" "$out/prompts.json" "$out/outputs.json"
+"${PYTHON:-python3}" "$here/local-model-check.py" "${MODEL:?set MODEL to a gemma-4-E2B-it-abliterated.litertlm file (see fetch-model.sh)}" "$out/prompts.json" "$out/outputs.json"
 JARVIS_MODEL_OUTPUTS="$out/outputs.json" ./gradlew -q :app:testDebugUnitTest --tests 'ai.jarvis.mobile.LocalModelTest.realModelOutputsParseIntoTheRightCalls' --rerun-tasks
 cat "$out/local-model-report.txt"

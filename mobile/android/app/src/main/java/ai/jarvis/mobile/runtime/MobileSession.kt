@@ -20,7 +20,16 @@ class MobileSession(
     private val speaker: Speaker,
     private val speakReplies: () -> Boolean,
 ) {
-    data class State(val conversationId: String? = null, val busy: Boolean = false, val lastHandledBy: String? = null, val lastError: String? = null)
+    data class State(
+        val conversationId: String? = null,
+        val busy: Boolean = false,
+        val lastHandledBy: String? = null,
+        val lastError: String? = null,
+        /** The last answer, and whether that request operated other apps (shown over them when done). */
+        val lastReply: String? = null,
+        val usedPhone: Boolean = false,
+        val replySeen: Boolean = true,
+    )
 
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state
@@ -28,19 +37,35 @@ class MobileSession(
 
     fun open(conversationId: String?) = _state.update { it.copy(conversationId = conversationId, lastError = null) }
 
+    private var job: kotlinx.coroutines.Job? = null
+
+    /** Stop the request in progress (the STOP button); anything waiting for approval is denied. */
+    fun cancel(reason: String) {
+        job?.cancel(kotlinx.coroutines.CancellationException(reason))
+    }
+
+    fun markReplySeen() = _state.update { it.copy(replySeen = true) }
+
     fun submit(text: String, via: String = "text") {
         val clean = text.trim()
         if (clean.isEmpty()) return
-        scope.launch {
+        job = scope.launch {
             lock.withLock {
                 _state.update { it.copy(busy = true, lastError = null) }
+                ai.jarvis.mobile.control.PhoneControl.inUse.value = false
                 try {
                     val r = router.handle(_state.value.conversationId, clean)
-                    _state.update { it.copy(conversationId = r.conversationId, busy = false, lastHandledBy = r.handledBy) }
+                    val usedPhone = r.toolsUsed.any { it.startsWith("screen_") || it == "app_launch" }
+                    _state.update { it.copy(conversationId = r.conversationId, busy = false, lastHandledBy = r.handledBy, lastReply = r.text, usedPhone = usedPhone, replySeen = !usedPhone) }
                     if (via == "voice" && speakReplies()) speaker.speak(r.text)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    activity.log("warning", "tool", "Stopped: ${e.message}")
+                    _state.update { it.copy(busy = false, lastError = "Stopped", lastReply = "Stopped.", replySeen = true) }
                 } catch (e: Exception) {
                     activity.log("error", "provider", "Command failed: ${e.message}")
                     _state.update { it.copy(busy = false, lastError = e.message ?: e.javaClass.simpleName) }
+                } finally {
+                    ai.jarvis.mobile.control.PhoneControl.inUse.value = false
                 }
             }
         }

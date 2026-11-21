@@ -123,15 +123,15 @@ class ScreenshotTest {
                 CapRow("notify", "Show a notification", "Post a notification from Jarvis", Risk.ACT, Policy.DENY, false, "Needs the POST_NOTIFICATIONS permission (grant it in Capabilities)"),
             ),
             listOf(PermRow("mic", "Microphone", "Push-to-talk voice commands", true), PermRow("cam", "Camera", "Scanning the PC's pairing QR code", false)),
-            { _, _ -> }, {}, {},
+            onPolicy = { _, _ -> }, onGrant = {}, phoneControlOn = false, onOpenAccessibility = {}, onOpenSystemSettings = {},
         )
     }
     @Test fun devicesUnpaired() = shot("11-devices-unpaired") { DevicesScreen(DevicesView(null, remoteConnection(RemoteSession.State()), null, false, null, null), {}, {}, {}, {}, {}) }
     @Test fun devicesPaired() = shot("12-devices-paired") { DevicesScreen(DevicesView(pc, remoteConnection(remoteState), "f00dfacecafe1234beef", false, null, "PC stopped: 2 task(s) cancelled, Computer Access stopped."), {}, {}, {}, {}, {}) }
     @Test fun settings() = shot("13-settings") { SettingsScreen(Mode.MOBILE, ProviderConfig("on_device"), false, true, "OK — the model replied: “OK”", listOf(
-            ai.jarvis.mobile.ui.screens.ModelOption("gemma4_e2b", "Gemma 4 E2B", "Recommended: fast, light on memory — fine next to a game", 2588, "Ready · runs on the GPU", true, true, true, "Apache-2.0 (Google)"),
-            ai.jarvis.mobile.ui.screens.ModelOption("gemma4_e4b", "Gemma 4 E4B", "Highest quality that fits a 12 GB phone; about twice as slow and memory-hungry", 3660, "Not downloaded — tap to choose", false, false, false, "Apache-2.0 (Google)"),
-        ), {}, { _, _ -> }, {}, {}, {}, {}) }
+            ai.jarvis.mobile.ui.screens.ModelOption("gemma4_e2b_abliterated", "Gemma 4 E2B · abliterated", "Recommended: fast and light on memory; refusals removed", 2588, "Ready · runs on the GPU", true, true, true, "Apache-2.0 (Google Gemma 4; abliteration by csabag76, method by oknyshuk)"),
+            ai.jarvis.mobile.ui.screens.ModelOption("gemma4_e4b_abliterated", "Gemma 4 E4B · abliterated", "Highest quality that fits a 12 GB phone; about twice as slow; refusals removed", 3660, "Not downloaded — tap to choose", false, false, false, "Apache-2.0"),
+        ), onMode = {}, voiceEngine = "model", onVoiceEngine = {}, onSave = { _, _ -> }, onClearKey = {}, onTest = {}, onSpeak = {}, onOpen = {}) }
     @Test fun brain() = shot("15-brain") {
         ai.jarvis.mobile.ui.screens.BrainScreen("Obsidian vault: Second Brain", true, true, listOf(
             ai.jarvis.mobile.runtime.brain.NoteRef("Gym plan.md", now - 3_600_000, 120),

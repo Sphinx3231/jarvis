@@ -131,9 +131,9 @@ object LocalIntents {
         Regex("^(?:open|launch|start) (?:the )?(.{2,40}?)(?: app)?$", I).find(t)?.let {
             val name = it.groupValues[1].trim()
             // "open up about…" is conversation, not an app: only short names that aren't a phrase are claimed.
-            val pkg = findApp(context, name)
+            val pkg = ai.jarvis.mobile.runtime.tools.InstalledApps.find(context, name)
                 ?: return if (name.split(' ').size <= 3 && !Regex("^(up|about|my|your|a|an)\\b", I).containsMatchIn(name)) "I couldn't find an app called “$name” on this phone." to emptyList() else null
-            return run("app_launch", mapOf("package" to pkg.second)) { "Opened ${pkg.first}." }
+            return run("app_launch", mapOf("app" to pkg.second)) { "Opened ${pkg.first}." }
         }
         Regex("^(?:call|dial|phone) ([+\\d][\\d\\s().-]{2,24})$", I).find(t)?.let {
             val number = it.groupValues[1].trim()
@@ -167,12 +167,4 @@ object LocalIntents {
         else -> "$seconds seconds"
     }
 
-    /** A launcher app whose name matches (exact first, then prefix, then contains). */
-    private fun findApp(context: Context, name: String): Pair<String, String>? {
-        val pm = context.packageManager
-        val apps = pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
-            .map { it.loadLabel(pm).toString() to it.activityInfo.packageName }
-        val n = name.lowercase()
-        return apps.firstOrNull { it.first.lowercase() == n } ?: apps.firstOrNull { it.first.lowercase().startsWith(n) } ?: apps.firstOrNull { it.first.lowercase().contains(n) }
-    }
 }

@@ -49,26 +49,31 @@ data class LocalModelSpec(
  * CPU / ~0.7 GB on the GPU; E4B ≈ 2.8–3.3 GB / ~0.8 GB.
  */
 object LocalModels {
+    /**
+     * Gemma 4 E2B, abliterated (refusal-reduced) in place: only the text-decoder weights differ from
+     * Google's litert-community build; vision, audio, tokenizer and chat template are byte-identical
+     * (so native tool calling and on-device speech recognition work the same).
+     */
     val GEMMA4_E2B = LocalModelSpec(
-        id = "gemma4_e2b",
-        file = "gemma-4-E2B-it.litertlm",
-        name = "Gemma 4 E2B",
-        summary = "Recommended: fast, light on memory — fine next to a game",
-        license = "Apache-2.0 (Google)",
-        source = "huggingface.co/litert-community/gemma-4-E2B-it-litert-lm",
-        url = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/2e12bfd869b2962984f97a1f2a26807316d534cc/gemma-4-E2B-it.litertlm",
-        sha256 = "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+        id = "gemma4_e2b_abliterated",
+        file = "gemma-4-E2B-it-abliterated.litertlm",
+        name = "Gemma 4 E2B · abliterated",
+        summary = "Recommended: fast and light on memory; refusals removed",
+        license = "Apache-2.0 (Google Gemma 4; abliteration by csabag76, method by oknyshuk)",
+        source = "huggingface.co/csabag76/gemma-4-E2B-it-abliterated-litert-lm",
+        url = "https://huggingface.co/csabag76/gemma-4-E2B-it-abliterated-litert-lm/resolve/6e6d6e68ab2ff9873e01d69d6c3421658fb4c840/gemma-4-E2B-it-abliterated.litertlm",
+        sha256 = "0ebc29dcd1533a46a84b0078656ffa7010eaa07282fd2b0b6586556373409fd9",
         sizeBytes = 2_588_147_712L,
     )
     val GEMMA4_E4B = LocalModelSpec(
-        id = "gemma4_e4b",
-        file = "gemma-4-E4B-it.litertlm",
-        name = "Gemma 4 E4B",
-        summary = "Highest quality that fits a 12 GB phone; about twice as slow and memory-hungry",
-        license = "Apache-2.0 (Google)",
-        source = "huggingface.co/litert-community/gemma-4-E4B-it-litert-lm",
-        url = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/f254b5ba6e36f7d89cc7892e268e9877bc20f0a0/gemma-4-E4B-it.litertlm",
-        sha256 = "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
+        id = "gemma4_e4b_abliterated",
+        file = "gemma-4-E4B-it-abliterated.litertlm",
+        name = "Gemma 4 E4B · abliterated",
+        summary = "Highest quality that fits a 12 GB phone; about twice as slow; refusals removed",
+        license = "Apache-2.0 (Google Gemma 4; abliteration by olekk / oknyshuk)",
+        source = "huggingface.co/olekk/gemma-4-E4B-it-abliterated-litert-lm",
+        url = "https://huggingface.co/olekk/gemma-4-E4B-it-abliterated-litert-lm/resolve/a4eecccd3b0ba1777660180cda60a396eedcb8aa/gemma-4-E4B-it-abliterated.litertlm",
+        sha256 = "f5a6625e0368e853743c91b39fa6ac6a8add1fc4825b18f98f518966610f2a88",
         sizeBytes = 3_659_530_240L,
     )
     val ALL = listOf(GEMMA4_E2B, GEMMA4_E4B)
@@ -76,9 +81,10 @@ object LocalModels {
 
     /** Files of models this version no longer uses (Qwen2.5 from 0.2.0): removed to free space. */
     fun removeRetired(context: Context) {
-        val retired = listOf("qwen2.5-1.5b-instruct-q8.task")
+        // Qwen2.5 (0.2.0) and the stock Gemma 4 builds (0.3.x), replaced by the abliterated ones.
+        val retired = listOf("qwen2.5-1.5b-instruct-q8.task", "gemma-4-E2B-it.litertlm", "gemma-4-E4B-it.litertlm")
         for (dir in listOfNotNull(File(context.filesDir, "models"), context.getExternalFilesDir("models")))
-            dir.listFiles()?.filter { f -> retired.any { f.name.startsWith(it) } }?.forEach { it.delete() }
+            dir.listFiles()?.filter { f -> retired.any { f.name == it || f.name.startsWith("$it.") } }?.forEach { it.delete() }
     }
 }
 
@@ -309,11 +315,14 @@ class ModelDownloader(
 /** A loaded model that answers one request at a time. */
 interface ModelRunner : AutoCloseable {
     fun send(request: ModelRequest): ModelResponse
+    /** Speech to text with the model's own audio encoder (16 kHz mono WAV). */
+    fun transcribe(wav: File): String
 }
 
 /** LiteRT-LM: the model's own chat template, native function calling, no automatic tool calls. */
 class LiteRtRunner(file: File, gpu: Boolean, cacheDir: File) : ModelRunner {
-    private val engine = Engine(EngineConfig(modelPath = file.path, backend = if (gpu) Backend.GPU() else Backend.CPU(), maxNumTokens = OnDeviceProvider.MAX_TOKENS, cacheDir = cacheDir.path)).also { it.initialize() }
+    // The audio encoder runs on the CPU (as Google recommends); it is only loaded when audio is sent.
+    private val engine = Engine(EngineConfig(modelPath = file.path, backend = if (gpu) Backend.GPU() else Backend.CPU(), audioBackend = Backend.CPU(), maxNumTokens = OnDeviceProvider.MAX_TOKENS, cacheDir = cacheDir.path)).also { it.initialize() }
 
     override fun send(request: ModelRequest): ModelResponse {
         val messages = LocalFormat.toMessages(request.turns)
@@ -327,7 +336,21 @@ class LiteRtRunner(file: File, gpu: Boolean, cacheDir: File) : ModelRunner {
         return engine.createConversation(config).use { conv -> LocalFormat.fromMessage(conv.sendMessage(messages.last())) }
     }
 
+    override fun transcribe(wav: File): String {
+        // Greedy decoding: a transcript should be the most likely words, not a creative variation.
+        val config = ConversationConfig(systemInstruction = Contents.of("You are a speech-to-text engine."), samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0))
+        return engine.createConversation(config).use { conv ->
+            val reply = conv.sendMessage(com.google.ai.edge.litertlm.Message.user(Contents.of(com.google.ai.edge.litertlm.Content.AudioFile(wav.path), com.google.ai.edge.litertlm.Content.Text(TRANSCRIBE))))
+            LocalFormat.fromMessage(reply).text
+        }
+    }
+
     override fun close() = engine.close()
+
+    companion object {
+        /** Measured best on real speech (mobile/scripts: plain wording beat "context" hints). */
+        const val TRANSCRIBE = "Transcribe this audio exactly, word for word. Reply with only the transcript."
+    }
 }
 
 /**
@@ -358,20 +381,28 @@ class OnDeviceProvider(
     @Volatile var gpuProblem: String? = gpuMemory.failure()
         private set
 
-    override suspend fun complete(request: ModelRequest): ModelResponse = lock.withLock {
+    override suspend fun complete(request: ModelRequest): ModelResponse = run { it.send(request) }
+
+    /** Speech to text on the phone with the same model (no audio leaves the device). */
+    suspend fun transcribe(wav: File): String = run { it.transcribe(wav) }
+
+    private suspend fun <T> run(work: (ModelRunner) -> T): T = lock.withLock {
         val file = store().ensureReady()
         withContext(Dispatchers.Default) {
             val r = runner?.takeIf { loaded == file } ?: load(file)
             try {
-                r.send(request)
+                work(r)
             } catch (e: Throwable) {
                 if (backend != "GPU") throw ProviderUnavailable("The on-device model failed: ${e.message ?: e.javaClass.simpleName}")
                 gpuFailed(e)
                 val cpu = openCpu(file)
-                try { cpu.send(request) } catch (e2: Throwable) { throw ProviderUnavailable("The on-device model failed: ${e2.message ?: e2.javaClass.simpleName}") }
+                try { work(cpu) } catch (e2: Throwable) { throw ProviderUnavailable("The on-device model failed: ${e2.message ?: e2.javaClass.simpleName}") }
             }
         }
     }
+
+    /** Whether the model is on the phone and ready (speech recognition can use it). */
+    fun ready(): Boolean = store().state.value is LocalModelStore.State.Ready
 
     private fun load(file: File): ModelRunner {
         release()
@@ -410,7 +441,7 @@ class OnDeviceProvider(
         try { release() } finally { lock.unlock() }
     }
 
-    companion object { const val MAX_TOKENS = 4096 }
+    companion object { const val MAX_TOKENS = 8192 }
 }
 
 /** Remembers that the GPU failed, for this app version only (an update may fix it, so it's retried). */

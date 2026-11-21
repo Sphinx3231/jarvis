@@ -66,7 +66,10 @@ class SpeechInput(private val context: Context) {
                 })
             }
             override fun onResults(results: Bundle?) {
-                val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                // Several hypotheses: keep the one the recognizer is most confident in.
+                val texts = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
+                val scores = results?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)
+                val text = (if (scores != null && scores.size == texts.size && texts.isNotEmpty()) texts[scores.indices.maxBy { scores[it] }] else texts.firstOrNull()).orEmpty()
                 _state.value = State()
                 if (text.isNotBlank()) onResult(text)
             }
@@ -75,7 +78,18 @@ class SpeechInput(private val context: Context) {
             }
             override fun onEvent(eventType: Int, params: Bundle?) {}
         })
-        r.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM).putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true))
+        val lang = java.util.Locale.getDefault().toLanguageTag()
+        r.startListening(
+            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                .putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang) // don't let it guess the language
+                .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+                // Don't cut the user off mid-sentence.
+                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1500L),
+        )
     }
 
     fun stop() {

@@ -25,8 +25,8 @@ class MobilePermissionManager(private val activity: ActivityDao, private val pol
     val pending: StateFlow<List<PendingApproval>> = _pending
     private val waiters = HashMap<String, CompletableDeferred<Boolean>>()
 
-    fun policyFor(tool: MobileTool): Policy = policyOverrides()[tool.name]?.let { runCatching { Policy.valueOf(it) }.getOrNull() }
-        ?: if (tool.risk == Risk.READ) Policy.ALLOW else Policy.ASK
+    fun policyFor(tool: MobileTool, args: JsonObject = JsonObject(emptyMap())): Policy = policyOverrides()[tool.name]?.let { runCatching { Policy.valueOf(it) }.getOrNull() }
+        ?: if (tool.riskFor(args) == Risk.READ) Policy.ALLOW else Policy.ASK
 
     sealed interface Decision {
         data object Allowed : Decision
@@ -35,7 +35,7 @@ class MobilePermissionManager(private val activity: ActivityDao, private val pol
 
     suspend fun authorize(tool: MobileTool, args: JsonObject, timeoutMs: Long = 120_000): Decision {
         val summary = tool.summarize(args)
-        return when (policyFor(tool)) {
+        return when (policyFor(tool, args)) {
             Policy.DENY -> Decision.Denied("Blocked by your setting for ${tool.title}").also { log("warning", "Blocked: $summary") }
             Policy.ALLOW -> Decision.Allowed
             Policy.ASK -> {

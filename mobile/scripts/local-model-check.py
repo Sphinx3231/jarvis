@@ -30,5 +30,5 @@ for case in json.load(open(cases_path)):
     dt = round(time.time() - t, 1)
     j = reply.to_json() if hasattr(reply, "to_json") else reply
     print(f"[{dt:4.1f}s] {case['question']!r} -> {json.dumps(j)[:140]}", flush=True)
-    results.append({**{k: case[k] for k in ("question", "expect")}, "reply": j, "seconds": dt})
+    results.append({**{k: case[k] for k in ("question", "expect", "check") if k in case}, "reply": j, "seconds": dt})
 json.dump(results, open(out_path, "w"), ensure_ascii=False, indent=1)

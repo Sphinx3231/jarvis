@@ -7,7 +7,7 @@ plugins {
     alias(libs.plugins.roborazzi)
 }
 
-val bundledModelFile = "gemma-4-E2B-it.litertlm"
+val bundledModelFile = "gemma-4-E2B-it-abliterated.litertlm"
 val bundleModel = (findProperty("jarvis.bundleModel") as String?) == "true"
 if (bundleModel) {
     require(rootProject.file("model-assets/$bundledModelFile").isFile) {
@@ -27,8 +27,8 @@ android {
         // Android 12+: hardware-backed key agreement (KeyProperties.PURPOSE_AGREE_KEY) for E2E pairing.
         minSdk = 31
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.3.1"
+        versionCode = 5
+        versionName = "0.4.0"
         // The on-device model runtime (LiteRT-LM) ships native code for 64-bit ARM (every Android 12+ phone).
         ndk { abiFilters += listOf("arm64-v8a") }
         // On-device model bundled into the APK (see mobile/scripts/fetch-model.sh). Only with

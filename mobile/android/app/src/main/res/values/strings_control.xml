@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="phone_control_label">Jarvis phone control</string>
+    <string name="phone_control_summary">Lets Jarvis open apps and read, tap and type in them when you ask</string>
+    <string name="phone_control_description">When you ask Jarvis to do something in an app (for example \"check my Gmail\"), it reads what is on the screen and taps, types and scrolls for you. It only acts while carrying out your request, shows a STOP button while it does, and asks first before sending, paying, deleting or posting anything, and for anything in banking or payment apps. It never reads or types passwords and never controls games. Everything stays on your phone.</string>
+</resources>
