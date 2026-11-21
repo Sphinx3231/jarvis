@@ -107,7 +107,7 @@ const PULSES: Record<CoreState, number> = { idle: 7, listening: 12, speaking: 16
 const rgb = (hex: string) => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)].join(',');
 const proj = new Float32Array(PLEX_N * 3);
 
-function drawPlexus(canvas: HTMLCanvasElement, t: number, animate: boolean, cur: { spinRate: number; tint: string; glowAmp: number }, state: CoreState, speech: number, frame: number) {
+export function drawPlexus(canvas: HTMLCanvasElement, t: number, animate: boolean, cur: { spinRate: number; tint: string; glowAmp: number }, state: CoreState, speech: number, frame: number) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const css = canvas.clientWidth;
   if (!css) return;

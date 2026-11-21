@@ -120,3 +120,35 @@
 
 /* live counters sit in running text */
 .page-head__sub .num { vertical-align: baseline; line-height: inherit; }
+
+/* ---- orbit agents drawn like Jarvis (AgentCore), name and state just below ---- */
+.anode__disc--core {
+  display: block;
+  background: none;
+  box-shadow: none;
+}
+.anode__disc--core > .acore {
+  position: absolute;
+  inset: 0;
+}
+.anode__disc--core .anode__ticks,
+.anode__disc--core .anode__brackets,
+.anode__disc--core .anode__ring-inner {
+  display: none;
+}
+.anode__label {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 9px);
+  translate: -50% 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.anode__label .anode__name {
+  text-shadow: 0 0 10px color-mix(in srgb, var(--c) 65%, transparent);
+}
+.anode:hover .acore__glow { opacity: 1; }

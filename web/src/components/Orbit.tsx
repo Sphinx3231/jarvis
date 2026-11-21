@@ -8,6 +8,7 @@ import { useAction } from '../lib/live';
 import { navigate } from '../lib/router';
 import { useCoreTransitions, useNumberTween, useOrbitMotion } from '../motion/orbitMotion';
 import ShinyText from './bits/ShinyText';
+import { AgentCore } from './AgentCore';
 
 export const AGENT_ICON: Record<string, (size: number) => ReactNode> = {
   friday: (s) => <TrendingUp size={s} />,
@@ -366,7 +367,9 @@ export function OrbitStage({
               <button key={a.id} className={`anode anode--${st.key}`} style={style} onClick={() => onSelect(a.id)} aria-label={`${a.name} — ${st.label}. Open details.`} title={`${a.name}: ${a.lastSummary || splitRole(a.role).text}`}>
                 <span className="anode__body" data-agent-body={a.id} data-dx={Math.round(pts[i].x - cx)} data-dy={Math.round(pts[i].y - cy)}>
                 <span className="anode__burst" data-agent-burst={a.id} aria-hidden />
-                <span className="anode__disc">
+                {/* the agent drawn like Jarvis: its own core, in its colour, following its real state */}
+                <span className="anode__disc anode__disc--core">
+                  <AgentCore color={a.color} status={st.key} size={node} still={!motion} />
                   <svg className="anode__ring" viewBox="0 0 100 100" aria-hidden>
                     <circle cx="50" cy="50" r="48.5" className="anode__ring-track" />
                     <circle cx="50" cy="50" r="48.5" className="anode__ring-arc" />
@@ -387,14 +390,15 @@ export function OrbitStage({
                       ))}
                     </g>
                   </svg>
-                  <span className="anode__icon">{agentIcon(a.id, node > 100 ? 23 : 20)}</span>
+                </span>
+                <span className="anode__label">
                   <span className="anode__name">{a.name}</span>
                   <span className="anode__status">
                     <i className="anode__dot" />
                     {st.label}
                   </span>
                 </span>
-                <span className={`anode__plate ${pts[i].y < cy - 20 ? 'anode__plate--up' : ''}`}>
+                <span className="anode__plate anode__plate--up">
                   RUNS {a.runs} · {a.lastRunAt ? timeAgo(a.lastRunAt).toUpperCase() : 'NEVER'}
                 </span>
                 </span>

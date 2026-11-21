@@ -1,5 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { LayoutDashboard, ShieldAlert } from 'lucide-react';
+import { AgentCore } from './AgentCore';
+import { AgentDetail, agentStatus } from './Orbit';
 import { Core, CORE_LABEL } from './Core';
 import type { AgentsResponse, Approval, ChatMessage, CoreState } from '../lib/api';
 import { useChat, useCoreState } from '../lib/chat';
@@ -39,25 +41,44 @@ const TICKS = Array.from({ length: 180 }, (_, i) => {
   return { x1, y1, x2, y2, major };
 });
 // The six agents sit on the outer ring, in roster order.
-const SAT_DEG = [-50, 50, -90, 90, -130, 130];
-const SAT_R = 452;
+// The six agents, three each side of Jarvis in roster order (Friday, Tom, Neo, Sentinel, Echo, Trinity).
+const SAT_DEG = [300, 60, 270, 90, 240, 120];
+/** Each agent's core, as a fraction of the rig. */
+const AGENT_FRAC = 0.16;
 const NO_AGENTS: AgentInfo[] = [];
 
 /** How fast the rings turn, by Jarvis's real state. */
 const PACE: Record<CoreState, number> = { idle: 1, listening: 1.7, thinking: 3.2, working: 2.6, speaking: 1.9, success: 1.2, error: 0.35 };
 
 function useStageSize(ref: React.RefObject<HTMLElement | null>) {
-  const [size, setSize] = useState(0);
+  const [box, setBox] = useState({ size: 0, width: 0 });
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const measure = () => setSize(Math.max(320, Math.min(el.clientWidth * 0.94, el.clientHeight)));
+    const measure = () => setBox({ size: Math.max(320, Math.min(el.clientWidth * 0.94, el.clientHeight)), width: el.clientWidth });
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
   }, [ref]);
-  return size;
+  return box;
+}
+
+/**
+ * Where the agents sit, in px from Jarvis's centre: three each side on a wide ellipse that uses the
+ * room a widescreen window has, always outside Jarvis's HUD and inside the window.
+ */
+function agentPlaces(n: number, size: number, width: number) {
+  const mini = Math.round(size * AGENT_FRAC);
+  const rx = Math.max(size * 0.5, Math.min(size * 0.66, width / 2 - mini * 0.75));
+  const ry = size * 0.4;
+  return {
+    mini,
+    pts: Array.from({ length: n }, (_, i) => {
+      const a = ((SAT_DEG[i] ?? i * 60) * Math.PI) / 180;
+      return { x: rx * Math.sin(a), y: -ry * Math.cos(a) };
+    }),
+  };
 }
 
 function lastExchange(messages: ChatMessage[]): { asked: ChatMessage | null; answer: ChatMessage | null } {
@@ -77,13 +98,17 @@ function lastExchange(messages: ChatMessage[]): { asked: ChatMessage | null; ans
 export function JarvisView({ onExit }: { onExit: () => void }) {
   const root = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
-  const size = useStageSize(stageRef);
+  const { size, width } = useStageSize(stageRef);
   const { connected, state: live, settings } = useLive();
   const voice = useVoice();
   const state = useCoreState();
   const { messages, sending, send } = useChat();
   const metrics = useMetrics();
-  const agents = useResource<AgentsResponse>('/api/subagents', ['agents.changed', 'settings.changed']).data?.agents ?? NO_AGENTS;
+  const agentsRes = useResource<AgentsResponse>('/api/subagents', ['agents.changed', 'settings.changed']).data;
+  const agents = agentsRes?.agents ?? NO_AGENTS;
+  const agentsOn = agentsRes?.enabled ?? false;
+  const [selected, setSelected] = useState<string | null>(null);
+  const selectedAgent = agents.find((a) => a.id === selected) ?? null;
   const approvals = useResource<{ approvals: Approval[] }>('/api/approvals?status=pending', ['approval.updated', 'task.updated']).data?.approvals ?? [];
   const reduce = Boolean(settings?.appearance.reduceMotion) || (typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches));
   const detail = state === 'listening' ? voice.interim || 'Listening…' : state === 'speaking' ? 'Speaking…' : sending ? 'Working on it…' : live.detail;
@@ -109,7 +134,7 @@ export function JarvisView({ onExit }: { onExit: () => void }) {
       tl.from(q('.jv__core'), { scale: 0.7, autoAlpha: 0, duration: 1.2, ease: 'expo.out', clearProps: 'transform,opacity,visibility' }, 0)
         .from(q('.jv__draw'), { drawSVG: '50% 50%', duration: 1.1, stagger: 0.05, onComplete() { for (const el of this.targets() as SVGElement[]) el.style.removeProperty('stroke-dasharray'), el.style.removeProperty('stroke-dashoffset'); } }, 0.2)
         .from(q('.jv__ticks line'), { autoAlpha: 0, duration: 0.02, stagger: { each: 0.004, from: 'random' } }, 0.3)
-        .from(q('.jv__sat'), { scale: 0, autoAlpha: 0, svgOrigin: `${C} ${C}`, duration: 0.7, stagger: 0.07, ease: 'back.out(1.6)', clearProps: 'transform,opacity,visibility' }, 0.7)
+        .from(q('.jv__agent'), { scale: 0.3, autoAlpha: 0, duration: 0.8, stagger: 0.08, ease: 'back.out(1.5)', clearProps: 'transform,opacity,visibility' }, 0.7)
         .from(q('.jv__axis'), { scaleX: 0, autoAlpha: 0, duration: 1, clearProps: 'transform,opacity,visibility' }, 0.4)
         .from(q('.jv__frame'), { autoAlpha: 0, scale: 1.06, duration: 0.8, stagger: 0.05, clearProps: 'transform,opacity,visibility' }, 0.5)
         .from(q('.jv__mark, .jv__toggle, .jv__readout, .jv__dock'), { autoAlpha: 0, y: 10, duration: 0.7, stagger: 0.06, clearProps: 'transform,opacity,visibility' }, 0.8);
@@ -137,10 +162,12 @@ export function JarvisView({ onExit }: { onExit: () => void }) {
       prevAgents.current = new Map(agents.map((a) => [a.id, { state: a.state, runs: a.runs, error: a.error }]));
       if (!before || !root.current || reducedMotion()) return;
       for (const { id, event } of agentEvents(before, agents)) {
-        const ring = root.current.querySelector(`[data-sat="${id}"] .jv__satflash`);
+        const ring = root.current.querySelector<HTMLElement>(`[data-agent="${id}"] .jv__agentflash`);
         if (!ring) continue;
-        const color = event === 'failed' ? '#f87171' : event === 'completed' ? '#4ade80' : getComputedStyle(ring).color;
-        gsap.fromTo(ring, { attr: { r: 8 }, stroke: color, opacity: 1, strokeWidth: 3 }, { attr: { r: 46 }, opacity: 0, strokeWidth: 0.5, duration: 1.1, ease: 'expo.out' });
+        const color = event === 'failed' ? '#f87171' : event === 'completed' ? '#4ade80' : getComputedStyle(ring).getPropertyValue('--c');
+        gsap.fromTo(ring, { scale: 0.8, opacity: 1, borderColor: color }, { scale: 1.9, opacity: 0, duration: 1.1, ease: 'expo.out' });
+        const body = root.current.querySelector(`[data-agent="${id}"] .acore`);
+        if (body) gsap.fromTo(body, { scale: 1 }, { scale: event === 'started' ? 1.12 : 1.07, duration: 0.18, yoyo: true, repeat: 1, ease: 'power2.out', clearProps: 'scale' });
       }
     },
     { scope: root, dependencies: [agents] },
@@ -156,6 +183,7 @@ export function JarvisView({ onExit }: { onExit: () => void }) {
   );
 
   const core = size * 0.5;
+  const places = agentPlaces(Math.min(6, agents.length), size, width);
   const gauge = (frac: number | null, a0: number, span: number, r: number) => arc(r, a0, a0 + span * Math.max(0.01, Math.min(1, (frac ?? 0) / 100)));
 
   return (
@@ -180,8 +208,8 @@ export function JarvisView({ onExit }: { onExit: () => void }) {
         <button
           className="jv__approval"
           onClick={() => {
-            onExit();
             navigate({ page: 'tasks', id: approvals[0].taskId });
+            onExit(); // also when Tasks was already the page behind this view
           }}
         >
           <ShieldAlert size={15} /> {approvals.length === 1 ? 'An action is waiting for your approval' : `${approvals.length} actions are waiting for your approval`} — review
@@ -218,34 +246,51 @@ export function JarvisView({ onExit }: { onExit: () => void }) {
               </g>
               <circle className="jv__ring jv__ring--outer jv__draw" cx={C} cy={C} r={R + 96} />
 
-              {/* live load: CPU on the left, memory on the right */}
-              <path className="jv__gtrack" d={arc(R + 84, 228, 312)} />
-              <path className="jv__gfill" d={gauge(cpu, 228, 84, R + 84)} />
-              <path className="jv__gtrack" d={arc(R + 84, 48, 132)} />
-              <path className="jv__gfill jv__gfill--mem" d={gauge(mem, 48, 84, R + 84)} />
-              <text className="jv__glabel" x={polar(R + 136, 270)[0]} y={C - 10} textAnchor="end">CPU</text>
-              <text className="jv__gvalue" x={polar(R + 136, 270)[0]} y={C + 14} textAnchor="end">{cpu === null ? '—' : `${Math.round(cpu)}%`}</text>
-              <text className="jv__glabel" x={polar(R + 136, 90)[0]} y={C - 10}>MEM</text>
-              <text className="jv__gvalue" x={polar(R + 136, 90)[0]} y={C + 14}>{mem === null ? '—' : `${Math.round(mem)}%`}</text>
+              {/* live load across the top: CPU left of north, memory right of it */}
+              <path className="jv__gtrack" d={arc(R + 84, 316, 352)} />
+              <path className="jv__gfill" d={gauge(cpu, 316, 36, R + 84)} />
+              <path className="jv__gtrack" d={arc(R + 84, 8, 44)} />
+              <path className="jv__gfill jv__gfill--mem" d={gauge(mem, 8, 36, R + 84)} />
+              <text className="jv__glabel" x={polar(R + 118, 330)[0]} y={polar(R + 118, 330)[1] - 18} textAnchor="end">CPU</text>
+              <text className="jv__gvalue" x={polar(R + 118, 330)[0]} y={polar(R + 118, 330)[1] + 6} textAnchor="end">{cpu === null ? '—' : `${Math.round(cpu)}%`}</text>
+              <text className="jv__glabel" x={polar(R + 118, 30)[0]} y={polar(R + 118, 30)[1] - 18}>MEM</text>
+              <text className="jv__gvalue" x={polar(R + 118, 30)[0]} y={polar(R + 118, 30)[1] + 6}>{mem === null ? '—' : `${Math.round(mem)}%`}</text>
 
-              {/* the six agents: dim at rest, lit with a link to the core only while they really work */}
-              {agents.slice(0, 6).map((a, i) => {
-                const [x, y] = polar(SAT_R, SAT_DEG[i] ?? i * 60);
-                const [lx, ly] = polar(R + 100, SAT_DEG[i] ?? i * 60);
-                const working = a.state === 'working';
-                return (
-                  <g key={a.id} data-sat={a.id} className={`jv__sat ${working ? 'is-working' : ''} ${a.error ? 'is-error' : ''}`} style={{ color: a.color }}>
-                    <title>{`${a.name}: ${working ? 'working' : a.error ? 'last run failed' : 'ready'}`}</title>
-                    {working && <line className="jv__satlink" x1={lx} y1={ly} x2={x} y2={y} />}
-                    <circle className="jv__satring" cx={x} cy={y} r={14} />
-                    <circle className="jv__satdot" cx={x} cy={y} r={6} />
-                    <circle className="jv__satflash" cx={x} cy={y} r={8} />
-                  </g>
-                );
+              {/* energy links from Jarvis to each agent; live only while that agent really works */}
+              {places.pts.map((p, i) => {
+                const a = agents[i];
+                const len = Math.hypot(p.x, p.y) || 1;
+                const [ux, uy] = [p.x / len, p.y / len];
+                const k = 1000 / size;
+                const end = len * k - (places.mini / 2 + 8) * k;
+                return <line key={a.id} className={`jv__link ${a.state === 'working' ? 'is-working' : ''}`} style={{ color: a.color }} x1={C + ux * (R + 100)} y1={C + uy * (R + 100)} x2={C + ux * end} y2={C + uy * end} />;
               })}
             </svg>
             <div className="jv__core" style={{ width: core, height: core }}>
               <Core state={state} size={core} reduceMotion={reduce} hero />
+            </div>
+            <div className="jv__agents">
+              {places.pts.map((p, i) => {
+                const a = agents[i];
+                const st = agentStatus(a, agentsOn);
+                const mini = places.mini;
+                return (
+                  <button
+                    key={a.id}
+                    data-agent={a.id}
+                    className={`jv__agent is-${st.key}`}
+                    style={{ left: `calc(50% + ${p.x}px)`, top: `calc(50% + ${p.y - mini / 2}px)`, ['--c' as string]: a.color, ['--size' as string]: `${mini}px`, ['--half' as string]: `${mini / 2}px` }}
+                    onClick={() => setSelected(a.id)}
+                    aria-label={`${a.name} — ${st.label}. Open details.`}
+                    title={`${a.name}: ${a.lastSummary || st.label}`}
+                  >
+                    <AgentCore color={a.color} status={st.key} size={mini} still={reduce} />
+                    <span className="jv__agentflash" aria-hidden />
+                    <span className="jv__agentname">{a.name}</span>
+                    <span className="jv__agentstate">{st.label}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
@@ -264,6 +309,8 @@ export function JarvisView({ onExit }: { onExit: () => void }) {
           </div>
         )}
       </div>
+
+      {selectedAgent && <AgentDetail agent={selectedAgent} enabled={agentsOn} onClose={() => setSelected(null)} />}
 
       <div className="dash jv__dock">
         <CommandBar onSend={send} sending={sending} draft={null} />

@@ -149,6 +149,12 @@ mirrors it). Chat state is shared through `useChat()` in `web/src/lib/chat.ts`, 
 same conversation and whichever is mounted takes the wake word. Pending approvals show as a notice
 that opens Tasks. E2E suites other than ui.e2e start in the full UI via that localStorage key.
 
+**Sub-agents are drawn like Jarvis** (`web/src/components/AgentCore.tsx`): each is a mini core — Core's
+3D plexus (`drawPlexus`, exported from Core.tsx) in tick/segment rings and an arc, in the agent's colour,
+following its real state (working spins up and fills with signals; failed last run is red; paused is
+dimmed). Used in the Jarvis-only view (three each side on a wide ellipse, click = AgentDetail) and in
+the full UI orbit (`.anode__disc--core`). All mini cores share one GSAP ticker callback at 30 fps.
+
 **Motion layer** (`web/src/motion/`, GSAP 3.15 + Lenis 1.3 + vendored React Bits in
 `web/src/components/bits/`). Rules: animate only real events (live SSE events via `useLiveEvent`,
 real agent/task/assistant state diffs), never fake progress; GSAP never tweens `.anode`,

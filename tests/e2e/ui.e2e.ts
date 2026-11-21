@@ -66,8 +66,12 @@ try {
   await page.locator('.jv').waitFor();
   assert.equal(await page.locator('.sidebar').count(), 0, 'no sidebar in the Jarvis-only view');
   assert.equal(await page.locator('.topbar').count(), 0, 'no top bar in the Jarvis-only view');
-  await page.locator('.jv__sat').nth(5).waitFor({ state: 'attached', timeout: 5000 });
-  assert.equal(await page.locator('.jv__sat').count(), 6, 'the six agents sit on the HUD ring');
+  await page.locator('.jv__agent').nth(5).waitFor({ timeout: 5000 });
+  assert.equal(await page.locator('.jv__agent .acore').count(), 6, 'the six agents are drawn as cores of their own around Jarvis');
+  await page.waitForFunction(() => Number(document.querySelector('.jv__agent .acore__plexus')?.getAttribute('data-frame') ?? 0) > 0);
+  const m1 = await page.locator('.jv__agent .acore__plexus').first().getAttribute('data-frame');
+  await page.waitForFunction((prev) => document.querySelector('.jv__agent .acore__plexus')?.getAttribute('data-frame') !== prev, m1, { timeout: 5000 });
+  for (const name of ['Friday', 'Tom', 'Neo', 'Sentinel', 'Echo', 'Trinity']) await page.locator('.jv__agent', { hasText: name }).waitFor();
   assert.ok(await page.getByRole('button', { name: 'Type instead' }).isVisible(), 'Jarvis can still be spoken or typed to');
   await page.waitForTimeout(1600);
   await shot('01a-jarvis-only');
@@ -154,7 +158,7 @@ try {
   await page.locator('.form__row', { hasText: 'When' }).locator('select').selectOption('delay');
   await shot('05-new-task');
   await page.getByRole('button', { name: 'Create task' }).click();
-  await page.getByText('Task created').waitFor();
+  await page.getByText('Task created', { exact: true }).waitFor(); // the toast, not the timeline's "Task created, scheduled for…"
   await page.getByRole('tab', { name: /Scheduled/ }).click();
   await page.locator('.task-row', { hasText: 'Stretch reminder' }).waitFor();
   step('manual task with a delay is created and listed as scheduled');

@@ -25,7 +25,7 @@ const VIEW_KEY = 'jarvis.view';
  * Jarvis-only view (the default) or the full interface. Toggle with the backslash key, the button
  * in the Jarvis view's corner, or the top bar. The choice is remembered.
  */
-function useJarvisView(): [boolean, () => void] {
+function useJarvisView(): [boolean, () => void, (v: boolean) => void] {
   const [jarvisOnly, setJarvisOnly] = useState(() => {
     try {
       return localStorage.getItem(VIEW_KEY) !== 'full';
@@ -53,14 +53,23 @@ function useJarvisView(): [boolean, () => void] {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-  return [jarvisOnly, toggle];
+  return [jarvisOnly, toggle, setJarvisOnly];
 }
 
 export function App() {
   const route = useRoute();
   const { settings } = useLive();
   const { data: status } = useResource<StatusResponse>('/api/status', STATUS_EVENTS);
-  const [immersive, toggleImmersive] = useJarvisView();
+  const [immersive, toggleImmersive, setJarvisOnly] = useJarvisView();
+  // Going somewhere (agent settings, an approval, a link) from the Jarvis-only view opens the
+  // interface on that page.
+  const lastRoute = useRef(`${route.page}/${route.id ?? ''}`);
+  useEffect(() => {
+    const key = `${route.page}/${route.id ?? ''}`;
+    if (key === lastRoute.current) return;
+    lastRoute.current = key;
+    setJarvisOnly(false);
+  }, [route.page, route.id, setJarvisOnly]);
   const mainRef = useRef<HTMLElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   // Smooth wheel scrolling for the pages that scroll (Home is a fixed command center with its own panes).
