@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import type { JarvisApp } from '../app.ts';
 import { AGENTS } from '../agents/agents.ts';
@@ -11,6 +10,7 @@ import { MEMORY_KINDS, type Memory, type MemoryKind } from '../memory/store.ts';
 import { CATEGORY_LABEL, DIGEST_CATEGORIES, type Digest, type DigestCategory } from '../agents/digest.ts';
 import type { Task } from '../tasks/store.ts';
 import type { Skill } from '../skills/types.ts';
+import { APP_ROOT } from '../core/root.ts';
 
 /**
  * Jarvis's own Obsidian vault, kept up to date automatically: everything it learns lives there.
@@ -35,9 +35,8 @@ import type { Skill } from '../skills/types.ts';
 /** Vault folders the sync only ever adds to: nothing in them is removed when it leaves Jarvis's database. */
 const ARCHIVE_PREFIXES = ['Conversations/', 'Digests/'];
 
-const here = dirname(fileURLToPath(import.meta.url));
-const DOCS_DIR = join(here, '..', '..', 'docs');
-const README = join(here, '..', '..', 'README.md');
+const DOCS_DIR = join(APP_ROOT, 'docs');
+const README = join(APP_ROOT, 'README.md');
 
 const KIND_FOLDER: Record<MemoryKind, string> = {
   rule: 'Rules',

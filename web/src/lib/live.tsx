@@ -14,6 +14,8 @@ interface Toast {
 }
 
 interface LiveContextValue {
+  /** Listen to one event type with its data (for animations of real events; doesn't re-render). */
+  subscribe: (type: string, fn: (data: Record<string, unknown>) => void) => () => void;
   connected: boolean;
   state: StateSnapshot;
   versions: Record<string, number>;
@@ -34,6 +36,15 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const settingsRef = useRef<Settings | null>(null);
   settingsRef.current = settings;
+  const listeners = useRef(new Map<string, Set<(data: Record<string, unknown>) => void>>());
+  const subscribe = useCallback((type: string, fn: (data: Record<string, unknown>) => void) => {
+    const set = listeners.current.get(type) ?? new Set();
+    set.add(fn);
+    listeners.current.set(type, set);
+    return () => {
+      set.delete(fn);
+    };
+  }, []);
 
   const reloadSettings = useCallback(async () => {
     const res = await api.get<{ settings: Settings }>('/api/settings');
@@ -88,6 +99,13 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           }
         }
         setVersions((v) => ({ ...v, [event.type]: (v[event.type] ?? 0) + 1 }));
+        listeners.current.get(event.type)?.forEach((fn) => {
+          try {
+            fn(event.data ?? {});
+          } catch {
+            /* an animation must never break the live connection */
+          }
+        });
       };
     };
     connect();
@@ -97,7 +115,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     };
   }, [reloadSettings, toast]);
 
-  return <LiveContext.Provider value={{ connected, state, versions, settings, reloadSettings, toasts, toast, dismissToast }}>{children}</LiveContext.Provider>;
+  return <LiveContext.Provider value={{ connected, state, versions, settings, reloadSettings, toasts, toast, dismissToast, subscribe }}>{children}</LiveContext.Provider>;
 }
 
 export function useLive(): LiveContextValue {
@@ -156,4 +174,12 @@ export function useAction() {
     },
     [toast],
   );
+}
+
+/** Run [handler] for every live event of [type] (with its data). The handler may change between renders. */
+export function useLiveEvent(type: string, handler: (data: Record<string, unknown>) => void) {
+  const { subscribe } = useLive();
+  const ref = useRef(handler);
+  ref.current = handler;
+  useEffect(() => subscribe(type, (data) => ref.current(data)), [subscribe, type]);
 }

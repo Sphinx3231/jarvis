@@ -2,15 +2,15 @@ import { randomBytes } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import type { Server } from 'node:http';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JarvisApp, VERSION } from './app.ts';
 import { createJarvisServer } from './api/server.ts';
 import { acquireInstanceLock } from './core/instance-lock.ts';
 import { loadEnvFiles } from './core/env.ts';
+import { APP_ROOT } from './core/root.ts';
 import { mkdirSync } from 'node:fs';
 
-const here = dirname(fileURLToPath(import.meta.url));
 
 export interface StartOptions {
   dataDir?: string;
@@ -53,7 +53,7 @@ export async function startJarvis(opts: StartOptions = {}): Promise<RunningJarvi
   const server = createJarvisServer(app, {
     port,
     token,
-    webDir: opts.webDir ?? join(here, '..', 'web', 'dist'),
+    webDir: opts.webDir ?? join(APP_ROOT, 'web', 'dist'),
     extraOrigins: dev ? ['http://localhost:5173', 'http://127.0.0.1:5173'] : [],
   });
   try {

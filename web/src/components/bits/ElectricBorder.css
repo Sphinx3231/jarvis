@@ -1,0 +1,12 @@
+/* Vendored from React Bits (© David Haz, MIT + Commons Clause; see bits/LICENSE.md) — ElectricBorder. Adapted for Jarvis where noted. */
+.electric-border {
+  position: relative;
+  isolation: isolate;
+}
+
+.electric-border__canvas {
+  position: absolute;
+  z-index: 1;
+  display: block;
+  pointer-events: none;
+}

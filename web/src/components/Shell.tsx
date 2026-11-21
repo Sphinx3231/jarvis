@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useFresh } from '../motion/useFresh';
 import { ComputerIndicator } from './ComputerAccess';
 import { ArcReactor } from './Hud';
 import { Activity, Bell, Brain, House, ListChecks, Maximize2, Minimize2, Plug, Settings, Target, Wrench, X } from 'lucide-react';
@@ -148,10 +149,12 @@ export function TopBar({ immersive, onToggleImmersive }: { immersive: boolean; o
 
 export function Toasts() {
   const { toasts, dismissToast } = useLive();
+  const ref = useRef<HTMLDivElement>(null);
+  useFresh(ref, 'toast', toasts.map((t) => String(t.id)), { x: 28, y: 0, scale: 0.97, duration: 0.45 });
   return (
-    <div className="toasts" aria-live="polite">
+    <div className="toasts" aria-live="polite" ref={ref}>
       {toasts.map((t) => (
-        <div key={t.id} className={`toast toast--${t.level}`}>
+        <div key={t.id} data-toast={t.id} className={`toast toast--${t.level}`}>
           <div className="toast__text">
             <strong>{t.title}</strong>
             {t.body && <span>{t.body}</span>}

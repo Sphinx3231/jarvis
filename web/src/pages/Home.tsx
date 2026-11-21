@@ -6,13 +6,18 @@ import { Core, CORE_LABEL, type OrbAgent } from '../components/Core';
 import { AgentDetail, agentIcon, agentStatus, OrbitStage } from '../components/Orbit';
 import { Sparkline } from '../components/Sparkline';
 import { ArcReactor, HudClock, RingGauge } from '../components/Hud';
-import { Progress } from '../components/ui';
+import { Progress, WorkingMark } from '../components/ui';
+import { useFresh } from '../motion/useFresh';
 import { api, type ActivityEntry, type AgentsResponse, type ChatMessage, type ChatResult, type CoreState, type StatusResponse, type Task } from '../lib/api';
 import { bytes, clock, timeAgo, uptime } from '../lib/format';
 import { useAction, useLive, useResource } from '../lib/live';
 import { useMetrics, type MetricsHistory } from '../lib/metrics';
 import { navigate } from '../lib/router';
 import { useVoice } from '../lib/voice';
+import SpotlightCard from '../components/bits/SpotlightCard';
+import { PANEL_LIGHT } from '../components/ui';
+import { useCommandMotion } from '../motion/commandMotion';
+import { useConversationMotion } from '../motion/useConversationMotion';
 
 const CONV_KEY = 'jarvis.conversationId';
 const readConv = () => {
@@ -80,13 +85,22 @@ function Actions({ message }: { message: ChatMessage }) {
 
 function Conversation({ messages, sending }: { messages: ChatMessage[]; sending: boolean }) {
   const end = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
+  const lenis = useConversationMotion(box, inner, messages.map((m) => m.id), sending);
   useEffect(() => {
-    end.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
-  }, [messages.length, sending]);
+    // Smooth when Lenis runs the feed, native otherwise (reduced motion).
+    if (lenis.current && box.current) {
+      lenis.current.resize(); // the feed just grew; measure before scrolling
+      lenis.current.scrollTo('bottom', { duration: 0.8 });
+    }
+    else end.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }, [messages.length, sending, lenis]);
   return (
-    <div className="conversation" aria-live="polite">
+    <div className="conversation" aria-live="polite" ref={box}>
+      <div className="conversation__inner" ref={inner}>
       {messages.map((m) => (
-        <div key={m.id} className={`msg msg--${m.role} ${m.meta.error ? 'msg--error' : ''}`}>
+        <div key={m.id} data-msg={m.id} className={`msg msg--${m.role} ${m.meta.error ? 'msg--error' : ''}`}>
           <div className="msg__bubble">{m.content}</div>
           {m.role === 'assistant' && <Actions message={m} />}
           <div className="msg__time">
@@ -96,7 +110,7 @@ function Conversation({ messages, sending }: { messages: ChatMessage[]; sending:
         </div>
       ))}
       {sending && (
-        <div className="msg msg--assistant">
+        <div className="msg msg--assistant" data-msg="typing">
           <div className="msg__bubble msg__typing" aria-label="Jarvis is thinking">
             <span />
             <span />
@@ -105,6 +119,7 @@ function Conversation({ messages, sending }: { messages: ChatMessage[]; sending:
         </div>
       )}
       <div ref={end} />
+      </div>
     </div>
   );
 }
@@ -123,6 +138,8 @@ function CommandBar({ onSend, sending, draft }: { onSend: (text: string, via: 't
   const { settings } = useLive();
   const voiceOn = Boolean(settings?.voice.enabled);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const fx = useCommandMotion(rootRef, { sending, listening: voice.listening });
 
   // A quick action fills the box (switching to typing) and puts the cursor where the user types next.
   useEffect(() => {
@@ -142,6 +159,7 @@ function CommandBar({ onSend, sending, draft }: { onSend: (text: string, via: 't
   const submit = () => {
     const t = text.trim();
     if (!t || sending) return;
+    fx.submitPulse();
     onSend(t, 'text');
     setText('');
   };
@@ -149,18 +167,26 @@ function CommandBar({ onSend, sending, draft }: { onSend: (text: string, via: 't
   const mic = async () => {
     if (voice.listening) return voice.stopListening();
     const heard = await voice.listenOnce();
-    if (heard) onSend(heard, 'voice');
+    if (heard) {
+      fx.submitPulse();
+      onSend(heard, 'voice');
+    }
   };
 
   // Voice-first: the microphone is the primary way in; typing is a fallback a tap away.
   const voicePrimary = voiceOn && voice.inputMethod !== 'none' && !typing;
 
   return (
-    <div className="command">
+    <div className={`command ${sending ? 'is-sending' : ''}`} ref={rootRef} data-reveal="">
       {voice.error && <div className="command__note">{voice.error}</div>}
       {voicePrimary ? (
         <div className={`command__voice ${voice.listening ? 'is-listening' : ''}`}>
+          <span className="command__fx" aria-hidden>
+            <span className="command__proc" />
+          </span>
           <button className={`command__talk ${voice.listening ? 'is-on' : ''}`} onClick={mic} aria-label={voice.listening ? 'Stop listening' : 'Talk to Jarvis'}>
+            <span className="command__halo" aria-hidden />
+            <span className="command__halo" aria-hidden />
             <Mic size={26} />
           </button>
           <div className="command__voicehint">
@@ -177,8 +203,14 @@ function CommandBar({ onSend, sending, draft }: { onSend: (text: string, via: 't
         </div>
       ) : (
         <div className={`command__bar ${voice.listening ? 'is-listening' : ''}`}>
+          <span className="command__fx" aria-hidden>
+            <span className="command__sweep" />
+            <span className="command__proc" />
+          </span>
           {voiceOn && voice.inputMethod !== 'none' && (
             <button className={`command__mic ${voice.listening ? 'is-on' : ''}`} onClick={() => { setTyping(false); void mic(); }} aria-label={voice.listening ? 'Stop listening' : 'Speak to Jarvis'} title={voice.listening ? 'Stop listening' : 'Speak to Jarvis'}>
+              <span className="command__halo" aria-hidden />
+              <span className="command__halo" aria-hidden />
               <Mic size={20} />
             </button>
           )}
@@ -189,6 +221,7 @@ function CommandBar({ onSend, sending, draft }: { onSend: (text: string, via: 't
             placeholder={voice.listening ? voice.interim || 'Listening… (pause to finish)' : voice.transcribing ? 'Transcribing…' : 'Tell Jarvis what to do…'}
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onFocus={fx.focusSweep}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -218,14 +251,14 @@ function CommandBar({ onSend, sending, draft }: { onSend: (text: string, via: 't
 
 function Panel({ title, icon, action, children, className = '' }: { title: string; icon?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={`hud ${className}`}>
+    <SpotlightCard as="section" {...PANEL_LIGHT} className={`hud ${className}`} data-reveal="">
       <header className="hud__head">
         {icon && <span className="hud__icon">{icon}</span>}
         <h2 className="hud__title">{title}</h2>
         {action && <div className="hud__action">{action}</div>}
       </header>
       {children}
-    </section>
+    </SpotlightCard>
   );
 }
 
@@ -254,6 +287,8 @@ function SystemPanel({ m }: { m: MetricsHistory }) {
 function TasksPanel() {
   const { data } = useResource<{ tasks: Task[] }>('/api/tasks?status=active&limit=6', ['task.updated']);
   const tasks = data?.tasks ?? [];
+  const listRef = useRef<HTMLUListElement>(null);
+  useFresh(listRef, 'task-id', tasks.map((t) => t.id), { y: 0, x: -10 });
   return (
     <Panel
       title="Active tasks"
@@ -269,11 +304,11 @@ function TasksPanel() {
           <CircleCheck size={18} /> No active tasks
         </div>
       ) : (
-        <ul className="mini-tasks">
+        <ul className="mini-tasks" ref={listRef}>
           {tasks.map((t) => (
-            <li key={t.id}>
+            <li key={t.id} data-task-id={t.id}>
               <button onClick={() => navigate({ page: 'tasks', id: t.id })}>
-                <span className={`dot dot--${t.status}`} />
+                {t.status === 'running' ? <WorkingMark /> : <span className={`dot dot--${t.status}`} />}
                 <span className="mini-tasks__title">{t.title}</span>
                 <span className="mini-tasks__meta">{t.status === 'queued' && t.scheduledFor && t.scheduledFor > Date.now() ? clock(t.scheduledFor) : t.status.replace('_', ' ')}</span>
                 <ChevronRight size={14} className="mini-tasks__chev" />
@@ -289,6 +324,8 @@ function TasksPanel() {
 
 function ActivityPanel() {
   const { data } = useResource<{ activity: ActivityEntry[] }>('/api/activity?limit=14', ['activity']);
+  const feedRef = useRef<HTMLUListElement>(null);
+  useFresh(feedRef, 'entry', (data?.activity ?? []).map((a) => String(a.id)));
   return (
     <Panel
       title="Recent activity"
@@ -299,9 +336,9 @@ function ActivityPanel() {
         </button>
       }
     >
-      <ul className="feed">
+      <ul className="feed" ref={feedRef}>
         {(data?.activity ?? []).map((a) => (
-          <li key={a.id} className={`feed__item lvl-${a.level}`}>
+          <li key={a.id} data-entry={a.id} className={`feed__item lvl-${a.level}`}>
             <span className="feed__dot" />
             <span className="feed__msg" title={a.message}>
               {a.message}
@@ -386,7 +423,10 @@ function AgentsPanel({ agents, onSelect }: { agents: AgentsResponse | null; onSe
                   <span className="agents__name">{a.name}</span>
                   <span className="agents__summary">{a.lastSummary || 'Has not run yet'}</span>
                 </span>
-                <span className={`agents__state agents__state--${st.key}`}>{st.label}</span>
+                <span className={`agents__state agents__state--${st.key}`}>
+                  {st.key === 'working' && <WorkingMark color={a.color} />}
+                  {st.label}
+                </span>
               </button>
             </li>
           );
@@ -557,7 +597,7 @@ export function HomePage({ status, onImmersive }: { status: StatusResponse | nul
   return (
     <div className={`dash ${hasConversation ? 'dash--chat' : ''}`}>
       <aside className="dash__col dash__left" aria-label="System">
-        <section className="hud hud--clock">
+        <section className="hud hud--clock" data-reveal="">
           <HudClock />
         </section>
         <SystemPanel m={metrics} />
@@ -568,7 +608,7 @@ export function HomePage({ status, onImmersive }: { status: StatusResponse | nul
       <section className="dash__center" aria-label="Jarvis">
         {hasConversation ? (
           <>
-            <div className="chathead">
+            <div className="chathead" data-reveal="">
               <Core state={coreState} size={92} reduceMotion={reduceMotion} agents={orbAgents} />
               <div className="chathead__text">
                 <h1 className="chathead__title">

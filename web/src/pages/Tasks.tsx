@@ -1,7 +1,9 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { Ban, CalendarClock, CircleCheck, CircleDot, CircleX, Hourglass, ListChecks, LoaderCircle, Pause, Play, Plus, RotateCcw, ShieldAlert, SkipForward, Trash2, TriangleAlert, X } from 'lucide-react';
 import { ApprovalsCard } from '../components/Approvals';
-import { Badge, Button, Card, Empty, ErrorNote, Loading, PageHeader, Progress, StatusBadge, Tabs } from '../components/ui';
+import { Badge, Button, Card, Empty, ErrorNote, Loading, Num, PageHeader, Progress, StatusBadge, Tabs, WorkingMark } from '../components/ui';
+import { flashTask, useFresh } from '../motion/useFresh';
+import { useLiveEvent } from '../lib/live';
 import { api, type Approval, type PlanStep, type SkillInfo, type Task, type TaskEvent } from '../lib/api';
 import { dateTime, duration, PRIORITY_LABEL, timeAgo } from '../lib/format';
 import { useAction, useResource } from '../lib/live';
@@ -382,12 +384,23 @@ export function TasksPage({ selectedId }: { selectedId?: string }) {
   }, [tasks, filter]);
 
   const activeCount = tasks.filter((t) => ['running', 'awaiting_approval', 'paused'].includes(t.status) || (t.status === 'queued' && !isScheduled(t))).length;
+  const listRef = useRef<HTMLUListElement>(null);
+  useFresh(listRef, 'task-id', filtered.map((t) => t.id));
+  useLiveEvent('task.updated', (ev) => flashTask(listRef.current, ev));
 
   return (
     <div className="page">
       <PageHeader
         title="Tasks"
-        subtitle={counts ? `${counts.running} running · ${counts.queued} queued · ${counts.awaiting_approval} awaiting approval · ${counts.completed} completed` : 'Loading…'}
+        subtitle={
+          counts ? (
+            <>
+              <Num value={counts.running} /> running · <Num value={counts.queued} /> queued · <Num value={counts.awaiting_approval} /> awaiting approval · <Num value={counts.completed} /> completed
+            </>
+          ) : (
+            'Loading…'
+          )
+        }
         actions={
           <Button variant="primary" icon={<Plus size={16} />} onClick={() => setCreating(true)}>
             New task
@@ -419,13 +432,14 @@ export function TasksPage({ selectedId }: { selectedId?: string }) {
               Ask Jarvis on the Home screen, or create a task here.
             </Empty>
           )}
-          <ul className="task-list">
+          <ul className="task-list" ref={listRef}>
             {filtered.map((t) => {
               const step = t.plan?.[Math.min(t.currentStep, (t.plan?.length ?? 1) - 1)];
               return (
                 <li key={t.id}>
-                  <button className={`task-row ${selectedId === t.id ? 'is-selected' : ''}`} onClick={() => navigate({ page: 'tasks', id: t.id })}>
+                  <button className={`task-row ${selectedId === t.id ? 'is-selected' : ''}`} data-task-id={t.id} onClick={() => navigate({ page: 'tasks', id: t.id })}>
                     <div className="task-row__top">
+                      {t.status === 'running' && <WorkingMark />}
                       <span className="task-row__title">{t.title}</span>
                       {isScheduled(t) ? (
                         <Badge tone="info">

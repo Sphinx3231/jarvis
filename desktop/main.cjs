@@ -11,7 +11,8 @@ const path = require('node:path');
 const os = require('node:os');
 
 const ROOT = path.join(__dirname, '..');
-const SERVER = path.join(ROOT, 'dist-server', 'main.js');
+// The service compiles with the shared protocol beside it: dist-server/server and dist-server/shared.
+const SERVER = path.join(ROOT, 'dist-server', 'server', 'main.js');
 const ICON = path.join(ROOT, 'web', 'dist', 'icon-512.png');
 const TRAY_ICON = path.join(ROOT, 'web', 'dist', 'icon-32.png');
 const SMOKE = process.env.JARVIS_SMOKE_TEST === '1';
@@ -174,9 +175,10 @@ async function smokeTest() {
         const res = await fetch('/api/status', { headers: { 'x-jarvis-token': token } });
         const body = await res.json();
         const about = await fetch('/api/about', { headers: { 'x-jarvis-token': token } });
-        return { core: !!document.querySelector('.core'), online: document.body.innerText.includes('Online'), locked: document.body.innerText.includes('Jarvis runs on Roamies'), status: res.status, about: about.status, version: body.status && body.status.version };
+        return { core: !!document.querySelector('.core'), online: document.body.innerText.toLowerCase().includes('online'), locked: document.body.innerText.includes('Jarvis runs on Roamies'), status: res.status, about: about.status, version: body.status && body.status.version };
       })()`);
       const ok = EXPECT_LOCKED ? result.locked && result.status === 423 && result.about === 200 && !result.core : result.core && result.online && result.status === 200;
+      if (process.env.JARVIS_SMOKE_DEBUG) log('probe', JSON.stringify(result));
       if (ok) {
         log('SMOKE TEST PASSED', JSON.stringify(result));
         return true;

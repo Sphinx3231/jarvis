@@ -9,6 +9,8 @@ import '@fontsource/rajdhani/latin-500.css';
 import '@fontsource/rajdhani/latin-600.css';
 import '@fontsource/rajdhani/latin-700.css';
 import './styles.css';
+import 'lenis/dist/lenis.css';
+import './motion/motion.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

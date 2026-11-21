@@ -6,6 +6,8 @@ import { api, type AgentInfo, type CoreState } from '../lib/api';
 import { timeAgo } from '../lib/format';
 import { useAction } from '../lib/live';
 import { navigate } from '../lib/router';
+import { useCoreTransitions, useNumberTween, useOrbitMotion } from '../motion/orbitMotion';
+import ShinyText from './bits/ShinyText';
 
 export const AGENT_ICON: Record<string, (size: number) => ReactNode> = {
   friday: (s) => <TrendingUp size={s} />,
@@ -187,6 +189,10 @@ export function OrbitStage({
     { id: 'agents', at: 25, label: 'AGENTS READY', value: `${readyCount}/${agents.length}`, frac: agents.length ? readyCount / agents.length : 0, tone: '#4ade80' },
   ];
   const SPAN = 34;
+  useOrbitMotion(ref, agents, ready);
+  useCoreTransitions(ref, state, ready);
+  useNumberTween(ref, '.gauge__value', [T.cpu, T.mem, T.tasksRunning, readyCount]);
+  const busy = state === 'thinking' || state === 'working';
 
   return (
     <div className={`orbit orbit--${state} ${motion ? '' : 'orbit--still'}`} ref={ref}>
@@ -300,6 +306,7 @@ export function OrbitStage({
                 <g key={a.id} className={`orbit__link ${working ? 'is-working' : ''}`} style={{ color: a.color }}>
                   <line className="orbit__beam" x1={x1} y1={y1} x2={x2} y2={y2} stroke={a.color} />
                   <line className="orbit__wire" x1={x1} y1={y1} x2={x2} y2={y2} stroke={`url(#orbit-link-${a.id})`} />
+                  <line className="orbit__surge" data-agent-surge={a.id} x1={x1} y1={y1} x2={x2} y2={y2} />
                   {working && motion && (
                     <>
                       <circle r="3.4" fill={a.color} className="orbit__pulse">
@@ -331,12 +338,19 @@ export function OrbitStage({
           <StageTelemetry t={T} state={state} />
 
           <div className="orbit__core" style={{ left: cx, top: cy }}>
-            <Core state={state} size={core} reduceMotion={reduceMotion} hero />
+            <div className="orbit__core-body" data-core-body="">
+              <Core state={state} size={core} reduceMotion={reduceMotion} hero />
+            </div>
           </div>
+          <svg className="orbit__corefx" style={{ left: cx - coreR * 1.25, top: cy - coreR * 1.25 }} width={coreR * 2.5} height={coreR * 2.5} viewBox="0 0 100 100" aria-hidden>
+            {[40, 40, 40].map((r, i) => (
+              <circle key={i} data-core-ring="" cx="50" cy="50" r={r} />
+            ))}
+          </svg>
 
           <div className={`state-pill state-pill--${state} orbit__state`} style={{ left: cx, top: Math.min(h - 30, cy + coreR + 12), maxWidth: Math.max(180, rx * 1.2 - node) }}>
             <span className="state-pill__dot" />
-            {CORE_LABEL[state]}
+            {busy && motion ? <ShinyText text={CORE_LABEL[state]} color="#ddd6fe" shineColor="#ffffff" speed={2.2} /> : CORE_LABEL[state]}
             <span className="state-pill__detail">· {anyWorking && state === 'idle' ? 'agents at work' : detail}</span>
             {wakeActive && (
               <span className="state-pill__detail" title="Wake word is on: say “Hey Jarvis…”">
@@ -350,6 +364,8 @@ export function OrbitStage({
             const style = { left: pts[i].x, top: pts[i].y, width: node, height: node, ['--c' as string]: a.color, ['--d' as string]: `${-i * 1.3}s` } as CSSProperties;
             return (
               <button key={a.id} className={`anode anode--${st.key}`} style={style} onClick={() => onSelect(a.id)} aria-label={`${a.name} — ${st.label}. Open details.`} title={`${a.name}: ${a.lastSummary || splitRole(a.role).text}`}>
+                <span className="anode__body" data-agent-body={a.id} data-dx={Math.round(pts[i].x - cx)} data-dy={Math.round(pts[i].y - cy)}>
+                <span className="anode__burst" data-agent-burst={a.id} aria-hidden />
                 <span className="anode__disc">
                   <svg className="anode__ring" viewBox="0 0 100 100" aria-hidden>
                     <circle cx="50" cy="50" r="48.5" className="anode__ring-track" />
@@ -380,6 +396,7 @@ export function OrbitStage({
                 </span>
                 <span className={`anode__plate ${pts[i].y < cy - 20 ? 'anode__plate--up' : ''}`}>
                   RUNS {a.runs} · {a.lastRunAt ? timeAgo(a.lastRunAt).toUpperCase() : 'NEVER'}
+                </span>
                 </span>
               </button>
             );

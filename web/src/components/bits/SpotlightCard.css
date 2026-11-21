@@ -1,0 +1,73 @@
+/* Vendored from React Bits (© David Haz, MIT + Commons Clause; see bits/LICENSE.md) — SpotlightCard. Adapted for Jarvis where noted. */
+/* Jarvis: the card's own box only applies when it isn't embedded in an existing panel. */
+.spotlight-card:not(.spotlight-card--embed) {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: 2rem;
+  border-radius: 1.5rem;
+  background-color: var(--spotlight-card-surface);
+  box-shadow: var(--spotlight-card-shadow);
+}
+
+.spotlight-card__light,
+.spotlight-card__grain,
+.spotlight-card__border,
+.spotlight-card__edge {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.spotlight-card__light,
+.spotlight-card__grain {
+  z-index: -1;
+  opacity: 0;
+}
+
+.spotlight-card__grain {
+  background-size: 160px 160px;
+  mix-blend-mode: overlay;
+}
+
+.spotlight-card__border,
+.spotlight-card__edge {
+  z-index: 1;
+  padding: 1px;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+}
+
+.spotlight-card__border {
+  background: var(--spotlight-card-border);
+}
+
+.spotlight-card__edge {
+  opacity: 0;
+}
+
+/* Jarvis: embedded in an existing panel — the panel keeps its own box (zero-specificity rules, so the
+   panel's CSS always wins); the light lives in a clipped overlay under the content. */
+:where(.spotlight-card--embed) {
+  position: relative;
+  isolation: isolate;
+}
+.spotlight-card--embed > .spotlight-card__fx {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+  /* behind the panel's content, above its background (the root isolates a stacking context) */
+  z-index: -1;
+}
+.spotlight-card--embed > .spotlight-card__fx > .spotlight-card__light,
+.spotlight-card--embed > .spotlight-card__fx > .spotlight-card__grain {
+  border-radius: inherit;
+}

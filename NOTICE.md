@@ -38,5 +38,8 @@ sign-ins saved by Roamies (`~/.gg/sidekick.json`, `~/.gg/auth.json`).
 | [imapflow](https://github.com/postalsys/imapflow), [nodemailer](https://nodemailer.com), [mailparser](https://github.com/nodemailer/mailparser) | email | MIT, MIT-0, MIT |
 | [tsdav](https://github.com/natelindev/tsdav), [node-ical](https://github.com/jens-maus/node-ical) | calendar | MIT, Apache-2.0 |
 | [Electron](https://www.electronjs.org) | desktop app | MIT |
+| [GSAP](https://gsap.com) and [@gsap/react](https://github.com/greensock/react) (incl. CustomEase, DrawSVG, ScrambleText, SplitText) | UI motion: entrances, state transitions, agent events | GSAP Standard "no charge" license, https://gsap.com/standard-license (free, not open source) |
+| [Lenis](https://github.com/darkroomengineering/lenis) | smooth wheel scrolling inside pages and the chat feed | MIT |
+| [React Bits](https://github.com/DavidHDev/react-bits) by David Haz: SplitText, ShinyText, Counter, LatticeLoader, ElectricBorder, SpotlightCard, Noise (adapted copies in `web/src/components/bits/`) | UI components | MIT + Commons Clause (`web/src/components/bits/LICENSE.md`): may be used as part of an application; the components themselves may not be sold or redistributed on their own |
 
 To list every dependency, including indirect ones: `npm ls --all`.

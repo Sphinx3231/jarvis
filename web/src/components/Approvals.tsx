@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Check, ShieldAlert, X } from 'lucide-react';
 import { api, type Approval } from '../lib/api';
 import { timeAgo } from '../lib/format';
-import { useAction, useResource } from '../lib/live';
+import { useAction, useLiveEvent, useResource } from '../lib/live';
+import { gsap, reducedMotion } from '../motion/gsap';
+import { useFresh } from '../motion/useFresh';
+import ElectricBorder from './bits/ElectricBorder';
 import { navigate } from '../lib/router';
 import { Button, Card } from './ui';
 
@@ -16,7 +19,7 @@ function ApprovalItem({ approval, compact }: { approval: Approval; compact?: boo
     setBusy(null);
   };
   return (
-    <li className="approval">
+    <li className="approval" data-approval={approval.id}>
       <div className="approval__summary">{approval.summary}</div>
       {approval.reason && <div className="approval__reason small">{approval.reason}</div>}
       <div className="approval__meta">
@@ -50,22 +53,38 @@ function ApprovalItem({ approval, compact }: { approval: Approval; compact?: boo
   );
 }
 
-/** Pending authorizations. The only place where consequential actions can be approved. */
+/**
+ * Pending authorizations. The only place where consequential actions can be approved.
+ * While something is waiting, the card carries a live electric border (React Bits ElectricBorder),
+ * so a pending decision is hard to miss; it goes quiet the moment nothing is pending.
+ */
 export function ApprovalsCard({ compact = false, hideWhenEmpty = false }: { compact?: boolean; hideWhenEmpty?: boolean }) {
   const { data } = useResource<{ approvals: Approval[] }>('/api/approvals?status=pending', ['approval.updated', 'task.updated']);
   const approvals = data?.approvals ?? [];
+  const ref = useRef<HTMLDivElement>(null);
+  useFresh(ref, 'approval', approvals.map((a) => a.id), { y: 0, x: -10 });
+  // A decision that was just made (here, on the phone, or by a rule) pulses the card once.
+  useLiveEvent('approval.updated', (ev) => {
+    const card = ref.current?.querySelector('.card');
+    if (card && ev.status !== 'pending' && !reducedMotion()) gsap.fromTo(card, { boxShadow: '0 0 0 1px rgba(251,191,36,0.7), 0 0 30px -6px rgba(251,191,36,0.6)' }, { boxShadow: '0 0 0 1px rgba(251,191,36,0), 0 0 30px -6px rgba(251,191,36,0)', duration: 1.1, ease: 'power2.out', clearProps: 'boxShadow' });
+  });
   if (hideWhenEmpty && approvals.length === 0) return null;
+  const pending = approvals.length > 0;
   return (
-    <Card title="Pending approvals" icon={<ShieldAlert size={18} />} className="card--attention">
-      {approvals.length === 0 ? (
-        <p className="muted">Nothing is waiting for your approval.</p>
-      ) : (
-        <ul className="approvals">
-          {approvals.map((a) => (
-            <ApprovalItem key={a.id} approval={a} compact={compact} />
-          ))}
-        </ul>
-      )}
-    </Card>
+    <div ref={ref} className="approvals-wrap">
+      <ElectricBorder active={pending} color="#fbbf24" glowColor="#f59e0b" borderRadius={10} intensity={0.55} speed={0.6} chaos={0.35} thickness={1.2} interactive={false}>
+        <Card title="Pending approvals" icon={<ShieldAlert size={18} />} className="card--attention">
+          {approvals.length === 0 ? (
+            <p className="muted">Nothing is waiting for your approval.</p>
+          ) : (
+            <ul className="approvals">
+              {approvals.map((a) => (
+                <ApprovalItem key={a.id} approval={a} compact={compact} />
+              ))}
+            </ul>
+          )}
+        </Card>
+      </ElectricBorder>
+    </div>
   );
 }

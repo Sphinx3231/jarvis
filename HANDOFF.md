@@ -72,11 +72,11 @@ web/src/
   pages/Settings.tsx, Integrations.tsx, Pipeline.tsx, Memory.tsx, Tasks.tsx, Skills.tsx, Activity.tsx
   styles.css              all CSS (stage/anode/core/immersive/command bar live here)
   lib/{api.ts,live.ts,voice.ts,router.ts}
-desktop/main.cjs          Electron main (forks dist-server/main.js); no-sandbox on Linux-as-root
+desktop/main.cjs          Electron main (forks dist-server/server/main.js); no-sandbox on Linux-as-root
 .github/workflows/desktop.yml   builds 3-OS installers; smoke tests (locked + unlocked, checks `.core`)
 ```
 
-**Runtime shape:** the desktop app forks the compiled server (`dist-server/main.js`), which serves the
+**Runtime shape:** the desktop app forks the compiled server (`dist-server/server/main.js`, with the shared mobile protocol compiled beside it in `dist-server/shared/`), which serves the
 built web UI and a JSON+SSE API on localhost. The UI is token-gated to that local server.
 
 ---
@@ -142,6 +142,17 @@ override — `permissions.fullAccess` makes `decide()` allow everything with no 
 (whole-disk files via `resolvePath`, any website, shell). Loud red banner + warning insight. It grants
 data/file/web/shell reach only — NOT control of other apps/screen/input.
 
+**Motion layer** (`web/src/motion/`, GSAP 3.15 + Lenis 1.3 + vendored React Bits in
+`web/src/components/bits/`). Rules: animate only real events (live SSE events via `useLiveEvent`,
+real agent/task/assistant state diffs), never fake progress; GSAP never tweens `.anode`,
+`.anode__disc` or `.orbit__core` (their CSS transforms position them) — it animates the added fx
+layers (`.anode__body`, `.anode__burst`, `.orbit__surge`, `.orbit__corefx`, `.command__fx`);
+everything is skipped when `html[data-reduce-motion=true]` or the OS asks for reduced motion
+(`reducedMotion()` in `motion/gsap.ts`). Lenis runs only on `.content` (inner pages) and the chat
+feed (`.conversation`), wheel only, driven by `gsap.ticker`; it is off under reduced motion.
+`useReveal` = page entrance (`[data-reveal]`), `useFresh` = entrance for items that appear later,
+`useOrbitMotion` / `useCoreTransitions` = orbit + core, `useCommandMotion` = command bar.
+
 ---
 
 ## 4. The sub-agents (`server/agents/subagents.ts`)
@@ -196,7 +207,7 @@ permission; scope + approval are a separate layer").
 Without all three, Trinity plans/does passive work only.
 
 **Knowledge files in the packaged app:** `build:server` copies the two `.md` into
-`dist-server/agents/knowledge/`, and electron-builder includes `dist-server/**/*.md`.
+`dist-server/server/agents/knowledge/`, and electron-builder includes `dist-server/**/*.md`.
 
 ---
 
@@ -333,7 +344,7 @@ Suggested order: browser control (Phase 4b) + the Computer Access UI/Neo surfaci
 - The e2e asserts exact node counts (`.anode` = 6) and the JARVIS wordmark; update when the roster or
   hero changes. Memory-search assertions are kept tolerant because search is hybrid semantic + agents
   write memories in the background.
-- `scripts/launch.ts` is the dev entrypoint; `desktop/main.cjs` forks `dist-server/main.js` in the app.
+- `scripts/launch.ts` is the dev entrypoint; `desktop/main.cjs` forks `dist-server/server/main.js` in the app.
 
 ---
 

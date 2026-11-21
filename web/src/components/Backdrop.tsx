@@ -1,4 +1,6 @@
-import { memo } from 'react';
+import { memo, useRef } from 'react';
+import { gsap, reducedMotion, useGSAP } from '../motion/gsap';
+import Noise from './bits/Noise';
 
 /**
  * The command-center environment behind the whole app: light sources, a holographic grid, a
@@ -74,9 +76,43 @@ const bracket = (deg: number, r: number) => {
   return `M ${p(a - span, r - 10)} L ${p(a - span, r)} A ${r} ${r} 0 0 1 ${p(a + span, r)} L ${p(a + span, r - 10)}`;
 };
 
+/**
+ * Depth: the room's layers drift a few pixels against the pointer, deeper layers less (GSAP
+ * quickTo, so a stream of pointer events costs one tween per layer). Passive listener; it never
+ * touches the event, so nothing above can lose a click or a keystroke. Off with reduced motion.
+ */
+function useParallax(scope: React.RefObject<HTMLDivElement | null>) {
+  useGSAP(
+    () => {
+      const root = scope.current;
+      if (!root || reducedMotion()) return;
+      const layers = ([['.backdrop__light', 18], ['.backdrop__grid', 7], ['.backdrop__svg', 11]] as const).flatMap(([sel, depth]) => {
+        const el = root.querySelector<HTMLElement>(sel);
+        if (!el) return [];
+        gsap.set(el, { scale: 1.04 }); // a little bleed so a shifted layer never shows its edge
+        return [{ x: gsap.quickTo(el, 'x', { duration: 1.6, ease: 'power3.out' }), y: gsap.quickTo(el, 'y', { duration: 1.6, ease: 'power3.out' }), depth }];
+      });
+      const move = (e: PointerEvent) => {
+        if (reducedMotion()) return;
+        const nx = e.clientX / window.innerWidth - 0.5;
+        const ny = e.clientY / window.innerHeight - 0.5;
+        for (const l of layers) {
+          l.x(-nx * l.depth);
+          l.y(-ny * l.depth);
+        }
+      };
+      window.addEventListener('pointermove', move, { passive: true });
+      return () => window.removeEventListener('pointermove', move);
+    },
+    { scope },
+  );
+}
+
 export const Backdrop = memo(function Backdrop() {
+  const ref = useRef<HTMLDivElement>(null);
+  useParallax(ref);
   return (
-    <div className="backdrop" aria-hidden>
+    <div className="backdrop" aria-hidden ref={ref}>
       <div className="backdrop__light" />
       <div className="backdrop__grid" />
       <svg className="backdrop__svg" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid slice">
@@ -197,6 +233,8 @@ export const Backdrop = memo(function Backdrop() {
         <i key={i} className="backdrop__twinkle" style={{ left: `${t.x}%`, top: `${t.y}%`, width: t.s, height: t.s, animationDelay: `${-t.d}s`, animationDuration: `${t.dur}s` }} />
       ))}
       <div className="backdrop__vignette" />
+      {/* static film grain (React Bits Noise at 0 fps: painted once, no animation loop) */}
+      <Noise opacity={0.05} fps={0} size={1.4} contrast={0.5} blendMode="overlay" />
     </div>
   );
 });

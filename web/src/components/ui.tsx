@@ -1,10 +1,18 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { useRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { LoaderCircle } from 'lucide-react';
 import { STATUS_LABEL } from '../lib/format';
+import SpotlightCard from './bits/SpotlightCard';
+import SplitText from './bits/SplitText';
+import LatticeLoader from './bits/LatticeLoader';
+import Counter from './bits/Counter';
+import { gsap, reducedMotion, useGSAP } from '../motion/gsap';
+
+/** The pointer light every Jarvis panel uses (React Bits SpotlightCard, embedded in the panel's own box). */
+export const PANEL_LIGHT = { embed: true, spotlightColor: '#a78bfa', intensity: 0.1, spotlightSize: 320, softness: 0.85, borderGlow: 0.55, proximity: 60, flare: false } as const;
 
 export function Card({ title, icon, action, children, className = '', pad = true }: { title?: ReactNode; icon?: ReactNode; action?: ReactNode; children: ReactNode; className?: string; pad?: boolean }) {
   return (
-    <section className={`card ${className}`}>
+    <SpotlightCard as="section" {...PANEL_LIGHT} className={`card ${className}`} data-reveal="">
       {title && (
         <header className="card__head">
           {icon && <span className="card__icon">{icon}</span>}
@@ -13,7 +21,7 @@ export function Card({ title, icon, action, children, className = '', pad = true
         </header>
       )}
       <div className={pad ? 'card__body' : ''}>{children}</div>
-    </section>
+    </SpotlightCard>
   );
 }
 
@@ -91,10 +99,37 @@ export function Empty({ icon, title, children }: { icon?: ReactNode; title: stri
 }
 
 export function Progress({ value, tone = 'accent' }: { value: number; tone?: 'accent' | 'success' | 'warning' | 'danger' }) {
+  const bar = useRef<HTMLDivElement>(null);
+  const shown = useRef<number | null>(null);
+  const pct = Math.max(0, Math.min(1, value)) * 100;
+  // The bar eases from the last real value to the new one; it never moves on its own.
+  useGSAP(
+    () => {
+      const from = shown.current;
+      shown.current = pct;
+      if (!bar.current || from === null || from === pct || reducedMotion()) return;
+      gsap.fromTo(bar.current, { width: `${from}%` }, { width: `${pct}%`, duration: 0.7, ease: 'jarvis.out' });
+    },
+    { dependencies: [pct] },
+  );
   return (
-    <div className={`progress progress--${tone}`} role="progressbar" aria-valuenow={Math.round(value * 100)} aria-valuemin={0} aria-valuemax={100}>
-      <div className="progress__bar" style={{ width: `${Math.max(0, Math.min(1, value)) * 100}%` }} />
+    <div className={`progress progress--${tone}`} role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
+      <div className="progress__bar" ref={bar} style={{ width: `${pct}%` }} />
     </div>
+  );
+}
+
+/** A live number that rolls to its new value when it really changes (React Bits Counter). */
+export function Num({ value }: { value: number }) {
+  return <Counter value={value} fontSize="1em" intro={false} duration={0.6} className="num" />;
+}
+
+/** A compact animated mark beside things that are really running right now (React Bits LatticeLoader). */
+export function WorkingMark({ color = '#a78bfa' }: { color?: string }) {
+  return (
+    <span className="working-mark" aria-hidden>
+      <LatticeLoader className="lattice-loader--bare" label="" doneLabel="" errorLabel="" showTimer={false} cellSize={3} gap={1} color={color} glow />
+    </span>
   );
 }
 
@@ -115,10 +150,11 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
   return (
     <div className="page-head">
       <div>
-        <h1 className="page-head__title">{title}</h1>
-        {subtitle && <p className="page-head__sub">{subtitle}</p>}
+        {/* key: a new page title plays its own entrance */}
+        <SplitText key={title} text={title} tag="h1" className="page-head__title" trigger="load" effect="rise" splitType="chars" delay={22} duration={0.7} ease="jarvis.out" textAlign="left" />
+        {subtitle && <p className="page-head__sub" data-reveal="">{subtitle}</p>}
       </div>
-      {actions && <div className="page-head__actions">{actions}</div>}
+      {actions && <div className="page-head__actions" data-reveal="">{actions}</div>}
     </div>
   );
 }

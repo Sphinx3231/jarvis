@@ -1,0 +1,122 @@
+/* ============================================================================================
+   Motion layer — GSAP, Lenis and React Bits integrations (see web/src/motion/).
+   Loaded after styles.css. Everything here is either layout glue for the integrations or the
+   resting state that GSAP animates from/to; GSAP never leaves inline styles behind.
+   ============================================================================================ */
+
+/* Pages render inside an inner wrapper (Lenis smooths the page area, not the window). */
+.content__inner { min-height: 100%; }
+.content--home > .content__inner { height: 100%; }
+:root[data-immersive='true'] .content > .content__inner { height: 100%; }
+
+/* Lenis: the wrapper is .content; nested scrollables keep native scrolling. */
+.content.lenis.lenis-smooth { scroll-behavior: auto; }
+
+/* SplitText page titles keep the existing title look. */
+.page-head__title { text-align: left; }
+.page-head__title .split-char,
+.page-head__title .split-word { will-change: transform, opacity; }
+
+/* Pointer light on panels (React Bits SpotlightCard, embedded). The panel's rounded corners clip the light. */
+.card.spotlight-card--embed > .spotlight-card__fx,
+.hud.spotlight-card--embed > .spotlight-card__fx { border-radius: inherit; }
+
+/* ---- orbit: layers GSAP animates (never the positioned .anode / floating .anode__disc) ---- */
+.orbit__core-body { position: relative; }
+.anode__body { position: absolute; inset: 0; border-radius: 50%; }
+.anode__burst {
+  position: absolute;
+  inset: -10px;
+  border: 1.5px solid var(--c);
+  border-radius: 50%;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--c) 45%, transparent);
+}
+.orbit__surge {
+  fill: none;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  opacity: 0;
+  visibility: hidden;
+  filter: drop-shadow(0 0 4px currentColor);
+}
+.orbit__corefx {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  overflow: visible;
+}
+.orbit__corefx circle {
+  fill: none;
+  stroke-width: 1.4;
+  opacity: 0;
+  visibility: hidden;
+}
+
+/* ---- chat feed: Lenis scrolls .conversation, the messages live in .conversation__inner ---- */
+.conversation__inner {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 100%;
+}
+.conversation.lenis.lenis-smooth { scroll-behavior: auto; }
+
+/* ---- command bar: effect layers (never catch the pointer) ---- */
+.command__bar,
+.command__voice { position: relative; }
+.command__fx {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+.command__sweep {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 38%;
+  background: linear-gradient(100deg, transparent, rgba(196, 181, 253, 0.16) 45%, rgba(237, 233, 254, 0.22) 50%, rgba(196, 181, 253, 0.16) 55%, transparent);
+  opacity: 0;
+  visibility: hidden;
+}
+.command__proc {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 25%;
+  background: linear-gradient(90deg, transparent, #c4b5fd, #a78bfa, transparent);
+  box-shadow: 0 0 10px rgba(167, 139, 250, 0.8);
+  opacity: 0;
+  visibility: hidden;
+}
+.command__mic,
+.command__talk { position: relative; }
+.command__halo {
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(103, 232, 249, 0.7);
+  opacity: 0;
+  pointer-events: none;
+}
+.command__mic > svg,
+.command__talk > svg { position: relative; }
+
+/* toasts enter with GSAP now (see Toasts) */
+.toast { animation: none; }
+
+/* compact running mark (React Bits LatticeLoader, no label/timer) */
+.working-mark { display: inline-flex; align-items: center; flex: none; line-height: 0; }
+.lattice-loader--bare .lattice-loader__label,
+.lattice-loader--bare .lattice-loader__sr { display: none; }
+.agents__state .working-mark { margin-right: 5px; vertical-align: -1px; }
+.task-row__top .working-mark { margin-right: 2px; }
+
+/* live counters sit in running text */
+.page-head__sub .num { vertical-align: baseline; line-height: inherit; }

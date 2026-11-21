@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Minimize2 } from 'lucide-react';
 import { Backdrop } from './components/Backdrop';
+import { useLenis } from './motion/useLenis';
+import { useReveal } from './motion/useReveal';
 import { Sidebar, Toasts, TopBar } from './components/Shell';
 import type { StatusResponse } from './lib/api';
 import { api } from './lib/api';
@@ -61,6 +63,12 @@ export function App() {
   const { settings } = useLive();
   const { data: status } = useResource<StatusResponse>('/api/status', STATUS_EVENTS);
   const [immersive, toggleImmersive] = useImmersive();
+  const mainRef = useRef<HTMLElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
+  // Smooth wheel scrolling for the pages that scroll (Home is a fixed command center with its own panes).
+  useLenis(mainRef, innerRef, route.page !== 'home' && !immersive, route.page);
+  // Every page powers on: its panels slide out of their clips in order.
+  useReveal(innerRef, route.page);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -88,7 +96,8 @@ export function App() {
       )}
       <TopBar immersive={immersive} onToggleImmersive={toggleImmersive} />
       <Sidebar page={route.page} status={status} />
-      <main className={`content content--${route.page}`} id="content">
+      <main ref={mainRef} className={`content content--${route.page}`} id="content">
+        <div ref={innerRef} className="content__inner">
         {route.page === 'home' && <HomePage status={status} onImmersive={toggleImmersive} />}
         {route.page === 'tasks' && <TasksPage selectedId={route.id} />}
         {route.page === 'pipeline' && <PipelinePage />}
@@ -97,6 +106,7 @@ export function App() {
         {route.page === 'integrations' && <IntegrationsPage />}
         {route.page === 'activity' && <ActivityPage />}
         {route.page === 'settings' && <SettingsPage />}
+        </div>
       </main>
       {immersive && <div className="immersive-hint">Press \ to exit</div>}
       <Toasts />
