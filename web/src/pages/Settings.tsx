@@ -1,8 +1,8 @@
-import { Bell, Brain, Info, KeyRound, Mic, Monitor, Palette, Shield, Sparkles, Square, Timer, Trash2, User } from 'lucide-react';
+import { Bell, Brain, Cpu, Info, KeyRound, Mic, Monitor, Palette, Shield, Sparkles, Square, Timer, Trash2, User } from 'lucide-react';
 import { useState } from 'react';
 import { MobileCard } from '../components/MobileCard';
 import { Badge, Button, Card, Field, Loading, PageHeader, Toggle } from '../components/ui';
-import { api, type ComputerResponse, type Grant, type Integrations, type Scope, type Settings } from '../lib/api';
+import { api, type ComputerResponse, type Grant, type HarnessResponse, type Integrations, type Scope, type Settings } from '../lib/api';
 import { dateTime } from '../lib/format';
 import { useAction, useLive, useResource } from '../lib/live';
 import { useVoice, voiceSupport } from '../lib/voice';
@@ -32,6 +32,48 @@ function NumberInput({ value, min, max, step = 1, onCommit, suffix }: { value: n
       />
       {suffix && <span className="muted small">{suffix}</span>}
     </span>
+  );
+}
+
+/**
+ * Hermes Agent as the agent harness for open-ended tasks: what it is, whether it's in use (and why
+ * not), and its limits. Everything shown comes from /api/harness.
+ */
+function HarnessCard({ s, save }: { s: Settings; save: (patch: DeepPartial<Settings>) => void }) {
+  const res = useResource<HarnessResponse>('/api/harness', ['settings.changed', 'harness.activity']);
+  const h = res.data?.harness;
+  return (
+    <Card title="Agent harness" icon={<Cpu size={18} />}>
+      <p className="muted small">
+        For open-ended tasks, Hermes Agent (Nous Research) decides each next step. Its only tools are Jarvis's skills, and Jarvis runs every step under your permissions and approvals — Hermes's own
+        terminal, file, browser, memory and schedule tools are never enabled. Tasks with explicit steps always use Jarvis's own planner.
+      </p>
+      <Field label="Status">
+        {h ? (
+          <span>
+            <Badge tone={h.available ? 'success' : 'neutral'}>{h.available ? 'Hermes in use' : 'Native planner'}</Badge>{' '}
+            <span className="muted small">{h.available ? `${h.model ?? ''}${h.release ? ` · Hermes ${h.release}` : ''}${h.contextWindow ? ` · ${Math.round(h.contextWindow / 1000)}K context` : ''}` : h.reason}</span>
+          </span>
+        ) : (
+          <span className="muted small">Checking…</span>
+        )}
+      </Field>
+      <Field label="Use Hermes for open-ended tasks" hint="Off: every task is planned and run by Jarvis's own planner.">
+        <Toggle checked={s.harness.mode === 'auto'} onChange={(v) => save({ harness: { mode: v ? 'auto' : 'off' } })} />
+      </Field>
+      <Field label="Hermes install (Python)" hint="Leave empty to use Jarvis's own Hermes install (docs/HERMES.md).">
+        <input defaultValue={s.harness.python} spellCheck={false} placeholder={h?.python ?? 'auto-detect'} aria-label="Hermes Python" onBlur={(e) => e.target.value.trim() !== s.harness.python && save({ harness: { python: e.target.value.trim() } })} />
+      </Field>
+      <Field label="Context the model is served with" hint="Hermes needs at least 64K tokens. Jarvis reads it from cloud and local servers; OpenJarvis doesn't report it, so enter it here if your engine serves 64K or more. 0 = only what the provider reports.">
+        <NumberInput value={s.harness.contextLength} min={0} max={10_000_000} step={1024} onCommit={(v) => save({ harness: { contextLength: v } })} suffix="tokens" />
+      </Field>
+      <Field label="Model calls per run">
+        <NumberInput value={s.harness.maxIterations} min={2} max={200} onCommit={(v) => save({ harness: { maxIterations: v } })} />
+      </Field>
+      <Field label="Longest run" hint="Including time waiting for your approvals.">
+        <NumberInput value={s.harness.timeoutMin} min={1} max={1440} onCommit={(v) => save({ harness: { timeoutMin: v } })} suffix="minutes" />
+      </Field>
+    </Card>
   );
 }
 
@@ -162,6 +204,8 @@ export function SettingsPage() {
         </Field>
       </Card>
       )}
+
+      <HarnessCard s={s} save={save} />
 
       <Card title="Voice" icon={<Mic size={18} />}>
         <Field label="Voice features" hint="Microphone button and spoken replies.">

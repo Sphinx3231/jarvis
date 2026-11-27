@@ -16,7 +16,9 @@ export type JarvisEventType =
   | 'pipeline.updated'
   | 'agents.changed'
   | 'computer.changed'
-  | 'job.ran';
+  | 'job.ran'
+  /** What the agent harness (Hermes) is doing for a task right now: thinking, using a tool, waiting. */
+  | 'harness.activity';
 
 export interface JarvisEvent {
   type: JarvisEventType;

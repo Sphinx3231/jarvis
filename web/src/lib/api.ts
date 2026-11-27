@@ -91,6 +91,10 @@ export interface Task {
   requiredPermissions: string[];
   scheduledFor: number | null;
   recurrence: { everyMinutes?: number; dailyAt?: string } | null;
+  /** Which harness runs it: Jarvis's own planner, or Hermes Agent's loop (every step still run by Jarvis). */
+  harness: 'native' | 'hermes';
+  /** Agent identity responsible (null = Jarvis). */
+  owner: string | null;
   createdAt: number;
   updatedAt: number;
   startedAt: number | null;
@@ -323,6 +327,33 @@ export interface AgentInfo {
   lastSummary: string;
   runs: number;
   error: string | null;
+  /** A Hermes task this agent owns that is running right now (its background job is separate). */
+  task?: { id: string; title: string; phase: HarnessPhase; tool: string | null; harness: 'native' | 'hermes' } | null;
+}
+export type HarnessPhase = 'starting' | 'thinking' | 'tool' | 'awaiting_approval';
+export interface HarnessStatus {
+  available: boolean;
+  mode: 'auto' | 'off';
+  installed: boolean;
+  reason: string | null;
+  python: string | null;
+  release: string | null;
+  commit: string | null;
+  model: string | null;
+  contextWindow: number | null;
+  contextSource: 'provider' | 'setting' | null;
+}
+export interface HarnessResponse {
+  harness: HarnessStatus;
+  settings: { mode: 'auto' | 'off'; python: string; contextLength: number; maxIterations: number; timeoutMin: number };
+  activity: Array<{ taskId: string; owner: string; phase: HarnessPhase; tool: string | null; at: number; title: string }>;
+}
+/** What a Hermes run is doing, in words. */
+export function harnessPhaseLabel(phase: HarnessPhase, tool: string | null): string {
+  if (phase === 'awaiting_approval') return 'Awaiting approval';
+  if (phase === 'tool') return tool ? `Using ${tool.replace(/^mcp\.[^.]+\./, '').replace(/[._]/g, ' ')}` : 'Using a tool';
+  if (phase === 'starting') return 'Starting';
+  return 'Thinking';
 }
 export interface AgentsResponse {
   agents: AgentInfo[];
@@ -587,6 +618,7 @@ export interface Settings {
     local: { onDemand: boolean; idleSec: number; whisperModel: 'tiny' | 'base' | 'small' | 'medium' | 'large-v3'; python: string };
   };
   notifications: { desktop: boolean; taskCompletion: boolean };
+  harness: { mode: 'auto' | 'off'; python: string; contextLength: number; maxIterations: number; timeoutMin: number };
   agents: { enabled: boolean; spendUsd: number; offensive: boolean; autoSubmit: boolean; autoHunt: boolean };
   appearance: { reduceMotion: boolean; accent: 'violet' | 'indigo' | 'fuchsia' };
   integrations: { workspaceDir: string; web: { allowPrivateNetwork: boolean; maxBytes: number }; shell: { enabled: boolean }; hackerone: { enabled: boolean; username: string; autoRun: boolean; intervalMin: number; bountyOnly: boolean } };

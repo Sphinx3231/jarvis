@@ -794,6 +794,49 @@ export class RoamiesEngine {
     };
   }
 
+  /**
+   * One model call, tools included, for an external agent harness (Hermes) that runs its own loop.
+   * It goes to the model the user picked, with the same local-only rules and workarounds as Jarvis's
+   * own calls. The Claude Code bridge is a whole agent, not a single-call model, so it is refused.
+   */
+  async completeOnce(req: LlmRequest): Promise<LlmResponse> {
+    const t = await this.requireTarget();
+    if (t.route === 'claude-code') throw new ProviderError('The model is reached through the Claude Code bridge, which runs its own agent; an external harness needs a direct model.', { retryable: false });
+    if (req.tools?.length && !this.supportsTools()) throw new ProviderError(`${t.model} can't call tools.`, { retryable: false });
+    try {
+      const res = await this.callApi(t, req);
+      this.lastUsedAt = Date.now();
+      this.lastError = null;
+      return res;
+    } catch (err) {
+      if (!req.signal?.aborted) this.lastError = errorMessage(err);
+      throw err;
+    }
+  }
+
+  /**
+   * The context window the current model is really served with, when Jarvis knows it: the provider's
+   * published limit for API models, the local server's reported window for local models. OpenJarvis
+   * reports a model's maximum, not the window its engine serves, so that one stays unknown.
+   */
+  async contextWindow(): Promise<{ tokens: number | null; model: string | null; route: string | null }> {
+    let t: Target;
+    try {
+      t = await this.requireTarget();
+    } catch {
+      return { tokens: null, model: null, route: null };
+    }
+    let tokens: number | null = null;
+    if (t.provider === 'local') {
+      const m = this.localModelInfo(t.model);
+      tokens = m?.contextKnown ? m.contextWindow : null;
+    } else if (t.provider !== 'openjarvis' && t.provider !== 'palsu') {
+      const info = core().getModel(t.model) as { contextWindow?: number } | undefined;
+      tokens = info?.contextWindow ?? null;
+    }
+    return { tokens, model: t.model, route: t.route };
+  }
+
   /** A single answer without tools. */
   async generate(req: { system: string; prompt: string; maxTokens?: number; signal?: AbortSignal }): Promise<RunResult> {
     return this.run({ system: req.system, messages: [{ role: 'user', content: req.prompt }], maxTurns: 1, maxTokens: req.maxTokens, signal: req.signal });

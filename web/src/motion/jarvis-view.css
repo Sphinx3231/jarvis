@@ -508,3 +508,44 @@
   opacity: 0;
   pointer-events: none;
 }
+
+/* which harness runs open-ended work, and what it is doing (real harness events) */
+.jv__harness {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  pointer-events: auto;
+  cursor: default;
+}
+.jv__harness.is-on { color: #c4b5fd; }
+.jv__work {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 3px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--hud-line);
+  background: rgba(12, 8, 28, 0.6);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: #ddd6fe;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jv__workdot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: #a78bfa;
+  box-shadow: 0 0 8px #a78bfa;
+  animation: jvPulse 1.2s ease-in-out infinite;
+}
+@keyframes jvPulse { 50% { opacity: 0.35; } }
+.jv--still .jv__workdot { animation: none; }

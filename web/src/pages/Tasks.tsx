@@ -43,6 +43,10 @@ function TaskDetail({ id }: { id: string }) {
           <div className="task-detail__meta">
             <StatusBadge status={task.status} />
             <Badge>{PRIORITY_LABEL[task.priority]}</Badge>
+            <Badge tone={task.harness === 'hermes' ? 'accent' : 'neutral'} title={task.harness === 'hermes' ? 'Hermes Agent decided each step; Jarvis ran every one under your permissions' : "Planned and run by Jarvis's own planner"}>
+              {task.harness === 'hermes' ? 'Hermes' : 'Native'}
+            </Badge>
+            {task.owner && <Badge>{task.owner.charAt(0).toUpperCase() + task.owner.slice(1)}</Badge>}
             <span>from {task.origin}</span>
             <span>· created {timeAgo(task.createdAt)}</span>
             {task.scheduledFor && <span>· scheduled {dateTime(task.scheduledFor)}</span>}

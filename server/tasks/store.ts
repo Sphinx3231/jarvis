@@ -64,11 +64,26 @@ export interface Task {
   dedupeKey: string | null;
   /** The user's own words that created the task (null for tasks Jarvis started itself). */
   request: TaskRequest | null;
+  /** Which harness executes it: Jarvis's native planner/step runner, or Hermes Agent's loop. */
+  harness: TaskHarness;
+  /** The agent identity responsible for it (null = Jarvis itself). */
+  owner: string | null;
+  /** The harness's own conversation for this task, so a paused run can continue (bounded). */
+  harnessState: HarnessState | null;
   createdAt: number;
   updatedAt: number;
   startedAt: number | null;
   finishedAt: number | null;
   heartbeatAt: number | null;
+}
+
+export type TaskHarness = 'native' | 'hermes';
+
+export interface HarnessState {
+  /** Hermes's message list (OpenAI shape) after its last run. */
+  messages: unknown[];
+  /** Hermes version/commit that produced it. */
+  version?: string;
 }
 
 export interface TaskEvent {
@@ -131,6 +146,9 @@ export class TaskStore {
       parentId: (r.parent_id as string | null) ?? null,
       dedupeKey: (r.dedupe_key as string | null) ?? null,
       request: parseJson<TaskRequest | null>(r.request as string | null, null),
+      harness: (r.harness as TaskHarness | undefined) ?? 'native',
+      owner: (r.owner as string | null) ?? null,
+      harnessState: parseJson<HarnessState | null>((r.harness_state as string | null) ?? null, null),
       createdAt: Number(r.created_at),
       updatedAt: Number(r.updated_at),
       startedAt: r.started_at === null ? null : Number(r.started_at),
@@ -153,12 +171,14 @@ export class TaskStore {
     dedupeKey?: string | null;
     maxAttempts?: number;
     request?: TaskRequest | null;
+    harness?: TaskHarness;
+    owner?: string | null;
   }): Task {
     const id = newId('tsk');
     const ts = now();
     this.db.run(
-      `INSERT INTO tasks (id, title, description, priority, status, origin, conversation_id, plan, required_permissions, scheduled_for, recurrence, parent_id, dedupe_key, max_attempts, request, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, title, description, priority, status, origin, conversation_id, plan, required_permissions, scheduled_for, recurrence, parent_id, dedupe_key, max_attempts, request, harness, owner, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       t.title.slice(0, 200),
       (t.description ?? '').slice(0, 4000),
@@ -173,6 +193,8 @@ export class TaskStore {
       t.dedupeKey ?? null,
       t.maxAttempts ?? 2,
       t.request ? JSON.stringify({ ...t.request, text: t.request.text.slice(0, 8000), previousReply: t.request.previousReply?.slice(0, 4000) }) : null,
+      t.harness ?? 'native',
+      t.owner ?? null,
       ts,
       ts,
     );
@@ -242,8 +264,11 @@ export class TaskStore {
       startedAt: 'started_at',
       finishedAt: 'finished_at',
       heartbeatAt: 'heartbeat_at',
+      harness: 'harness',
+      owner: 'owner',
+      harnessState: 'harness_state',
     };
-    const jsonCols = new Set(['plan', 'result', 'requiredPermissions', 'recurrence']);
+    const jsonCols = new Set(['plan', 'result', 'requiredPermissions', 'recurrence', 'harnessState']);
     const sets: string[] = [];
     const params: (string | number | null)[] = [];
     for (const [k, v] of Object.entries(patch)) {
@@ -256,7 +281,7 @@ export class TaskStore {
     params.push(now());
     this.db.run(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`, ...params, id);
     const task = this.require(id);
-    this.bus.emit('task.updated', { id, status: task.status, progress: task.progress });
+    this.bus.emit('task.updated', { id, status: task.status, progress: task.progress, harness: task.harness, owner: task.owner });
     return task;
   }
 

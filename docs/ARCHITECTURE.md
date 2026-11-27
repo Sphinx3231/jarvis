@@ -64,6 +64,10 @@ Jarvis is one local Node.js process (the **service**) plus a React UI it serves.
 - Retries apply only to idempotent steps, up to `tasks.maxAttempts`. Every success requires the skill's own verification (e.g. file SHA-256 matches, exit code 0, HTTP 2xx).
 - Concurrency limit, per-resource locks (e.g. one writer per file), priority ordering, dedupe of identical active work, scheduling and recurrence (every N minutes / daily at HH:MM).
 
+## Agent harness (Hermes)
+
+Open-ended tasks (no explicit steps) can run on Hermes Agent's loop instead of the planner: Hermes picks each next step, every step is still a step of the same task, executed by the skill runner under the permission engine. Hermes is embedded through Jarvis's own bridge (no Hermes gateway, cron or own tools), thinks through Jarvis's model via a loopback endpoint, and is optional — without it (or below 64K context) the planner runs as before. See [HERMES.md](HERMES.md).
+
 ## Continuous operation
 
 The scheduler runs internal jobs only:

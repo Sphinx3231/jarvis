@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { Activity, Bug, Crosshair, Play, Radio, Settings, ShieldCheck, Sparkles, TrendingUp, Volume2, X } from 'lucide-react';
 import { Core, CORE_LABEL } from './Core';
-import { api, type AgentInfo, type CoreState } from '../lib/api';
+import { api, harnessPhaseLabel, type AgentInfo, type CoreState } from '../lib/api';
 import { timeAgo } from '../lib/format';
 import { useAction } from '../lib/live';
 import { navigate } from '../lib/router';
@@ -22,8 +22,12 @@ export const agentIcon = (id: string, size = 20) => (AGENT_ICON[id] ?? ((s: numb
 
 export type AgentStatusKey = 'working' | 'ready' | 'paused' | 'error';
 
-/** The agent's real state: running now, failed last run, paused with the team, or ready. */
+/**
+ * The agent's real state: working on a task it owns (through Hermes), running its own background job,
+ * failed last run, paused with the team, or ready.
+ */
 export function agentStatus(a: AgentInfo, enabled: boolean): { key: AgentStatusKey; label: string } {
+  if (a.task) return { key: 'working', label: harnessPhaseLabel(a.task.phase, a.task.tool) };
   if (a.state === 'working') return { key: 'working', label: 'Working' };
   if (a.error) return { key: 'error', label: 'Error' };
   if (!enabled) return { key: 'paused', label: 'Paused' };

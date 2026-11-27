@@ -1,3 +1,4 @@
+import { PROFILE_IDS } from '../harness/profiles.ts';
 import type { ActivityLog } from '../core/activity.ts';
 import type { SettingsStore } from '../core/settings.ts';
 import type { StateTracker } from '../core/state.ts';
@@ -283,7 +284,7 @@ export class Jarvis {
       {
         name: 'plan_task',
         description:
-          "Create a background task executed by Jarvis's task engine. Each step runs one skill. Steps needing permission are shown to the user for approval first; results are verified. Use {{steps.N.output.field}} or {{steps.N.text}} (zero-based) to use an earlier step's result. Use delayMinutes/runAt for reminders or scheduled work and recurrence for repeating work. Skills and their inputs: " +
+          "Create a background task executed by Jarvis's task engine. For open-ended work whose steps depend on what is found (research, investigate, figure out), leave out steps: an agent works it out step by step, every step still under the user's permissions. Set agent to hand it to one of Jarvis's agents (friday: earnings and profit, tom: finding new programs, neo: monitoring tasks and the system, sentinel: authorized scope, echo: reports and digests, trinity: security testing). Otherwise give explicit steps; each step runs one skill. Steps needing permission are shown to the user for approval first; results are verified. Use {{steps.N.output.field}} or {{steps.N.text}} (zero-based) to use an earlier step's result. Use delayMinutes/runAt for reminders or scheduled work and recurrence for repeating work. Skills and their inputs: " +
           this.d.registry
             .all()
             .filter((s) => skills.includes(s.name))
@@ -295,6 +296,7 @@ export class Jarvis {
             title: { type: 'string', description: 'Short task title' },
             description: { type: 'string', description: 'What the task should achieve' },
             priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'] },
+            agent: { type: 'string', enum: PROFILE_IDS, description: 'Which agent is responsible (default jarvis)' },
             steps: {
               type: 'array',
               minItems: 1,
@@ -315,7 +317,7 @@ export class Jarvis {
               properties: { everyMinutes: { type: 'number' }, dailyAt: { type: 'string', description: 'HH:MM local time' } },
             },
           },
-          required: ['title', 'steps'],
+          required: ['title'],
         },
       },
       {
@@ -472,7 +474,8 @@ export class Jarvis {
         priority: PRIORITY_VALUES[String(input.priority ?? 'normal')] ?? 2,
         origin: via === 'voice' ? 'voice' : 'chat',
         conversationId,
-        steps: steps.map((s) => ({ skill: decodeToolName(String(s.skill)), input: s.input ?? {}, description: s.description ?? '' })),
+        steps: steps.length ? steps.map((s) => ({ skill: decodeToolName(String(s.skill)), input: s.input ?? {}, description: s.description ?? '' })) : null,
+        owner: typeof input.agent === 'string' ? input.agent : null,
         scheduledFor,
         recurrence: recurrence && (recurrence.everyMinutes || recurrence.dailyAt) ? recurrence : null,
         request,

@@ -55,6 +55,16 @@ export function createJarvisServer(app: JarvisApp, opts: ServerOptions): Server 
       return;
     }
 
+    // Hermes's model calls (loopback, per-run token; see harness/model-endpoint.ts).
+    if (url.pathname.startsWith('/harness/')) {
+      try {
+        if (await app.harnessEndpoint.handle(req, res, url.pathname)) return;
+      } catch (err) {
+        if (!res.headersSent) sendJson(res, 500, { error: errorMessage(err) });
+        return;
+      }
+    }
+
     if (url.pathname.startsWith('/api/')) {
       if (!isAllowedOrigin(req.headers.origin, allowedOrigins)) return sendJson(res, 403, { error: 'Origin not allowed' });
       const token = (req.headers['x-jarvis-token'] as string | undefined) ?? (url.pathname === '/api/events' ? url.searchParams.get('token') : null) ?? '';

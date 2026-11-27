@@ -22,6 +22,10 @@ bash scripts/local-setup/setup-linux.sh                                         
 
 See **[docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md)** for models, profiles and troubleshooting. Check it any time with `node scripts/jarvis-local.ts check`.
 
+## Optional: Hermes Agent as the agent harness
+
+For open-ended tasks ("find out…", "investigate…", anything whose steps depend on what is found), Jarvis can hand the agent loop to [Hermes Agent](https://github.com/NousResearch/hermes-agent) (Nous Research, MIT): Hermes decides each next step, and **Jarvis runs every step** — only Jarvis's skills are Hermes's tools, each call goes through Jarvis's permissions, approvals, verification and audit log, and Hermes thinks with the model you picked in Jarvis. Tasks keep one lifecycle and appear in the same Tasks page; your six agents can each own such a task with only their own skills. Install it with `scripts/install-hermes.sh` (Linux/macOS); it needs a model served with at least 64K context. Without it, Jarvis plans every task itself exactly as before. Details: [docs/HERMES.md](docs/HERMES.md).
+
 ## Optional: the Roamies engine
 
 Choose **Settings → Brain → Roamies engine** to use cloud sign-ins instead. Jarvis can also be built on [Roamies](https://github.com/KenKaiii/Roamies) by KenKaiii. It thinks with the same engine (the [GG framework](https://github.com/KenKaiii/gg-framework)), the model you picked in Roamies and the sign-ins you made there — Claude, ChatGPT, Gemini, an API key or a local model. Jarvis never asks for your passwords or keys and never stores them: it asks the GG framework for a fresh credential for each request.

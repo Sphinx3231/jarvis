@@ -69,6 +69,7 @@ export async function startJarvis(opts: StartOptions = {}): Promise<RunningJarvi
   const actualPort = (server.address() as { port: number }).port;
   const url = `http://127.0.0.1:${actualPort}`;
   lock.setUrl(url);
+  app.harness.setServerUrl(url);
 
   let stopping: Promise<void> | null = null;
   const stop = () => {

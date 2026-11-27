@@ -8,7 +8,7 @@ import { Sparkline } from '../components/Sparkline';
 import { ArcReactor, HudClock, RingGauge } from '../components/Hud';
 import { Progress, WorkingMark } from '../components/ui';
 import { useFresh } from '../motion/useFresh';
-import { api, type ActivityEntry, type AgentsResponse, type ChatMessage, type CoreState, type StatusResponse, type Task } from '../lib/api';
+import { api, type ActivityEntry, type AgentsResponse, type HarnessResponse, type ChatMessage, type CoreState, type StatusResponse, type Task } from '../lib/api';
 import { bytes, clock, timeAgo, uptime } from '../lib/format';
 import { useAction, useLive, useResource } from '../lib/live';
 import { useMetrics, type MetricsHistory } from '../lib/metrics';
@@ -332,8 +332,9 @@ function CorePanel({ status, coreState, detail, agents }: { status: StatusRespon
   const s = status?.status;
   const list = agents?.agents ?? [];
   const ready = list.filter((a) => ['ready', 'working'].includes(agentStatus(a, agents?.enabled ?? false).key)).length;
-  const working = list.filter((a) => a.state === 'working').length;
+  const working = list.filter((a) => a.state === 'working' || a.task).length;
   const model = s?.model;
+  const harness = useResource<HarnessResponse>('/api/harness', ['settings.changed', 'harness.activity']).data;
   return (
     <Panel title="Jarvis core" icon={<Sparkles size={15} />} className="hud--core">
       <div className={`corestat corestat--${coreState}`}>
@@ -350,6 +351,12 @@ function CorePanel({ status, coreState, detail, agents }: { status: StatusRespon
           <dt>Brain</dt>
           <dd className={model ? (model.healthy === false ? 'bad' : 'ok') : 'warn'} title={model ? `${model.model} via ${model.provider}` : 'No model configured'}>
             {model ? (model.healthy === false ? 'Unreachable' : model.model) : 'No model'}
+          </dd>
+        </div>
+        <div className="kv__row">
+          <dt>Agent harness</dt>
+          <dd className={harness?.harness.available ? 'ok' : ''} title={harness ? (harness.harness.available ? 'Hermes Agent runs open-ended tasks; Jarvis runs every step under your permissions' : (harness.harness.reason ?? '')) : ''}>
+            {harness ? (harness.harness.available ? `Hermes${harness.activity.length ? ` · ${harness.activity.length} running` : ''}` : 'Native') : '…'}
           </dd>
         </div>
         <div className="kv__row kv__row--bar">
@@ -502,7 +509,7 @@ export function HomePage({ status, onImmersive }: { status: StatusResponse | nul
   const { state, settings } = useLive();
   const voice = useVoice();
   const coreState = useCoreState();
-  const agentsRes = useResource<AgentsResponse>('/api/subagents', ['agents.changed', 'settings.changed']);
+  const agentsRes = useResource<AgentsResponse>('/api/subagents', ['agents.changed', 'settings.changed', 'harness.activity']);
   const agents = agentsRes.data;
   const orbAgents: OrbAgent[] = (agents?.agents ?? []).map((a) => ({ id: a.id, name: a.name, color: a.color, summary: a.lastSummary, working: a.state === 'working' }));
   const { messages, sending, send, newConversation } = useChat();

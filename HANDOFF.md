@@ -142,6 +142,17 @@ override — `permissions.fullAccess` makes `decide()` allow everything with no 
 (whole-disk files via `resolvePath`, any website, shell). Loud red banner + warning insight. It grants
 data/file/web/shell reach only — NOT control of other apps/screen/input.
 
+**Agent harness: Hermes Agent** (`server/harness/`, full design in `docs/HERMES.md`). Open-ended tasks
+(no explicit steps) run Hermes's loop through Jarvis's own bridge (`hermes_bridge.py`, in-process
+`AIAgent`, NOT `hermes acp/chat` which start Hermes's gateway daemon + cron). Hermes's only tools are
+Jarvis skills filtered by the agent profile (`profiles.ts`); each call is a step of the same task run by
+`SkillRunner` (permissions, approvals, verification, audit) in `TaskEngine.executeHarness`. Hermes's
+model calls go to `/harness/v1/chat/completions` (per-run token) → `RoamiesEngine.completeOnce`.
+Unavailable (not installed, <64K context, no tool calling) → native planner. Installed by
+`scripts/install-hermes.sh` (pinned commit, Python 3.14, `uv sync --frozen`). Tests:
+`JARVIS_HERMES_PYTHON=<install>/.venv/bin/python node --test tests/harness.test.ts` (Hermes tests skip
+without it).
+
 **Jarvis-only view** (`web/src/components/JarvisView.tsx`, styles in `web/src/motion/jarvis-view.css`) is
 the default: the core in a targeting HUD + state + latest answer + command bar; `\` or the Interface
 button toggles the full UI (`localStorage['jarvis.view']` = `jarvis` | `full`; `<html data-immersive>`

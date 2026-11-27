@@ -36,6 +36,8 @@ import { RequestScope } from './permissions/request-scope.ts';
 import { ROAMIES_RELEASES_URL } from './roamies/detect.ts';
 import { Scheduler } from './scheduler/scheduler.ts';
 import { registerBuiltinSkills } from './skills/builtin/index.ts';
+import { HermesHarness } from './harness/hermes.ts';
+import { HarnessModelEndpoint } from './harness/model-endpoint.ts';
 import { SkillRegistry } from './skills/registry.ts';
 import { SkillRunner } from './skills/runner.ts';
 import type { SkillServices } from './skills/types.ts';
@@ -78,6 +80,9 @@ export class JarvisApp {
   readonly runner: SkillRunner;
   readonly planner: Planner;
   readonly engine: TaskEngine;
+  /** Hermes Agent as the agent harness for open-ended tasks (optional; see harness/hermes.ts). */
+  readonly harness: HermesHarness;
+  readonly harnessEndpoint: HarnessModelEndpoint;
   readonly memoryAgent: MemoryAgent;
   readonly digester: ConversationDigester;
   readonly mobile: MobileGateway;
@@ -158,6 +163,8 @@ export class JarvisApp {
     this.digester = new ConversationDigester({ db: this.db, conversations: this.conversations, memory: this.memory, llm: this.llm, settings: this.settings, activity: this.activity, bus: this.bus });
     this.mobile = new MobileGateway(this);
     this.memoryAgent = new MemoryAgent({ memory: this.memory, conversations: this.conversations, llm: this.llm, settings: this.settings, activity: this.activity, registry: this.registry, digester: this.digester });
+    this.harnessEndpoint = new HarnessModelEndpoint(this.llm);
+    this.harness = new HermesHarness({ settings: this.settings, engine: this.llm, endpoint: this.harnessEndpoint, activity: this.activity, dataDir: this.dataDir });
     this.engine = new TaskEngine({
       store: this.tasks,
       runner: this.runner,
@@ -169,6 +176,7 @@ export class JarvisApp {
       settings: this.settings,
       onCompleted: (task) => this.memoryAgent.recordTask(task),
       requestScope: new RequestScope({ settings: this.settings, engine: this.llm, activity: this.activity }),
+      harness: this.harness,
     });
     this.state = new StateTracker(this.bus, () => this.engine.runningCount);
     this.mcp = new McpManager({ settings: this.settings, secrets: this.secrets, registry: this.registry, activity: this.activity, bus: this.bus, permissions: this.permissions });
@@ -436,6 +444,7 @@ export class JarvisApp {
     this.subAgents.stop();
     this.obsidian.cancelScheduled();
     await this.engine.stop();
+    this.harness.stopAll();
     this.mcp.stopAll();
     this.activity.log('info', 'system', 'Jarvis stopped');
     this.db.close();

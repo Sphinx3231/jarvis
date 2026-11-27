@@ -3,7 +3,7 @@ import { LayoutDashboard, ShieldAlert } from 'lucide-react';
 import { AgentCore } from './AgentCore';
 import { AgentDetail, agentStatus } from './Orbit';
 import { Core, CORE_LABEL } from './Core';
-import type { AgentsResponse, Approval, ChatMessage, CoreState } from '../lib/api';
+import { harnessPhaseLabel, type AgentsResponse, type Approval, type ChatMessage, type CoreState, type HarnessResponse } from '../lib/api';
 import { useChat, useCoreState } from '../lib/chat';
 import { useLive, useResource } from '../lib/live';
 import { useMetrics } from '../lib/metrics';
@@ -104,11 +104,16 @@ export function JarvisView({ onExit }: { onExit: () => void }) {
   const state = useCoreState();
   const { messages, sending, send } = useChat();
   const metrics = useMetrics();
-  const agentsRes = useResource<AgentsResponse>('/api/subagents', ['agents.changed', 'settings.changed']).data;
+  const agentsRes = useResource<AgentsResponse>('/api/subagents', ['agents.changed', 'settings.changed', 'harness.activity']).data;
   const agents = agentsRes?.agents ?? NO_AGENTS;
   const agentsOn = agentsRes?.enabled ?? false;
   const [selected, setSelected] = useState<string | null>(null);
   const selectedAgent = agents.find((a) => a.id === selected) ?? null;
+  // Which harness runs open-ended work, and what it is doing right now (real events only).
+  const harnessRes = useResource<HarnessResponse>('/api/harness', ['harness.activity', 'settings.changed']).data;
+  const hermes = harnessRes?.harness;
+  const work = harnessRes?.activity[0] ?? null;
+  const workBy = work ? (work.owner === 'jarvis' ? 'Jarvis' : (agents.find((a) => a.id === work.owner)?.name ?? work.owner)) : null;
   const approvals = useResource<{ approvals: Approval[] }>('/api/approvals?status=pending', ['approval.updated', 'task.updated']).data?.approvals ?? [];
   const reduce = Boolean(settings?.appearance.reduceMotion) || (typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches));
   const detail = state === 'listening' ? voice.interim || 'Listening…' : state === 'speaking' ? 'Speaking…' : sending ? 'Working on it…' : live.detail;
@@ -199,6 +204,11 @@ export function JarvisView({ onExit }: { onExit: () => void }) {
         <span className={`jv__conn ${connected ? 'is-on' : ''}`}>
           <i /> {connected ? 'Online' : 'Reconnecting'}
         </span>
+        {hermes && (
+          <span className={`jv__harness ${hermes.available ? 'is-on' : ''}`} title={hermes.available ? `Hermes Agent runs open-ended tasks with Jarvis's tools (${hermes.model ?? ''})` : `Open-ended tasks use Jarvis's own planner. ${hermes.reason ?? ''}`}>
+            {hermes.available ? 'Harness · Hermes' : 'Harness · Native'}
+          </span>
+        )}
       </header>
       <button className="jv__toggle" onClick={onExit} title="Show the full interface (\\)" aria-label="Show the full interface (backslash)">
         <LayoutDashboard size={15} /> <span>Interface</span> <kbd>\</kbd>
@@ -302,6 +312,11 @@ export function JarvisView({ onExit }: { onExit: () => void }) {
           {CORE_LABEL[state].toUpperCase()}
         </div>
         <div className="jv__detail">{detail}</div>
+        {work && (
+          <div className="jv__work" title={work.title}>
+            <span className="jv__workdot" /> Hermes · {workBy} · {harnessPhaseLabel(work.phase, work.tool)} — {work.title}
+          </div>
+        )}
         {asked && (
           <div className="jv__caption">
             <div className="jv__asked">“{asked.content}”</div>

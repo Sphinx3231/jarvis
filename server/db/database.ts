@@ -1,5 +1,5 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { MIGRATIONS } from './migrations.ts';
 
@@ -29,6 +29,12 @@ export class Database {
     const row = this.raw.prepare('SELECT version FROM schema_version').get() as { version: number } | undefined;
     let version = row?.version ?? 0;
     if (!row) this.raw.prepare('INSERT INTO schema_version (version) VALUES (0)').run();
+    // Before changing the schema of an existing database, keep a copy of it as it was.
+    const pending = MIGRATIONS.filter((m) => m.version > version);
+    if (pending.length && version > 0 && this.path !== ':memory:' && existsSync(this.path)) {
+      this.raw.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+      copyFileSync(this.path, `${this.path}.before-v${pending[pending.length - 1].version}.bak`);
+    }
     for (const migration of MIGRATIONS) {
       if (migration.version <= version) continue;
       this.transaction(() => {

@@ -177,6 +177,26 @@ export const SettingsSchema = z.object({
     taskCompletion: z.boolean(),
   }),
   /** Jarvis's background sub-agents (Friday, Tom, Neo, Sentinel, Echo). */
+  /**
+   * Agent harness: Hermes Agent (NousResearch) runs the agent loop for open-ended tasks, with Jarvis's
+   * skills as its only tools (each call still goes through Jarvis's permission engine). Off or
+   * unavailable → Jarvis plans and runs tasks natively, exactly as before.
+   */
+  harness: z.object({
+    /** auto: use Hermes for open-ended tasks whenever it is available; off: always native. */
+    mode: z.enum(['auto', 'off']),
+    /** Python interpreter of a Hermes install (empty = auto-detect, or JARVIS_HERMES_PYTHON). */
+    python: z.string().max(1000),
+    /**
+     * The context window (tokens) the model is really served with, when Jarvis can't read it
+     * (OpenJarvis). Hermes needs at least 64K. 0 = only use what the model provider reports.
+     */
+    contextLength: z.number().int().min(0).max(10_000_000),
+    /** Most model calls Hermes may make for one task run. */
+    maxIterations: z.number().int().min(2).max(200),
+    /** Longest a single Hermes run may take, in minutes (approval waits included). */
+    timeoutMin: z.number().int().min(1).max(24 * 60),
+  }),
   agents: z.object({
     enabled: z.boolean(),
     /** Your running cost so far (model/tools), so Friday can tell whether you're in profit. */
@@ -330,6 +350,7 @@ export const DEFAULT_SETTINGS: Settings = {
     local: { onDemand: true, idleSec: 120, whisperModel: 'small', python: '' },
   },
   notifications: { desktop: true, taskCompletion: true },
+  harness: { mode: 'auto', python: '', contextLength: 0, maxIterations: 24, timeoutMin: 60 },
   agents: { enabled: true, spendUsd: 0, offensive: false, autoSubmit: false, autoHunt: false },
   appearance: { reduceMotion: false, accent: 'violet' },
   integrations: {

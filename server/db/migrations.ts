@@ -422,4 +422,16 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_mobile_audit_ts ON mobile_audit (ts);
     `,
   },
+  {
+    version: 10,
+    sql: `
+      -- Which agent harness executes the task: 'native' (Jarvis's planner + step runner) or 'hermes'
+      -- (Hermes Agent's loop, every tool call still run by Jarvis). One task, one lifecycle either way.
+      ALTER TABLE tasks ADD COLUMN harness TEXT NOT NULL DEFAULT 'native';
+      -- The agent identity responsible for the task (jarvis, friday, tom, neo, sentinel, echo, trinity).
+      ALTER TABLE tasks ADD COLUMN owner TEXT;
+      -- The harness's own conversation for this task (bounded), so a paused run can continue.
+      ALTER TABLE tasks ADD COLUMN harness_state TEXT;
+    `,
+  },
 ];

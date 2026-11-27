@@ -16,6 +16,8 @@ import { MEMORY_KINDS } from '../memory/store.ts';
 import { hostMetrics } from '../core/metrics.ts';
 import { DeviceScope } from '../../shared/protocol/protocol.ts';
 import { TASK_STATUSES } from '../tasks/store.ts';
+import { PROFILE_IDS } from '../harness/profiles.ts';
+import { CAPABILITY_SOURCES, listCapabilities } from '../harness/capabilities.ts';
 import { parse, type Router } from './http.ts';
 
 const ChatBody = z.object({
@@ -34,6 +36,10 @@ const TaskBody = z.object({
   scheduledFor: z.number().int().positive().nullable().optional(),
   delayMinutes: z.number().min(0).max(525_600).optional(),
   recurrence: RecurrenceSchema.nullable().optional(),
+  /** Which agent is responsible (jarvis or one of the six). */
+  agent: z.enum(PROFILE_IDS as [string, ...string[]]).optional(),
+  /** 'native' keeps Jarvis's own planner even when Hermes is on. */
+  harness: z.enum(['auto', 'native']).optional(),
 });
 
 const MemoryBody = z.object({
@@ -174,7 +180,7 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
     const scheduledFor = b.scheduledFor ?? (b.delayMinutes ? Date.now() + b.delayMinutes * 60_000 : null);
     // What the user typed is their request: steps that are part of it run without asking again.
     const request = { text: [b.title, b.description].filter(Boolean).join('\n\n'), via: 'user' as const };
-    return app.engine.createTask({ title: b.title, description: b.description, priority: b.priority, origin: 'user', steps: b.steps ?? null, scheduledFor, recurrence: b.recurrence ?? null, request });
+    return app.engine.createTask({ title: b.title, description: b.description, priority: b.priority, origin: 'user', steps: b.steps ?? null, scheduledFor, recurrence: b.recurrence ?? null, request, owner: b.agent ?? null, harness: b.harness });
   });
   router.get('/api/tasks/:id', ({ params }) => {
     const task = app.tasks.require(params.id);
@@ -325,7 +331,27 @@ export function registerRoutes(router: Router, app: JarvisApp): void {
   router.get('/api/pipeline/orchestrator', () => ({ orchestrator: app.orchestrator.status() }));
   router.post('/api/pipeline/hunt', async () => ({ cycle: await app.orchestrator.runCycle() }));
   // ------------------------------------------------------------------ sub-agents
-  router.get('/api/subagents', () => ({ agents: app.subAgents.list(), enabled: app.settings.get().agents.enabled, spendUsd: app.settings.get().agents.spendUsd }));
+  router.get('/api/subagents', () => {
+    // An agent that owns a running Hermes task shows that work (its own background job is separate).
+    const activity = app.engine.harnessActivity();
+    const agents = app.subAgents.list().map((a) => {
+      const act = activity.find((x) => x.owner === a.id);
+      const task = act ? app.tasks.get(act.taskId) : undefined;
+      return { ...a, task: act && task ? { id: task.id, title: task.title, phase: act.phase, tool: act.tool, harness: task.harness } : null };
+    });
+    return { agents, enabled: app.settings.get().agents.enabled, spendUsd: app.settings.get().agents.spendUsd };
+  });
+
+  // ------------------------------------------------------------------ agent harness (Hermes)
+  router.get('/api/harness', async () => {
+    const activity = app.engine.harnessActivity().map((a) => ({ ...a, title: app.tasks.get(a.taskId)?.title ?? '' }));
+    return { harness: await app.harness.status(), settings: app.settings.get().harness, activity };
+  });
+  router.get('/api/capabilities', ({ query }) => ({
+    capabilities: listCapabilities(app.registry, app.permissions, query.get('agent')),
+    sources: CAPABILITY_SOURCES,
+    agents: PROFILE_IDS,
+  }));
   router.post('/api/subagents/:id/run', async ({ params }) => {
     try {
       return { agent: await app.subAgents.runAgent(params.id) };
